@@ -1,0 +1,37 @@
+--- src/components/profile/SettingsView.tsx
++++ src/components/profile/SettingsView.tsx
+@@ -352,6 +352,34 @@
+                       </p>
+                     </div>
+                   </div>
++                  {userType === 'individual' && auctions && (
++                    <div className="mt-4 pt-4 border-t border-slate-200">
++                      <h4 className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">
++                        Letni pregled prodaje (DAC7)
++                      </h4>
++                      {(() => {
++                        const currentYear = new Date().getFullYear();
++                        const firstDayOfYear = new Date(currentYear, 0, 1).getTime();
++                        const annualAuctions = auctions.filter(a => 
++                            a.sellerId === user?.id && 
++                            new Date((a as any).createdAt || (a as any).created_at || a.endTime).getTime() >= firstDayOfYear
++                        );
++                        const soldAuctions = annualAuctions.filter(a => ['SOLD', 'COMPLETED', 'PAID'].includes(a.status));
++                        const annualVolume = soldAuctions.reduce((sum, a) => sum + (a.currentBid || 0), 0);
++                        return (
++                            <div className="flex flex-col gap-2 text-xs font-bold text-slate-600">
++                                <div className="flex justify-between items-center bg-white px-4 py-2 rounded-xl border border-slate-200">
++                                    <span>Prodano predmetov v letu {currentYear}:</span>
++                                    <span className={soldAuctions.length >= 30 ? "text-red-500 font-black" : "font-black text-[#0A1128]"}>{soldAuctions.length} / 30</span>
++                                </div>
++                                <div className="flex justify-between items-center bg-white px-4 py-2 rounded-xl border border-slate-200">
++                                    <span>Skupna vrednost prodanih predmetov:</span>
++                                    <span className={annualVolume >= 2000 ? "text-red-500 font-black" : "font-black text-[#0A1128]"}>{annualVolume.toFixed(2)} € / 2.000 €</span>
++                                </div>
++                                <p className="text-[9px] text-slate-400 mt-1 leading-tight font-normal">Po preseženih limitih (DAC7) vas bomo morali poročati FURS-u.</p>
++                            </div>
++                        );
++                      })()}
++                    </div>
++                  )}
+                 </div>

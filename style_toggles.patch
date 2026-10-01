@@ -1,0 +1,199 @@
+--- src/components/profile/SettingsView.tsx
++++ src/components/profile/SettingsView.tsx
+@@ -583,19 +583,18 @@
+                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Ponudbe na mojih dražbah</span>
+                             <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko nekdo odda ponudbo na vaši dražbi.</span>
+                         </div>
+-                        <input 
+-                            type="checkbox"
+-                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
+-                            checked={formData.emailNotifications?.bids !== false}
+-                            onChange={(e) => {
+-                                setFormData(prev => ({
+-                                    ...prev,
+-                                    emailNotifications: {
+-                                        ...prev.emailNotifications,
+-                                        bids: e.target.checked
+-                                    }
+-                                }));
+-                                isFormDirtyRef.current = true;
+-                            }}
+-                        />
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.bids !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, bids: prev.emailNotifications?.bids === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.bids !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.bids !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
+                     </label>
+ 
+                     <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+@@ -605,19 +604,18 @@
+                             <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko vam uporabnik pošlje sporočilo.</span>
+                         </div>
+-                        <input 
+-                            type="checkbox"
+-                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
+-                            checked={formData.emailNotifications?.messages !== false}
+-                            onChange={(e) => {
+-                                setFormData(prev => ({
+-                                    ...prev,
+-                                    emailNotifications: {
+-                                        ...prev.emailNotifications,
+-                                        messages: e.target.checked
+-                                    }
+-                                }));
+-                                isFormDirtyRef.current = true;
+-                            }}
+-                        />
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.messages !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, messages: prev.emailNotifications?.messages === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.messages !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.messages !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
+                     </label>
+ 
++                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
++                        <div>
++                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Presežena ponudba</span>
++                            <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko nekdo odda višjo ponudbo od vaše.</span>
++                        </div>
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.outbid !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, outbid: prev.emailNotifications?.outbid === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.outbid !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.outbid !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
++                    </label>
++
++                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
++                        <div>
++                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Zmagana dražba</span>
++                            <span className="block text-slate-500 text-sm">Prejmite e-pošto ob zmagi na dražbi in za nadaljnja navodila glede plačila.</span>
++                        </div>
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.won !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, won: prev.emailNotifications?.won === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.won !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.won !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
++                    </label>
++
++                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
++                        <div>
++                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Kmalu se izteče</span>
++                            <span className="block text-slate-500 text-sm">Prejmite e-pošto, ko se dražba bliža koncu (pribl. 30 min).</span>
++                        </div>
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.endingSoon !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, endingSoon: prev.emailNotifications?.endingSoon === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.endingSoon !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.endingSoon !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
++                    </label>
++
++                    <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
++                        <div>
++                            <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Opomnik za plačilo</span>
++                            <span className="block text-slate-500 text-sm">Prejmite opozorilo, preden poteče rok za plačilo (2 uri prej).</span>
++                        </div>
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.paymentReminder !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, paymentReminder: prev.emailNotifications?.paymentReminder === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.paymentReminder !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.paymentReminder !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
++                    </label>
++
+                     <label className="flex items-center justify-between p-6 bg-slate-50 rounded-2xl border border-slate-100 hover:border-[#FEBA4F]/30 transition-colors cursor-pointer">
+                         <div>
+                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Marketing in novice</span>
+                             <span className="block text-slate-500 text-sm">Prejmite e-pošto o novostih in akcijah.</span>
+                         </div>
+-                        <input 
+-                            type="checkbox"
+-                            className="w-6 h-6 rounded border-slate-300 text-[#FEBA4F] focus:ring-[#FEBA4F]"
+-                            checked={formData.emailNotifications?.marketing !== false}
+-                            onChange={(e) => {
+-                                setFormData(prev => ({
+-                                    ...prev,
+-                                    emailNotifications: {
+-                                        ...prev.emailNotifications,
+-                                        marketing: e.target.checked
+-                                    }
+-                                }));
+-                                isFormDirtyRef.current = true;
+-                            }}
+-                        />
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={formData.emailNotifications?.marketing !== false}
++                            onClick={() => {
++                                setFormData(prev => ({ ...prev, emailNotifications: { ...prev.emailNotifications, marketing: prev.emailNotifications?.marketing === false ? true : false } }));
++                                isFormDirtyRef.current = true;
++                            }}
++                            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus-visible:ring-2 focus-visible:ring-[#FEBA4F] focus-visible:ring-offset-2 ${formData.emailNotifications?.marketing !== false ? 'bg-[#3b82f6]' : 'bg-slate-300'}`}
++                        >
++                            <span aria-hidden="true" className={`pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${formData.emailNotifications?.marketing !== false ? 'translate-x-5' : 'translate-x-0'}`} />
++                        </button>
+                     </label>
+ 
+                     <label className="flex items-center justify-between p-6 bg-slate-100 rounded-2xl border border-slate-200 opacity-80 cursor-not-allowed">
+                         <div>
+                             <span className="block font-black text-[#0A1128] uppercase tracking-widest text-sm mb-1">Računi (Obvezno)</span>
+                             <span className="block text-slate-500 text-sm">Prejmite e-pošto z računom ob nakupu paketa ali uspešni prodaji. Tega obvestila ni mogoče izklopiti.</span>
+                         </div>
+-                        <input 
+-                            type="checkbox"
+-                            className="w-6 h-6 rounded border-slate-300 text-slate-400 focus:ring-slate-400"
+-                            checked={true}
+-                            disabled
+-                        />
++                        <button
++                            type="button"
++                            role="switch"
++                            aria-checked={true}
++                            disabled
++                            className="relative inline-flex h-6 w-11 shrink-0 cursor-not-allowed rounded-full border-2 border-transparent bg-slate-400 transition-colors duration-200 ease-in-out"
++                        >
++                            <span aria-hidden="true" className="pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out translate-x-5" />
++                        </button>
+                     </label>

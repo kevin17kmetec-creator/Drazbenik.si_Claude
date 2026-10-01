@@ -1,0 +1,36 @@
+--- src/components/profile/SettingsView.tsx
++++ src/components/profile/SettingsView.tsx
+@@ -46,6 +46,7 @@
+   user: any; 
+   onSave: (data: any) => Promise<void>; 
+   onVerify: () => void; 
++  auctions: any[];
+   onStripeVerified: () => void;
+   onRefreshUser?: () => void;
+   activeTab: 'profile' | 'personal' | 'stripe' | 'notifications';
+@@ -53,6 +54,7 @@
+ } & {
+   user: any;
+   onSave: (data: any) => Promise<void>;
++  auctions: any[];
+ }> = ({ 
+   t, 
+   language, 
+@@ -62,6 +64,7 @@
+   onRefreshUser,
+   activeTab,
+   setActiveTab,
++  auctions
+ }) => {
+   const [isSaving, setIsSaving] = useState(false);
+   const [errorMessage, setErrorMessage] = useState('');
+--- src/App.tsx
++++ src/App.tsx
+@@ -2302,6 +2302,7 @@
+           t={t}
+           language={language}
+           user={userData}
++          auctions={auctions}
+           onSave={handleSaveSettings}
+           onVerify={() => setActiveView("verification")}
+           onStripeVerified={handleStripeVerified}
