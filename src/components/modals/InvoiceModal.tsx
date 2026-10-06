@@ -2,6 +2,8 @@ import React, { useRef, useState } from 'react';
 import { X, FileText, Download } from 'lucide-react';
 import { AuctionItem } from "../../types";
 import { getAuthHeaders } from "../../lib/authFetch";
+import { calculatePlatformFeeCents } from "../../lib/feeCalculator";
+import { Portal } from '../ui/Portal';
 
 interface InvoiceModalProps {
   isOpen: boolean;
@@ -91,29 +93,70 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const buyerAddress = getFullAddress(buyer);
   const sellerPlace = getSellerPlace(seller);
 
-  const isSellerCompany = seller.company_status === 'company' || seller.isCompany || seller.user_type === 'business';
-  const isBuyerCompany = buyer.company_status === 'company' || buyer.isCompany || buyer.user_type === 'business';
+  const isSellerCompany = seller.user_type === 'business';
+  const isBuyerCompany = buyer.user_type === 'business';
   const isSellerIndividual = !isSellerCompany;
-  const isB2C = isSellerCompany && !isBuyerCompany;
-  const isB2B = isSellerCompany && isBuyerCompany;
-  const isC2B = isSellerIndividual && isBuyerCompany;
+  const isC2B = !isSellerCompany && isBuyerCompany;
+  
+  let relationship = 'C2C';
+  if (isSellerCompany && isBuyerCompany) relationship = 'B2B';
+  else if (isSellerCompany && !isBuyerCompany) relationship = 'B2C';
+  else if (!isSellerCompany && isBuyerCompany) relationship = 'C2B';
 
-  const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId || (isSellerCompany ? 'SI 12345678' : '');
-  const sellerRegNo = seller.registration_number || seller.regNumber || seller.registrationNumber || (isSellerCompany ? '8876543000' : '');
+  const sellerVatStatus = seller.vat_status || seller.vatStatus || (isSellerCompany ? 'exempt_small' : 'private');
+
+  const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId || '';
+  const sellerRegNo = seller.registration_number || seller.regNumber || seller.registrationNumber || '';
 
   const buyerTaxId = buyer.tax_id || buyer.taxId || buyer.vat_id || buyer.vatId || '';
   const buyerRegNo = buyer.registration_number || buyer.regNumber || '';
 
   const itemPrice = Number(auction.currentBid || (auction as any).current_price || 0);
-  const vatRate = 0.22;
-  const isVatApplicable = isSellerCompany;
-  const vatBase = isVatApplicable ? itemPrice / (1 + vatRate) : itemPrice;
-  const vatAmount = isVatApplicable ? itemPrice - vatBase : 0;
+
+  let vatRate = 0;
+  let vatAmount = 0;
+  let vatBase = itemPrice;
+  let isVatApplicable = false;
+  let isReverseCharge = false;
+  let noteText = '';
+
+  const buyerCountry = (buyer.country_code || buyer.countryCode || buyer.country || 'SI').trim().toUpperCase();
+
+  if (relationship === 'C2C' || relationship === 'C2B') {
+    vatRate = 0;
+    vatAmount = 0;
+    vatBase = itemPrice;
+    isVatApplicable = false;
+    noteText = 'DDV ni obračunan (prodajalec je fizična oseba).';
+  } else {
+    if (sellerVatStatus === 'payer') {
+      isVatApplicable = true;
+      if (relationship === 'B2B' && buyerCountry !== 'SI' && ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'ES', 'SE'].includes(buyerCountry) && buyerTaxId) {
+        isReverseCharge = true;
+        vatRate = 0;
+        vatAmount = 0;
+        vatBase = itemPrice;
+        noteText = 'Obrnjena davčna obveznost / Reverse charge po Direktivi Sveta 2006/112/ES in 76. a členu ZDDV-1.';
+      } else {
+        vatRate = 22;
+        vatBase = Math.round((itemPrice / 1.22) * 100) / 100;
+        vatAmount = Math.round((itemPrice - vatBase) * 100) / 100;
+        noteText = 'V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).';
+      }
+    } else {
+      vatRate = 0;
+      vatAmount = 0;
+      vatBase = itemPrice;
+      isVatApplicable = false;
+      noteText = 'DDV ni obračunan na podlagi 1. odstavka 94. člena ZDDV-1 (mali davčni zavezanec).';
+    }
+  }
 
   // Platform Fee calculation
-  const feeBase = (itemPrice * 0.10) / (1 + vatRate);
-  const feeVat = feeBase * vatRate;
-  const feeTotal = itemPrice * 0.10;
+  const feeCents = calculatePlatformFeeCents(Math.round(itemPrice * 100), ((buyer as any)?.subscription_tier || 'FREE').toUpperCase() as any);
+  const feeBase = feeCents / 100;
+  const feeVat = (Math.round(feeCents * 0.22)) / 100;
+  const feeTotal = feeBase + feeVat;
 
   const formatEuro = (val: number) => {
     return val.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -125,37 +168,21 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   const handleDownload = async () => {
     setIsGenerating(true);
     try {
-      // 1. Try to fetch the exact PDF from the server backend
-      const response = await fetch('/api/test/generate-pdf', {
-        method: 'POST',
-        headers: await getAuthHeaders(),
-        body: JSON.stringify({
-          auction,
-          seller,
-          buyer,
-          salesInvoiceNo: invoiceNumber,
-          commissionInvoiceNo: feeInvoiceNumber,
-          itemTitle,
-          itemPrice,
-          docType: 'invoice'
-        })
+      // 1. Request signed URL from server
+      const response = await fetch(`/api/invoices/download-url?auction_id=${encodeURIComponent(auction.id)}`, {
+        headers: await getAuthHeaders()
       });
 
       if (response.ok) {
-        const blob = await response.blob();
-        const url = window.URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = `Racun_${invoiceNumber}.pdf`;
-        document.body.appendChild(a);
-        a.click();
-        window.URL.revokeObjectURL(url);
-        document.body.removeChild(a);
-        setIsGenerating(false);
-        return;
+        const data = await response.json();
+        if (data.url) {
+          window.open(data.url, '_blank');
+          setIsGenerating(false);
+          return;
+        }
       }
     } catch (e) {
-      console.warn('Backend PDF download error, falling back to print window:', e);
+      console.warn('Signed URL fetch error, falling back to print window:', e);
     }
 
     // 2. Fallback: print window
@@ -222,10 +249,11 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-[600] flex items-center justify-center p-4 sm:p-6">
-      <div className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm" onClick={onClose} />
-      
-      <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-100 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+    <Portal>
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 sm:p-6">
+        <div className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm" onClick={onClose} />
+        
+        <div className="relative w-full max-w-4xl max-h-[90vh] bg-slate-100 rounded-[2rem] shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         
         {/* Modal Header */}
         <div className="flex items-center justify-between px-8 py-5 bg-white border-b border-slate-200 shrink-0">
@@ -419,9 +447,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                 </p>
                 <p>
                   <strong className="text-slate-800">Pravna opomba in DDV:</strong>{' '}
-                  {isSellerCompany 
-                    ? 'V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).'
-                    : 'DDV ni obračunan na podlagi 1. odstavka 94. člena ZDDV-1 (prodajalec je fizična oseba).'}
+                  {noteText}
                 </p>
                 <p className="text-[10px] text-slate-400 pt-2">
                   Platforma dražbenik.si nastopa izključno kot tehnološki posrednik in ni stranka v prodajni pogodbi. Ta dokument služi kot kupoprodajna pogodba in potrdilo o sklenjenem poslu ter plačilu med prodajalcem in kupcem, generirano samodejno s strani sistema po uspešnem zaključku dražbe.
@@ -546,5 +572,6 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
         </div>
       </div>
     </div>
+  </Portal>
   );
 };

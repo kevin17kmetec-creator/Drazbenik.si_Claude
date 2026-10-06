@@ -5,6 +5,7 @@ import { useChat } from "../../context/ChatContext";
 import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
 import { getCategoryTranslation } from "../../lib/translations";
 import { getUserAuctionCycle, normalizeRegionName } from "../../lib/utils";
+import { TERMS_VERSION } from '../../lib/termsVersion';
 
 export const Header: React.FC<{ 
   onHome: () => void;
@@ -13,6 +14,7 @@ export const Header: React.FC<{
   onCategorySelect: (cat: Category | null) => void;
   onLastChance: () => void;
   onLogin: () => void;
+  onRegister?: () => void;
   onLogout: () => void;
   onSettings: (tab?: 'profile' | 'personal' | 'stripe') => void;
   onSubscriptions: () => void;
@@ -23,6 +25,7 @@ export const Header: React.FC<{
   onMyUnsold?: () => void;
   onWatchlist: () => void;
   onMessages: () => void;
+  onAcceptTerms?: () => void;
   activeView: ViewState;
   selectedRegion: Region | null;
   selectedCategory: Category | null;
@@ -38,7 +41,7 @@ export const Header: React.FC<{
   userProfilePicture?: string;
   userWalletBalance?: number;
   userData?: any;
-}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance, userData }) => {
+}> = ({ onHome, onSearch, onRegionSelect, onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userWalletBalance, userData }) => {
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -125,8 +128,23 @@ export const Header: React.FC<{
     return counts;
   }, [auctions]);
 
+  const showTermsUpdateBar = isLoggedIn && userData && userData.terms_version !== TERMS_VERSION;
+
   return (
     <header className="bg-[#0A1128] text-white shadow-2xl border-b border-white/10 sticky top-0 md:relative z-[500]">
+      {showTermsUpdateBar && (
+        <div className="bg-[#FEBA4F] text-[#0A1128] px-6 py-3 flex flex-col sm:flex-row items-center justify-center gap-4 animate-in fade-in slide-in-from-top duration-500">
+          <p className="text-sm font-black uppercase tracking-tight text-center sm:text-left">
+            Pogoje uporabe smo posodobili. Prosimo, preberite in potrdite jih za nadaljevanje.
+          </p>
+          <button 
+            onClick={onAcceptTerms}
+            className="bg-[#0A1128] text-white px-6 py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-colors shadow-lg"
+          >
+            Preberi in potrdi
+          </button>
+        </div>
+      )}
       <div className="max-w-[1600px] mx-auto px-6 h-28 flex items-center justify-between">
             <div onClick={onHome} className="flex items-center cursor-pointer group">
               <img 
@@ -286,7 +304,15 @@ export const Header: React.FC<{
                   </div>
                 </div>
               ) : (
-                <button onClick={onLogin} className="bg-[#FEBA4F] text-[#0A1128] px-8 py-2.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-white transition-all shadow-xl">{t('login')}</button>
+                <div className="flex flex-col items-center gap-1">
+                  <button 
+                    onClick={onRegister || onLogin} 
+                    className="text-[#FEBA4F] underline underline-offset-2 text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors"
+                  >
+                    Registracija
+                  </button>
+                  <button onClick={onLogin} className="bg-[#FEBA4F] text-[#0A1128] px-8 py-2.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-white transition-all shadow-xl">{t('login')}</button>
+                </div>
               )}
             </div>
       </div>

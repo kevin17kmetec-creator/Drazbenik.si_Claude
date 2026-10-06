@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Building2, Minus, Plus, Lock, Trophy, ShieldCheck, Truck, Sparkles, Tag } from 'lucide-react';
 import { AuctionItem, Seller } from "../../types";
-import { getIncrement, formatSeconds } from "../../lib/utils";
+import { getIncrement, formatSeconds, checkAndFinalizeAuctionClient } from "../../lib/utils";
+import { toast } from 'sonner';
 
 export const AuctionCard: React.FC<{
   item: AuctionItem;
@@ -10,13 +11,14 @@ export const AuctionCard: React.FC<{
   isVerified: boolean;
   currentUserId?: string;
   hasBid?: boolean;
+  myMax?: number;
   isWatched: boolean;
   onWatchToggle: () => void;
   onClick: () => void;
   onBidSubmit?: (item: AuctionItem, amount: number) => Promise<'ok' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
   onSellerClick?: (seller: Seller) => void;
   onTimeUp?: (auctionId: string) => void;
-}> = ({ item, t, language, isVerified, currentUserId, hasBid, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
+}> = ({ item, t, language, isVerified, currentUserId, hasBid, myMax, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
@@ -26,13 +28,12 @@ export const AuctionCard: React.FC<{
     (item as any).seller_id === currentUserId ||
     (seller && (seller.id === currentUserId || (seller as any).id === currentUserId))
   ));
-  const isWinner = currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId);
+  const isWinner = Boolean(currentUserId && (item.winnerId === currentUserId || (item as any).winner_id === currentUserId));
   const userMax = isWinner 
-    ? Math.max(item.currentBid, Number(item.hiddenMaxBid || (item as any).hidden_max_bid || (item as any).current_proxy_bid?.amount || (item as any).currentProxyBid?.amount || item.currentBid))
+    ? Math.max(item.currentBid, myMax || item.currentBid)
     : item.currentBid;
   const minNextBid = userMax + getIncrement(userMax);
   const [bidValue, setBidValue] = useState(minNextBid);
-  const [bidStatus, setBidStatus] = useState<'ok' | 'outbid' | 'error' | null>(null);
   const [isBidding, setIsBidding] = useState(false);
   const hasEndedFiredRef = useRef(false);
 
@@ -47,10 +48,10 @@ export const AuctionCard: React.FC<{
 
   useEffect(() => { 
     const baseline = isWinner 
-      ? Math.max(item.currentBid, Number(item.hiddenMaxBid || (item as any).hidden_max_bid || (item as any).current_proxy_bid?.amount || (item as any).currentProxyBid?.amount || item.currentBid))
+      ? Math.max(item.currentBid, myMax || item.currentBid)
       : item.currentBid;
     setBidValue(baseline + getIncrement(baseline)); 
-  }, [item.currentBid, isWinner, item.hiddenMaxBid, (item as any).hidden_max_bid, (item as any).current_proxy_bid]);
+  }, [item.currentBid, isWinner, myMax]);
   useEffect(() => {
     const update = () => {
       const diff = Math.max(0, Math.floor((item.endTime.getTime() - Date.now()) / 1000));
@@ -58,6 +59,7 @@ export const AuctionCard: React.FC<{
       
       if (diff === 0 && !hasEndedFiredRef.current) {
         hasEndedFiredRef.current = true;
+        checkAndFinalizeAuctionClient(item.id);
         if (onTimeUp) {
             setTimeout(() => {
                 onTimeUp(item.id);
@@ -77,15 +79,15 @@ export const AuctionCard: React.FC<{
 
   const handleBidClick = async (e: React.MouseEvent) => {
     e.stopPropagation();
-    if (!onBidSubmit || isSeller) return;
-    setBidStatus(null);
-    setIsBidding(true);
-    const result = await onBidSubmit(item, bidValue);
-    setIsBidding(false);
-    if (result === 'ok' || result === 'outbid' || result === 'error') {
-        setBidStatus(result);
-        setTimeout(() => setBidStatus(null), 4000);
+    if (isSeller) return;
+    if (!onBidSubmit) {
+      toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
+      window.location.hash = '#login';
+      return;
     }
+    setIsBidding(true);
+    await onBidSubmit(item, bidValue);
+    setIsBidding(false);
   };
 
   // Border logic
@@ -256,8 +258,8 @@ export const AuctionCard: React.FC<{
             <div>
               <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
               <p className="text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
-              {isWinner && (item.hiddenMaxBid || (item as any).hidden_max_bid) > item.currentBid && (
-                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(item.hiddenMaxBid || (item as any).hidden_max_bid).toLocaleString('sl-SI')}</p>
+              {isWinner && (myMax || 0) > item.currentBid && (
+                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(myMax).toLocaleString('sl-SI')}</p>
               )}
             </div>
             <div className="text-right">
@@ -271,7 +273,7 @@ export const AuctionCard: React.FC<{
             </div>
           ) : (
             <div className="flex items-center gap-4 w-full relative">
-               <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-[3]">
+               <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 flex-[5]">
                   <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
                   <div className="flex-1 flex items-center justify-center px-1">
                       <span className="text-[#FEBA4F] font-black text-lg mr-1">€</span>
@@ -281,34 +283,42 @@ export const AuctionCard: React.FC<{
                </div>
                <button 
                   onClick={handleBidClick} 
-                  disabled={isBidding || !onBidSubmit} 
-                  className={`h-12 flex-1 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 whitespace-nowrap ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  disabled={isBidding} 
+                  className={`h-12 flex-[4] px-2 py-1.5 leading-tight text-center rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
                >
                   {isBidding ? (
                       <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
-                  ) : !onBidSubmit ? (
-                      <Lock size={14} />
-                  ) : !isVerified ? (
-                      <Lock size={14} />
-                  ) : (
-                      isWinner ? (t('increaseBid') || 'Zvišaj') : t('placeBid')
-                  )}
+                  ) : !onBidSubmit || !isVerified ? (
+                      <div className="flex items-center justify-center gap-1.5">
+                        <Lock size={14} className="flex-shrink-0" />
+                        {(() => {
+                            const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
+                            const words = rawText.trim().split(/\s+/);
+                            if (words.length === 2) {
+                              return (
+                                <span className="flex flex-col items-center leading-tight">
+                                  <span>{words[0]}</span>
+                                  <span>{words[1]}</span>
+                                </span>
+                              );
+                            }
+                            return <span>{rawText}</span>;
+                        })()}
+                      </div>
+                  ) : (() => {
+                      const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
+                      const words = rawText.trim().split(/\s+/);
+                      if (words.length === 2) {
+                        return (
+                          <span className="flex flex-col items-center leading-tight">
+                            <span>{words[0]}</span>
+                            <span>{words[1]}</span>
+                          </span>
+                        );
+                      }
+                      return <span>{rawText}</span>;
+                  })()}
                </button>
-               
-               {/* Inline Feedback */}
-               {bidStatus && (
-                   <div className={`absolute -top-12 left-0 right-0 flex justify-center animate-in fade-in slide-in-from-bottom-2 duration-300 z-10`}>
-                       <div className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest shadow-xl border ${
-                           bidStatus === 'ok' ? 'bg-green-500/90 text-white border-green-400/50' :
-                           bidStatus === 'outbid' ? 'bg-orange-500/90 text-white border-orange-400/50' :
-                           'bg-red-500/90 text-white border-red-400/50'
-                       }`}>
-                           {bidStatus === 'ok' ? t('bidSuccessMsg') :
-                            bidStatus === 'outbid' ? t('bidOutbid') :
-                            t('bidError')}
-                       </div>
-                   </div>
-               )}
             </div>
           )}
         </div>

@@ -48,23 +48,18 @@ export const SubscriptionsView: React.FC<{
   const handleDownloadInvoice = async (invoiceNo: string) => {
     try {
       setDownloadingNo(invoiceNo);
-      const user = auth.currentUser;
-      const token = user ? await user.getIdToken() : '';
       const response = await fetch(`/api/subscription/download-invoice/${encodeURIComponent(invoiceNo)}`, {
         headers: await getAuthHeaders()
       });
       if (!response.ok) {
         throw new Error('Napaka pri prenosu računa');
       }
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `racun_${invoiceNo}.pdf`;
-      document.body.appendChild(a);
-      a.click();
-      window.URL.revokeObjectURL(url);
-      document.body.removeChild(a);
+      const data = await response.json();
+      if (data.url) {
+        window.open(data.url, '_blank');
+      } else {
+        throw new Error('Povezava ni na voljo');
+      }
     } catch (err: any) {
       console.error("Napaka pri prenosu PDF računa:", err);
       alert("Napaka pri prenosu računa. Poskusite ponovno.");
@@ -170,6 +165,11 @@ export const SubscriptionsView: React.FC<{
             </button>
           </div>
         ))}
+      </div>
+      <div className="text-center mt-6">
+        <p className="text-xs font-bold text-slate-500">
+          Minimalna provizija: od 0,59 € na plačilo (pokriva stroške plačilnega sistema). Velja za vse pakete.
+        </p>
       </div>
 
       {currentPlan !== SubscriptionTier.FREE && !isCanceled && (

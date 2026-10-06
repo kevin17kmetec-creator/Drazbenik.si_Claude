@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import { auth, db, registerSnapshotListener } from "../lib/firebase";
+import { auth, db, storage, registerSnapshotListener } from "../lib/firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import {
   collection,
@@ -16,6 +16,10 @@ import {
   orderBy,
   limit
 } from "firebase/firestore";
+import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import imageCompression from "browser-image-compression";
+import { friendlyError } from "../lib/friendlyError";
+import { getAuthHeaders } from "../lib/authFetch";
 import { AuctionItem } from "../types";
 import { toast } from "@/src/lib/toast";
 
@@ -52,6 +56,7 @@ export interface Conversation {
   lastMessage?: string;
   lastMessageTime?: string;
   isLocked?: boolean;
+  unread_counts?: Record<string, number>;
 }
 
 interface ChatContextType {
@@ -103,6 +108,7 @@ export const ChatProvider: React.FC<{
   const [onlineUsers] = useState<Set<string>>(new Set());
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const usersCacheRef = useRef<Map<string, OtherUser>>(new Map());
+  const lastMarkReadTimeRef = useRef<Record<string, number>>({});
 
   // Listen to auth changes so effectiveUserId is always in sync (only for verified accounts)
   useEffect(() => {
@@ -118,21 +124,32 @@ export const ChatProvider: React.FC<{
 
   const effectiveUserId = userId || authUserId || (auth.currentUser && (auth.currentUser.emailVerified || !auth.currentUser.providerData.some(p => p.providerId === 'password')) ? auth.currentUser.uid : "");
 
-  // Helper to fetch/cache user info
+  // Helper to fetch/cache user info from public_profiles
   const fetchUserInfo = useCallback(async (targetUserId: string): Promise<OtherUser | undefined> => {
     if (!targetUserId) return undefined;
     if (usersCacheRef.current.has(targetUserId)) {
       return usersCacheRef.current.get(targetUserId);
     }
     try {
-      const snap = await getDoc(doc(db, "users", targetUserId));
+      const snap = await getDoc(doc(db, "public_profiles", targetUserId));
       if (snap.exists()) {
-        const u = { id: snap.id, ...snap.data() } as OtherUser;
+        const data = snap.data() || {};
+        const u = {
+          id: snap.id,
+          first_name: data.display_name || 'Uporabnik',
+          last_name: '',
+          username: data.username || '',
+          photoURL: data.photo_url || null,
+          photo_url: data.photo_url || null,
+          profile_picture_url: data.photo_url || null,
+          identity_verified: Boolean(data.identity_verified),
+          user_type: data.user_type || 'individual'
+        } as OtherUser;
         usersCacheRef.current.set(targetUserId, u);
         return u;
       }
     } catch (e) {
-      console.warn("Failed to fetch user in chat:", targetUserId, e);
+      console.warn("Failed to fetch public profile in chat:", targetUserId, e);
     }
     return undefined;
   }, []);
@@ -156,7 +173,7 @@ export const ChatProvider: React.FC<{
         for (const a of auctions) {
           // Check if user is seller or buyer
           const isSeller = a.sellerId === effectiveUserId || (a as any).seller_id === effectiveUserId;
-          const winnerId = a.winnerId || (a as any).winner_id || (a as any).winner || (a as any).second_highest_bidder_id || ((a as any).top_bids && (a as any).top_bids[0]?.bidder_id);
+          const winnerId = a.winnerId || (a as any).winner_id || (a as any).winner || (a as any).second_highest_bidder_id;
           const isBuyer = winnerId === effectiveUserId;
 
           if (!isSeller && !isBuyer) continue;
@@ -192,7 +209,8 @@ export const ChatProvider: React.FC<{
             auction: a,
             otherUserId,
             user: otherUserData,
-            isLocked: !isPaid
+            isLocked: !isPaid,
+            unread_counts: {}
           });
         }
 
@@ -206,6 +224,7 @@ export const ChatProvider: React.FC<{
             const existing = convMap.get(convId)!;
             existing.lastMessage = fc.last_message;
             existing.lastMessageTime = fc.last_message_at?.toDate ? fc.last_message_at.toDate().toISOString() : fc.last_message_at;
+            existing.unread_counts = fc.unread_counts || {};
             continue;
           }
 
@@ -261,7 +280,8 @@ export const ChatProvider: React.FC<{
               user: otherUserData,
               lastMessage: fc.last_message,
               lastMessageTime: fc.last_message_at?.toDate ? fc.last_message_at.toDate().toISOString() : fc.last_message_at,
-              isLocked: !isPaid
+              isLocked: !isPaid,
+              unread_counts: fc.unread_counts || {}
             });
           }
         }
@@ -279,7 +299,7 @@ export const ChatProvider: React.FC<{
 
     // Listen to Firestore conversations
     const convRef = collection(db, "conversations");
-    const q = query(convRef, or(where("participant_one", "==", effectiveUserId), where("participant_two", "==", effectiveUserId)));
+    const q = query(convRef, where("participants", "array-contains", effectiveUserId));
 
     const unsubscribe = registerSnapshotListener(onSnapshot(q, (snapshot) => {
       const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -339,7 +359,7 @@ export const ChatProvider: React.FC<{
 
   // Real-time listener for active conversation messages (Without composite index requirement)
   useEffect(() => {
-    if (!activeConversationId) {
+    if (!activeConversationId || !effectiveUserId) {
       setMessages([]);
       return;
     }
@@ -350,11 +370,36 @@ export const ChatProvider: React.FC<{
     const msgRef = collection(db, "messages");
     const q = query(
       msgRef,
-      where("conversation_id", "==", activeConversationId)
+      where("conversation_id", "==", activeConversationId),
+      where("participants", "array-contains", effectiveUserId),
+      limit(200)
     );
 
     const unsubscribe = registerSnapshotListener(onSnapshot(q, (snapshot) => {
       if (!isMounted) return;
+
+      // Check if there are any unread messages from the other user in this snapshot
+      const hasUnread = snapshot.docs.some(d => {
+        const data = d.data();
+        return data.sender_id !== effectiveUserId && !data.is_read;
+      });
+
+      // Throttle mark-read API calls to at most once per 3 seconds per conversation
+      if (hasUnread) {
+        const now = Date.now();
+        const lastTime = lastMarkReadTimeRef.current[activeConversationId] || 0;
+        if (now - lastTime > 3000) {
+          lastMarkReadTimeRef.current[activeConversationId] = now;
+          getAuthHeaders().then(headers => {
+            fetch("/api/messages/mark-read", {
+              method: "POST",
+              headers,
+              body: JSON.stringify({ conversation_id: activeConversationId })
+            }).catch(e => console.warn("Failed to mark messages as read via server:", e));
+          }).catch(e => console.warn("Could not get auth headers to mark messages as read:", e));
+        }
+      }
+
       const loadedMsgs: Message[] = snapshot.docs.map(d => {
         const data = d.data();
         let createdAtStr = new Date().toISOString();
@@ -364,11 +409,6 @@ export const ChatProvider: React.FC<{
           createdAtStr = data.created_at;
         } else if (data.created_at?.seconds) {
           createdAtStr = new Date(data.created_at.seconds * 1000).toISOString();
-        }
-
-        // Auto mark as read if received by current user
-        if (data.sender_id !== effectiveUserId && !data.is_read) {
-          updateDoc(doc(db, "messages", d.id), { is_read: true }).catch(() => {});
         }
 
         return {
@@ -404,41 +444,32 @@ export const ChatProvider: React.FC<{
     };
   }, [activeConversationId, effectiveUserId]);
 
-  // Global unread messages counter listener
+  // Derive unreadCounts and unreadMessageCount reactively from loaded conversations
   useEffect(() => {
-    if (!effectiveUserId || conversations.length === 0) {
-      setUnreadMessageCount(0);
+    if (!effectiveUserId) {
       setUnreadCounts({});
+      setUnreadMessageCount(0);
       return;
     }
 
-    const convIds = conversations.map(c => c.id);
-    const msgRef = collection(db, "messages");
-    const q = query(msgRef, where("is_read", "==", false), limit(300));
+    const counts: Record<string, number> = {};
+    let total = 0;
 
-    const unsub = registerSnapshotListener(onSnapshot(q, (snapshot) => {
-      const counts: Record<string, number> = {};
-      let total = 0;
+    conversations.forEach((c) => {
+      const uCounts = c.unread_counts || {};
+      const count = Number(uCounts[effectiveUserId] || 0);
+      if (count > 0) {
+        counts[c.id] = count;
+        total += count;
+      }
+    });
 
-      snapshot.docs.forEach(d => {
-        const m = d.data();
-        if (m.sender_id !== effectiveUserId && (convIds.includes(m.conversation_id) || convIds.includes(`conv_${m.conversation_id}`))) {
-          counts[m.conversation_id] = (counts[m.conversation_id] || 0) + 1;
-          total += 1;
-        }
-      });
+    setUnreadCounts(counts);
+    setUnreadMessageCount(total);
+  }, [conversations, effectiveUserId]);
 
-      setUnreadCounts(counts);
-      setUnreadMessageCount(total);
-    }, (e) => {
-      console.warn("Unread snapshot error:", e);
-    }));
-
-    return () => unsub();
-  }, [effectiveUserId, conversations]);
-
-  // Send message function with optimistic UI updates and instant delivery
-  const sendMessage = async (content: string, prefix?: string) => {
+  // Send message function with optimistic UI updates and instant delivery via server
+  const sendMessage = async (content: string, imageUrl?: string) => {
     if (!activeConversationId || !effectiveUserId) return;
 
     // Find current conversation
@@ -457,8 +488,8 @@ export const ChatProvider: React.FC<{
       return;
     }
 
-    const rawContent = (prefix ? prefix + content : content).trim();
-    if (!rawContent) return;
+    const rawContent = content.trim();
+    if (!rawContent && !imageUrl) return;
 
     const nowIso = new Date().toISOString();
     const tempId = "temp_" + Date.now() + "_" + Math.random().toString(36).substring(2, 7);
@@ -468,7 +499,7 @@ export const ChatProvider: React.FC<{
       id: tempId,
       conversation_id: activeConversationId,
       sender_id: effectiveUserId,
-      content: rawContent,
+      content: rawContent || "[Slika]",
       created_at: nowIso,
       is_read: false,
       status: "sending"
@@ -478,42 +509,52 @@ export const ChatProvider: React.FC<{
     setIsSending(true);
 
     try {
-      // 1. Add message document
-      const addedDoc = await addDoc(collection(db, "messages"), {
-        conversation_id: activeConversationId,
-        sender_id: effectiveUserId,
-        content: rawContent,
-        is_read: false,
-        created_at: nowIso
+      const response = await fetch("/api/messages/send", {
+        method: "POST",
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({
+          auction_id: currentConv.auction.id,
+          content: rawContent || undefined,
+          image_url: imageUrl || undefined
+        })
       });
 
-      // 2. Ensure conversation document is updated in Firestore
-      await setDoc(doc(db, "conversations", activeConversationId), {
-        id: activeConversationId,
-        auction_id: currentConv.auction.id,
-        participant_one: effectiveUserId,
-        participant_two: currentConv.otherUserId,
-        last_message: rawContent,
-        last_message_at: nowIso,
-        updated_at: nowIso
-      }, { merge: true });
+      if (!response.ok) {
+        const errText = await response.text();
+        let parsedErr = "Neznana napaka na strežniku";
+        try {
+          const parsed = JSON.parse(errText);
+          parsedErr = parsed.error || parsedErr;
+        } catch {
+          parsedErr = errText || parsedErr;
+        }
+        throw new Error(parsedErr);
+      }
+
+      const resData = await response.json();
 
       // Update optimistic message status
-      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: addedDoc.id, status: "sent" } : m));
+      setMessages(prev => prev.map(m => m.id === tempId ? { ...m, id: resData.id, status: "sent" } : m));
     } catch (e: any) {
       console.error("Error sending message:", e);
       setMessages(prev => prev.map(m => m.id === tempId ? { ...m, status: "error" } : m));
-      toast.error("Napaka pri pošiljanju sporočila: " + (e.message || ""));
+      toast.error(friendlyError(e, "Napaka pri pošiljanju sporočila."));
     } finally {
       setIsSending(false);
     }
   };
 
+  // Upload compressed file to Firebase Storage and send as message
   const uploadImage = async (file: File) => {
     if (!activeConversationId || !effectiveUserId) return;
     const currentConv = conversations.find(c => c.id === activeConversationId || `conv_${c.auction.id}` === activeConversationId);
-    const isPaid = currentConv?.auction?.payment_status === "paid" ||
-      (currentConv?.auction as any)?.post_auction_status === "paid";
+    if (!currentConv) {
+      toast.error("Pogovora ni mogoče najti.");
+      return;
+    }
+
+    const isPaid = currentConv.auction.payment_status === "paid" ||
+      (currentConv.auction as any).post_auction_status === "paid";
 
     if (!isPaid) {
       toast.error("Klepet je mogoč, ko je plačilo uspešno izvedeno.");
@@ -522,43 +563,48 @@ export const ChatProvider: React.FC<{
 
     try {
       setIsSending(true);
-      // Convert to base64 data url for instant inline image sharing
-      await new Promise<void>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = async () => {
-          try {
-            const base64 = reader.result as string;
-            if (base64) {
-              await sendMessage(`[IMAGE]${base64}`);
-            }
-            resolve();
-          } catch (err) {
-            reject(err);
-          }
+      // Compress the image before uploading
+      let fileToUpload = file;
+      try {
+        const options = {
+          maxSizeMB: 0.1,
+          maxWidthOrHeight: 800,
+          useWebWorker: false,
+          initialQuality: 0.7,
         };
-        reader.onerror = (error) => reject(error);
-        reader.readAsDataURL(file);
-      });
-    } catch (e) {
+        fileToUpload = await imageCompression(file, options);
+      } catch (compErr) {
+        console.warn("Image compression failed, using original file:", compErr);
+      }
+
+      const timestamp = Date.now();
+      const fileRef = storageRef(storage, `chat-images/${activeConversationId}/${effectiveUserId}/${timestamp}.jpg`);
+      await uploadBytes(fileRef, fileToUpload);
+      const imageUrl = await getDownloadURL(fileRef);
+
+      // Now send message with empty content and the imageUrl!
+      await sendMessage("", imageUrl);
+    } catch (e: any) {
       console.error("Error uploading image:", e);
-      toast.error("Napaka pri nalaganju slike.");
+      toast.error(friendlyError(e, "Napaka pri nalaganju slike. Poskusite znova."));
     } finally {
       setIsSending(false);
     }
   };
 
+  // Mark all unread messages as read in conversation
   const markAsRead = async (convId: string) => {
+    if (!convId || !effectiveUserId) return;
     try {
-      const q = query(
-        collection(db, "messages"),
-        where("conversation_id", "==", convId),
-        where("is_read", "==", false)
-      );
-      const snap = await getDoc(doc(db, "conversations", convId));
-      if (snap.exists()) {
-        // Handled reactively on message snapshot
-      }
-    } catch (e) {}
+      const headers = await getAuthHeaders();
+      await fetch("/api/messages/mark-read", {
+        method: "POST",
+        headers,
+        body: JSON.stringify({ conversation_id: convId })
+      });
+    } catch (e) {
+      console.warn("Failed to mark conversation read:", e);
+    }
   };
 
   const retryMessage = async () => {};

@@ -5,10 +5,14 @@ import {
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
   MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck
 } from 'lucide-react';
-import { doc, onSnapshot } from 'firebase/firestore';
+import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
-import { getIncrement, calculateMarginalPlatformFee } from "../../lib/utils";
+import { getIncrement, checkAndFinalizeAuctionClient } from "../../lib/utils";
+import { calculateTotals } from "../../lib/feeCalculator";
+import { PaymentTimeline } from "../orders/PaymentTimeline";
+import { useFeePreview } from "../../lib/useFeePreview";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
+import { toast } from 'sonner';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -17,7 +21,7 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId }: { 
+export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId, myMax, myBidsMap }: { 
   item: any, 
   onBack: () => void, 
   onBidSubmit: (item: any, amount: number) => Promise<"error" | "ok" | "outbid" | "login_required" | "cancelled">,
@@ -29,7 +33,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   currentPlan: string,
   isWatched?: boolean,
   onWatchToggle?: () => void,
-  currentUserId?: string
+  currentUserId?: string,
+  myMax?: number,
+  myBidsMap?: Map<string, number>
 }) {
   const [auctionData, setAuctionData] = useState<any>(item);
 
@@ -54,6 +60,29 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   }, [item?.id]);
 
   const currentAuction = auctionData || item;
+
+  const [bidsHistory, setBidsHistory] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (!item?.id) return;
+    const q = query(
+      collection(db, 'auctions', item.id, 'bids'),
+      orderBy('created_at', 'desc'),
+      limit(30)
+    );
+    const unsub = registerSnapshotListener(
+      onSnapshot(q, (snap) => {
+        setBidsHistory(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      }, (err) => {
+        if (err.code === 'permission-denied') {
+          console.warn("Dostop do zgodovine ponudb ni dovoljen.");
+        } else {
+          console.error("Bids history snapshot error:", err);
+        }
+      })
+    );
+    return () => unsub();
+  }, [item?.id]);
 
   const isPaid = Boolean(
     currentAuction?.payment_status === 'paid' || 
@@ -103,6 +132,9 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
       const now = new Date().getTime();
       const diff = Math.max(0, Math.floor((end - now) / 1000));
       setTimeLeft(diff);
+      if (diff === 0 && currentAuction?.id) {
+        checkAndFinalizeAuctionClient(currentAuction.id);
+      }
     };
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
@@ -110,7 +142,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     return () => {
       clearInterval(interval);
     };
-  }, [endTime, currentAuction?.status]);
+  }, [endTime, currentAuction?.status, currentAuction?.id]);
 
   const isWinner = currentUserId && (
     currentAuction.winnerId === currentUserId || 
@@ -124,20 +156,21 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   ));
   const isEnded = currentAuction.status === 'completed' || currentAuction.status === 'cancelled' || isPaid || timeLeft === 0;
 
+  const effectiveMyMax = myMax !== undefined ? myMax : (myBidsMap?.get(currentAuction?.id));
   const currentLeadingAmount = isWinner 
-    ? Math.max(currentBid, Number(currentAuction?.current_proxy_bid?.amount || currentAuction?.currentProxyBid?.amount || currentAuction?.hiddenMaxBid || currentAuction?.hidden_max_bid || currentBid))
+    ? Math.max(currentBid, Number(effectiveMyMax || currentBid))
     : currentBid;
   const minNextBid = currentLeadingAmount + getIncrement(currentLeadingAmount);
 
   useEffect(() => {
     const baseline = isWinner 
-      ? Math.max(currentBid, Number(currentAuction?.current_proxy_bid?.amount || currentAuction?.currentProxyBid?.amount || currentAuction?.hiddenMaxBid || currentAuction?.hidden_max_bid || currentBid))
+      ? Math.max(currentBid, Number(effectiveMyMax || currentBid))
       : currentBid;
     const requiredMin = baseline + getIncrement(baseline);
     if (!bidAmount || Number(bidAmount) < requiredMin) {
       setBidAmount(String(requiredMin));
     }
-  }, [currentBid, isWinner, currentAuction]);
+  }, [currentBid, isWinner, effectiveMyMax]);
 
   const handleAdjustBid = (dir: 'up' | 'down') => {
     const currentNum = Number(bidAmount) || minNextBid;
@@ -151,6 +184,11 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
   const handlePlaceBid = async () => {
     if (!bidAmount || isNaN(Number(bidAmount)) || isSeller) return;
+    if (!onBidSubmit) {
+      toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
+      window.location.hash = '#login';
+      return;
+    }
     
     setLoading(true);
     setError(null);
@@ -163,7 +201,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
       } else if (result === 'outbid') {
           setError(t('bidOutbid'));
       } else if (result === 'error') {
-          setError(t('bidError'));
+          // Handled by toast
       }
     } catch (err: any) {
       setError(err.message || t('bidFailed'));
@@ -189,8 +227,28 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const description = item.description?.[language] || item.description?.['SLO'] || t('noDescription');
   const location = item.location?.[language] || item.location?.['SLO'] || t('slovenia');
 
-  // We display the dynamically calculated absolute amount or percentage approximation
-  const absoluteFee = calculateMarginalPlatformFee(item.current_price || item.currentPrice || 0, currentPlan);
+  const currentPrice = currentAuction.current_price || currentAuction.currentPrice || currentAuction.starting_price || 0;
+  const itemPriceCents = Math.round(Number(currentPrice) * 100);
+  const { data: previewData } = useFeePreview({
+    amount: Number(currentPrice),
+    enabled: !!currentUserId && Number(currentPrice) > 0
+  });
+
+  const guestTotals = calculateTotals({
+    itemPriceCents,
+    tier: 'FREE',
+    countryCode: 'SI',
+    isBusiness: false,
+    hasValidVatId: false
+  });
+
+  const activeFeeCents = currentUserId ? (previewData?.feeCents ?? guestTotals.feeCents) : guestTotals.feeCents;
+  const activeFeePercent = currentUserId ? (previewData?.feePercent ?? guestTotals.feePercent) : guestTotals.feePercent;
+  const activeVatCents = currentUserId ? (previewData?.vatCents ?? guestTotals.vatCents) : guestTotals.vatCents;
+  const grossFeeCents = activeFeeCents + activeVatCents;
+  const grossFeeEur = grossFeeCents / 100;
+  const vatRateUsed = currentUserId ? (previewData?.vatRate ?? 22) : 22;
+  const activeFeeIsMinimum = currentUserId ? (previewData?.feeIsMinimum ?? guestTotals.feeIsMinimum) : guestTotals.feeIsMinimum;
 
   return (
     <div className="max-w-[1600px] mx-auto px-4 py-4 bg-slate-50/50 min-h-screen">
@@ -228,7 +286,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
               <div className="flex gap-4">
                 {signedImages.length > 1 && (
-                  <div className="flex flex-col gap-2 overflow-y-auto max-h-[500px] scrollbar-hide">
+                  <div className="flex flex-col gap-2 overflow-y-auto max-h-[55vh] scrollbar-hide">
                     {signedImages.map((img: string, idx: number) => (
                       <button 
                         key={idx} 
@@ -240,7 +298,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                     ))}
                   </div>
                 )}
-                <div className="flex-1 bg-white border border-slate-200 rounded-[2rem] p-4 flex items-center justify-center relative min-h-[400px] md:min-h-[500px] shadow-sm overflow-hidden group">
+                <div className="flex-1 bg-white border border-slate-200 rounded-[2rem] p-4 flex items-center justify-center relative min-h-[300px] max-h-[55vh] shadow-sm overflow-hidden group">
                   {signedImages.length > 0 ? (
                     <>
                       <img 
@@ -248,7 +306,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                         alt="Main" 
                         loading="lazy"
                         referrerPolicy="no-referrer"
-                        className="w-full h-full object-contain max-h-[500px] cursor-pointer" 
+                        className="w-full h-full object-contain max-h-[55vh] cursor-pointer" 
                         onClick={() => setLightboxImage(selectedImage || signedImages[0])}
                       />
                       {signedImages.length > 1 && (
@@ -370,7 +428,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 
                 <div className="text-center border-r border-white/10 pt-4 border-t">
                   <p className="text-2xl font-black text-green-400">
-                    {isWinner ? `€ ${currentAuction.current_proxy_bid?.amount || currentAuction.currentProxyBid?.amount || currentAuction.hiddenMaxBid || currentAuction.hidden_max_bid || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
+                    {isWinner ? `€ ${effectiveMyMax || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
                   </p>
                   <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
                 </div>
@@ -429,197 +487,162 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                     <button 
                       onClick={handlePlaceBid}
                       disabled={loading}
-                      className="h-14 px-8 bg-[#FEBA4F] text-[#0A1128] rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2"
+                      className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2 ${
+                        isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
+                      }`}
                     >
-                      {loading ? '...' : isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}
+                      {loading ? (
+                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                      ) : !isVerified || !onBidSubmit ? (
+                        <>
+                          <Lock size={16} />
+                          <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
+                        </>
+                      ) : (
+                        <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
+                      )}
                     </button>
                   </div>
                 )
               )}
             </div>
 
-          </div>
-
-          <div className="lg:col-span-8 order-3 space-y-6">
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className="p-4 border-b border-slate-100 bg-slate-50">
-                <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('description')}</h3>
-              </div>
-              <div className="p-6">
-                <p className="text-slate-600 font-bold leading-relaxed whitespace-pre-line text-sm">
-                  {description}
-                </p>
-              </div>
-            </div>
-
-            {isEnded && (isSeller || isWinner) && (
-            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
-              <div className="p-4 border-b border-slate-100 bg-slate-50">
-                <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
-              </div>
-              <div className="p-0">
-                {item.bidding_history && item.bidding_history.length > 0 ? (
-                  <div className="divide-y divide-slate-100">
-                    {[...item.bidding_history].reverse().map((bid: any, idx: number) => (
-                      <div key={idx} className="flex justify-between items-center p-4 hover:bg-slate-50 transition-colors">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
-                            <User size={14} />
-                          </div>
-                          <div>
-                            <p className="text-xs font-black text-[#0A1128]">
-                              {(bid.userId || bid.bidderId) === currentUserId ? t('you') : `${t('bidder')} ${(bid.userId || bid.bidderId)?.substring(0, 4) || 'Unknown'}...`}
-                            </p>
-                            <p className="text-[10px] font-bold text-slate-400">
-                              {new Date(bid.timestamp).toLocaleString('sl-SI')}
-                            </p>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <p className="text-sm font-black text-[#FEBA4F]">€ {bid.amount.toLocaleString('sl-SI')}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="p-8 text-center text-slate-400 font-bold text-sm">
-                    {t('noBidsYet')}
-                  </div>
-                )}
-              </div>
-            </div>
-            )}
-          </div>
-
-          <div className="lg:col-span-4 order-4 space-y-6">
             {/* Key Buyer Decision Information: Delivery, Location, Condition */}
             <div className="bg-white border-2 border-slate-200/90 rounded-[2rem] overflow-hidden shadow-lg">
-              <div className="p-5 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
-                    <Truck size={16} />
+              <div className="p-3 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <div className="w-7 h-7 rounded-lg bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
+                    <Truck size={14} />
                   </div>
-                  <h3 className="font-black uppercase tracking-wider text-xs sm:text-sm">
+                  <h3 className="font-black uppercase tracking-wider text-xs">
                     Prevzem in ključni podatki
                   </h3>
                 </div>
-                <span className="text-[10px] font-black uppercase text-[#FEBA4F] tracking-widest bg-white/10 px-2.5 py-1 rounded-lg">
+                <span className="text-[10px] font-black uppercase text-[#FEBA4F] tracking-widest bg-white/10 px-2 py-0.5 rounded-md">
                   Pomembno
                 </span>
               </div>
               
-              <div className="p-6 space-y-5">
-                {/* Delivery Option */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
-                    <Truck size={14} className="text-[#FEBA4F]" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">Način predaje:</p>
-                  </div>
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    <p className="text-sm font-extrabold text-[#0A1128]">
-                      {(currentAuction.delivery_option === 'both' || (currentAuction as any).delivery_method === 'both')
-                        ? 'Oboje (pošiljanje po pošti ali osebni prevzem)'
-                        : (currentAuction.delivery_option === 'pickup_only' || (currentAuction as any).delivery_method === 'pickup')
-                          ? 'Samo osebni prevzem'
-                          : 'Samo pošiljanje po pošti'}
-                    </p>
-                    {/* Shipping cost info */}
-                    {currentAuction.delivery_option !== 'pickup_only' && (currentAuction as any).delivery_method !== 'pickup' && (
-                      <p className="text-xs font-bold text-slate-500 mt-1 flex items-center gap-1.5">
-                        <Tag size={12} className="text-[#FEBA4F]" />
-                        <span>
-                          Strošek pošiljanja:{' '}
-                          {(currentAuction as any).shipping_fee_type === 'fixed' && (currentAuction as any).shipping_cost !== undefined && (currentAuction as any).shipping_cost !== null
-                            ? Number((currentAuction as any).shipping_cost) === 0
-                              ? 'Brezplačna poštnina'
-                              : `Fiksno €${Number((currentAuction as any).shipping_cost).toFixed(2)}`
-                            : 'Po obračunu (poštna tarifa ob pošiljanju)'}
-                        </span>
+              <div className="p-4 space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-3">
+                  {/* Delivery Option */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                      <Truck size={12} className="text-[#FEBA4F]" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">Način predaje:</p>
+                    </div>
+                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                      <p className="text-xs font-extrabold text-[#0A1128]">
+                        {(currentAuction.delivery_option === 'both' || (currentAuction as any).delivery_method === 'both')
+                          ? 'Oboje (pošta / osebno)'
+                          : (currentAuction.delivery_option === 'pickup_only' || (currentAuction as any).delivery_method === 'pickup')
+                            ? 'Samo osebni prevzem'
+                            : 'Samo pošiljanje po pošti'}
                       </p>
-                    )}
+                      {/* Shipping cost info */}
+                      {currentAuction.delivery_option !== 'pickup_only' && (currentAuction as any).delivery_method !== 'pickup' && (
+                        <p className="text-[11px] font-bold text-slate-500 mt-1 flex items-center gap-1">
+                          <Tag size={10} className="text-[#FEBA4F]" />
+                          <span>
+                            {(currentAuction as any).shipping_fee_type === 'fixed' && (currentAuction as any).shipping_cost !== undefined && (currentAuction as any).shipping_cost !== null
+                              ? Number((currentAuction as any).shipping_cost) === 0
+                                ? 'Brezplačna poštnina'
+                                : `Fiksno €${Number((currentAuction as any).shipping_cost).toFixed(2)}`
+                              : 'Po tarifi pošte'}
+                          </span>
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
 
-                {/* Location */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
-                    <MapPin size={14} className="text-[#FEBA4F]" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">Nastavljena lokacija:</p>
-                  </div>
-                  <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    <p className="text-sm font-extrabold text-[#0A1128] flex items-center gap-2">
-                      <span>{location || (typeof currentAuction.location === 'object' ? currentAuction.location?.SLO : currentAuction.location) || 'Slovenija'}</span>
-                      <span className="text-xs text-slate-400 font-bold">• {currentAuction.region || 'Slovenija'}</span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Condition */}
-                <div>
-                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
-                    <Sparkles size={14} className="text-[#FEBA4F]" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">{t('condition') || 'Stanje predmeta'}:</p>
-                  </div>
-                  {(() => {
-                    const condText = typeof currentAuction.condition === 'string'
-                      ? currentAuction.condition
-                      : (currentAuction.condition?.[language] || currentAuction.condition?.['SLO'] || 'Rabljeno');
-                    const isNew = condText.toLowerCase().includes('nov');
-                    return (
-                      <div className={`p-3.5 rounded-2xl border flex items-center justify-between ${
-                        isNew ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-slate-50 border-slate-200/80 text-[#0A1128]'
-                      }`}>
-                        <span className="text-sm font-extrabold">{condText}</span>
-                        <span className={`text-[10px] font-black uppercase px-2.5 py-0.5 rounded-lg ${
-                          isNew ? 'bg-emerald-200/60 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                  {/* Condition */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                      <Sparkles size={12} className="text-[#FEBA4F]" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">{t('condition') || 'Stanje'}:</p>
+                    </div>
+                    {(() => {
+                      const condText = typeof currentAuction.condition === 'string'
+                        ? currentAuction.condition
+                        : (currentAuction.condition?.[language] || currentAuction.condition?.['SLO'] || 'Rabljeno');
+                      const isNew = condText.toLowerCase().includes('nov');
+                      return (
+                        <div className={`p-2.5 rounded-xl border flex items-center justify-between gap-1 ${
+                          isNew ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-slate-50 border-slate-200/80 text-[#0A1128]'
                         }`}>
-                          {isNew ? 'Brezhibno' : 'Pregledano'}
-                        </span>
-                      </div>
-                    );
-                  })()}
-                </div>
-
-                {/* Seller Info */}
-                <div className="pt-3 border-t border-slate-100">
-                  <div className="flex items-center gap-2 mb-1.5 text-slate-400">
-                    <Building2 size={14} className="text-[#FEBA4F]" />
-                    <p className="text-[10px] font-black uppercase tracking-widest">{t('seller')}:</p>
+                          <span className="text-xs font-extrabold truncate">{condText}</span>
+                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded shrink-0 ${
+                            isNew ? 'bg-emerald-200/60 text-emerald-800' : 'bg-slate-200 text-slate-600'
+                          }`}>
+                            {isNew ? 'Brezhibno' : 'Pregledano'}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </div>
-                  <div className="flex items-center justify-between p-3.5 bg-slate-50 rounded-2xl border border-slate-200/80">
-                    {(currentAuction as any).is_seller_deleted || currentAuction.sellerName === "Uporabnik je bil izbrisan" || ((currentAuction as any).seller && ((currentAuction as any).seller.is_deleted || (currentAuction as any).seller.isDeleted)) ? (
-                      <span className="text-sm font-bold text-slate-400">
-                        Uporabnik je bil izbrisan
-                      </span>
-                    ) : (
-                      <button 
-                        onClick={() => {
-                          const sellerInput = (currentAuction as any).seller || currentAuction.sellerId || (currentAuction as any).seller_id;
-                          if (sellerInput && onSellerClick) onSellerClick(sellerInput);
-                        }}
-                        className="text-sm font-black text-[#0A1128] hover:text-[#FEBA4F] transition-colors flex items-center gap-1.5 text-left"
-                      >
-                        <span className="underline underline-offset-2">
+
+                  {/* Location */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                      <MapPin size={12} className="text-[#FEBA4F]" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">Lokacija:</p>
+                    </div>
+                    <div className="p-2.5 bg-slate-50 rounded-xl border border-slate-200/80">
+                      <p className="text-xs font-extrabold text-[#0A1128] truncate">
+                        {location || (typeof currentAuction.location === 'object' ? currentAuction.location?.SLO : currentAuction.location) || 'Slovenija'}
+                      </p>
+                      <p className="text-[10px] text-slate-400 font-bold truncate">
+                        {currentAuction.region || 'Slovenija'}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Seller Info */}
+                  <div>
+                    <div className="flex items-center gap-1.5 mb-1 text-slate-400">
+                      <Building2 size={12} className="text-[#FEBA4F]" />
+                      <p className="text-[10px] font-black uppercase tracking-widest">{t('seller')}:</p>
+                    </div>
+                    <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 gap-1">
+                      {(currentAuction as any).is_seller_deleted || currentAuction.sellerName === "Uporabnik je bil izbrisan" || ((currentAuction as any).seller && ((currentAuction as any).seller.is_deleted || (currentAuction as any).seller.isDeleted)) ? (
+                        <span className="text-xs font-bold text-slate-400 truncate">
+                          Izbrisan uporabnik
+                        </span>
+                      ) : (
+                        <button 
+                          onClick={() => {
+                            const sellerInput = (currentAuction as any).seller || currentAuction.sellerId || (currentAuction as any).seller_id;
+                            if (sellerInput && onSellerClick) onSellerClick(sellerInput);
+                          }}
+                          className="text-xs font-black text-[#0A1128] hover:text-[#FEBA4F] transition-colors truncate text-left underline underline-offset-2"
+                        >
                           {currentAuction.sellerName && currentAuction.sellerName !== "Neznan prodajalec" && currentAuction.sellerName !== "Neznan Prodajalec" 
                             ? currentAuction.sellerName 
                             : (t('unknownSeller') || 'Prodajalec')}
-                        </span>
-                      </button>
-                    )}
-                    <span className="text-[10px] font-black uppercase text-emerald-600 bg-emerald-100/70 px-2 py-0.5 rounded-md flex items-center gap-1">
-                      <ShieldCheck size={12} /> Preverjen
-                    </span>
+                        </button>
+                      )}
+                      <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-100/70 px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0">
+                        <ShieldCheck size={10} /> Preverjen
+                      </span>
+                    </div>
                   </div>
-                </div>
 
-                {/* Fees and Terms */}
-                <div className="pt-3 border-t border-slate-100">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1.5">{t('feesAndTerms')}:</p>
-                  <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-                    <span>Provizija platforme:</span>
-                    <span className="font-extrabold text-[#0A1128]">€{absoluteFee.toFixed(2)}</span>
+                  {/* Fees and Terms */}
+                  <div className="col-span-2 pt-2 border-t border-slate-100">
+                    <div className="flex items-center justify-between text-xs font-bold text-slate-600">
+                      <span>Provizija platforme ({activeFeePercent} %):</span>
+                      <span className="font-extrabold text-[#0A1128]">€{grossFeeEur.toFixed(2)}</span>
+                    </div>
+                    {activeFeeIsMinimum && (
+                      <p className="text-[10px] text-[#FEBA4F] font-bold mt-1">
+                        Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+                      </p>
+                    )}
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Vključuje {vatRateUsed} % DDV in zaščito kupca (escrow hramba sredstev).
+                      {!currentUserId && <span className="block text-[#FEBA4F] font-bold mt-0.5">Za vas se izračuna ob prijavi.</span>}
+                    </p>
                   </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Vključuje 22 % DDV in zaščito kupca (escrow hramba sredstev).</p>
                 </div>
               </div>
             </div>
@@ -643,27 +666,27 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
 
               return (
                 <div className="bg-white border-2 border-slate-200/90 rounded-[2rem] overflow-hidden shadow-lg animate-in fade-in">
-                  <div className="p-5 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
-                    <div className="flex items-center gap-2.5">
-                      <div className="w-8 h-8 rounded-xl bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
-                        <Tag size={16} />
+                  <div className="p-3 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <div className="w-7 h-7 rounded-lg bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
+                        <Tag size={14} />
                       </div>
-                      <h3 className="font-black uppercase tracking-wider text-xs sm:text-sm">
+                      <h3 className="font-black uppercase tracking-wider text-xs">
                         Specifikacije artikla
                       </h3>
                     </div>
-                    <span className="text-[10px] font-black uppercase text-slate-300 bg-white/10 px-2.5 py-1 rounded-lg">
+                    <span className="text-[10px] font-black uppercase text-slate-300 bg-white/10 px-2 py-0.5 rounded-md">
                       {currentAuction.category || 'Podrobnosti'}
                     </span>
                   </div>
 
-                  <div className="p-6 divide-y divide-slate-100">
+                  <div className="p-4 divide-y divide-slate-100">
                     {entries.map(({ key, val }) => (
-                      <div key={key} className="py-2.5 first:pt-0 last:pb-0 flex items-center justify-between gap-4">
-                        <span className="text-xs font-bold text-slate-500 uppercase tracking-wider">
+                      <div key={key} className="py-2 first:pt-0 last:pb-0 flex items-center justify-between gap-4 text-xs">
+                        <span className="font-bold text-slate-500 uppercase tracking-wider">
                           {formatAttributeLabel(key)}:
                         </span>
-                        <span className="text-xs sm:text-sm font-extrabold text-[#0A1128] text-right bg-slate-50 border border-slate-200/60 px-3 py-1 rounded-xl">
+                        <span className="font-extrabold text-[#0A1128] text-right bg-slate-50 border border-slate-200/60 px-2.5 py-0.5 rounded-lg">
                           {val}
                         </span>
                       </div>
@@ -672,6 +695,62 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
               );
             })()}
+          </div>
+
+          <div className="lg:col-span-8 order-3 space-y-6">
+            {isPaid && (isSeller || isWinner) && (
+              <div className="animate-in fade-in slide-in-from-top-4 duration-700">
+                <PaymentTimeline auctionId={currentAuction.id} />
+              </div>
+            )}
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-slate-100 bg-slate-50">
+                <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('description')}</h3>
+              </div>
+              <div className="p-6">
+                <p className="text-slate-600 font-bold leading-relaxed whitespace-pre-line text-sm">
+                  {description}
+                </p>
+              </div>
+            </div>
+
+            {isEnded && (isSeller || isWinner) && (
+            <div className="bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
+              <div className="p-4 border-b border-slate-100 bg-slate-50">
+                <h3 className="text-[#0A1128] font-black uppercase tracking-widest text-xs">{t('biddingHistory')}</h3>
+              </div>
+              <div className="p-0">
+                {bidsHistory && bidsHistory.length > 0 ? (
+                  <div className="divide-y divide-slate-100">
+                    {bidsHistory.map((bid: any, idx: number) => (
+                      <div key={bid.id || idx} className="flex justify-between items-center p-4 hover:bg-slate-50 transition-colors">
+                        <div className="flex items-center gap-3">
+                          <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center text-slate-400">
+                            <User size={14} />
+                          </div>
+                          <div>
+                            <p className="text-xs font-black text-[#0A1128]">
+                              {bid.bidder_alias || t('bidder')}
+                            </p>
+                            <p className="text-[10px] font-bold text-slate-400">
+                              {bid.created_at ? new Date(bid.created_at).toLocaleString('sl-SI') : '-'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-black text-[#FEBA4F]">€ {Number(bid.price || 0).toLocaleString('sl-SI')}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="p-8 text-center text-slate-400 font-bold text-sm">
+                    {t('noBidsYet')}
+                  </div>
+                )}
+              </div>
+            </div>
+            )}
           </div>
         </div>
       </div>

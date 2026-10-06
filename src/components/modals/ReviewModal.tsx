@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { X, Star, Award, CheckCircle2, ShieldCheck, Image as ImageIcon } from 'lucide-react';
 import { AuctionItem } from '../../types';
+import { Portal } from '../ui/Portal';
 
 export interface ReviewModalProps {
   isOpen: boolean;
@@ -77,11 +78,12 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-md z-[2100] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
-      <div 
-        className="bg-white w-full max-w-lg rounded-[3rem] p-6 sm:p-10 shadow-2xl relative border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col"
-        onClick={(e) => e.stopPropagation()}
-      >
+    <Portal>
+      <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+        <div 
+          className="bg-white w-full max-w-lg rounded-[3rem] p-6 sm:p-10 shadow-2xl relative border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
         {/* Close Button */}
         <button
           onClick={onClose}
@@ -219,5 +221,6 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
         </form>
       </div>
     </div>
+    </Portal>
   );
 };

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
 import { auth, db, safeSignOut, setRegisteringAuth } from "../../lib/firebase";
+import { doc, getDoc } from 'firebase/firestore';
 import { 
   signInWithEmailAndPassword, 
   createUserWithEmailAndPassword, 
@@ -8,12 +9,25 @@ import {
   GoogleAuthProvider, 
   sendPasswordResetEmail 
 } from 'firebase/auth';
-import { setDoc, doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import { toast } from 'sonner';
+import { getAuthHeaders } from '../../lib/authFetch';
+import { TERMS_VERSION } from '../../lib/termsVersion';
 import { sendEmailVerificationAction, sendPasswordResetAction } from "../../actions/auth-emails";
+import { useGoogleReCaptcha } from 'react-google-recaptcha-v3';
+import { verifyCaptchaAction } from '../../actions/captcha';
+import { friendlyError } from '../../lib/friendlyError';
 
-export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerified: (v: boolean) => void; setAppLoggedIn: (val: boolean) => void }> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn }) => {
-  const [isLogin, setIsLogin] = useState(true);
+export const AuthView: React.FC<{ 
+  t: any; 
+  onLoginSuccess: () => void; 
+  setIsVerified: (v: boolean) => void; 
+  setAppLoggedIn: (val: boolean) => void;
+  initialMode?: 'login' | 'register';
+  onLegal?: (type: 'terms' | 'privacy' | 'how') => void;
+  onAcceptTerms?: () => void;
+}> = ({ t, onLoginSuccess, setIsVerified, setAppLoggedIn, initialMode = 'login', onLegal, onAcceptTerms }) => {
+  const { executeRecaptcha } = useGoogleReCaptcha();
+  const [isLogin, setIsLogin] = useState(initialMode !== 'register');
   const [isForgotPassword, setIsForgotPassword] = useState(false);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -29,6 +43,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
   // Unverified email / resend state
   const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [resendingVerification, setResendingVerification] = useState(false);
+  const [acceptTerms, setAcceptTerms] = useState(false);
 
   // Password validation state
   const [hasUppercase, setHasUppercase] = useState(false);
@@ -64,14 +79,28 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     }
     setResendingVerification(true);
     try {
+      if (executeRecaptcha) {
+        try {
+          const token = await executeRecaptcha('register');
+          const captchaRes = await verifyCaptchaAction(token, 'register');
+          if (!captchaRes.success) {
+            toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
+            setResendingVerification(false);
+            return;
+          }
+        } catch (e) {
+          console.warn("reCAPTCHA execution error:", e);
+        }
+      }
+
       const res = await sendEmailVerificationAction(targetEmail, targetEmail.split('@')[0]);
       if (res.success) {
         toast.success("Novo potrditveno sporočilo je bilo uspešno odposlano! Preverite svoj e-poštni predal (tudi mapo z vsiljeno pošto).");
       } else {
-        toast.error("Napaka pri pošiljanju potrditvenega sporočila: " + (res.error || "Prosimo, poskusite ponovno čez nekaj trenutkov."));
+        toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvenega sporočila. Prosimo, poskusite ponovno čez nekaj trenutkov."));
       }
     } catch (err: any) {
-      toast.error("Napaka pri povezavi: " + (err.message || 'Neznana napaka'));
+      toast.error(friendlyError(err, "Napaka pri povezavi. Poskusite znova."));
     } finally {
       setResendingVerification(false);
     }
@@ -96,6 +125,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       if (isLogin) {
+          if (executeRecaptcha) {
+            try {
+              const token = await executeRecaptcha('login');
+              const captchaRes = await verifyCaptchaAction(token, 'login');
+              if (!captchaRes.success) {
+                toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
+                setLoading(false);
+                return;
+              }
+            } catch (e) {
+              console.warn("reCAPTCHA execution error:", e);
+            }
+          }
+
           const cred = await signInWithEmailAndPassword(auth, cleanEmail, password);
           const user = cred.user;
           
@@ -124,20 +167,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
 
           setUnverifiedEmail(null);
 
-          // E-pošta JE potrjena! Posodobimo uporabniški račun v Firestore:
+          // E-pošta JE potrjena! Posodobimo uporabniški račun preko strežnika:
           if (user && (auth.currentUser?.emailVerified || user.emailVerified)) {
               try {
-                  await setDoc(doc(db, "users", user.uid), { 
-                    id: user.uid,
-                    email: user.email || cleanEmail,
-                    email_verified: true,
-                    registration_confirmed: true,
-                    registration_confirmed_at: new Date().toISOString(),
-                    remember_me: rememberMe,
-                    updated_at: new Date().toISOString()
-                  }, { merge: true });
+                  if (rememberMe) {
+                      localStorage.setItem('remember_me', 'true');
+                  } else {
+                      localStorage.removeItem('remember_me');
+                  }
+                  await fetch('/api/profile/init', {
+                      method: 'POST',
+                      headers: await getAuthHeaders()
+                  });
               } catch (e) {
-                  console.warn("Background update error:", e);
+                  console.warn("Profile init error:", e);
               }
           }
           toast.success("Prijava uspešna!");
@@ -146,22 +189,37 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           // REGISTRACIJA
           setRegisteringAuth(true);
           try {
+            if (executeRecaptcha) {
+              try {
+                const token = await executeRecaptcha('register');
+                const captchaRes = await verifyCaptchaAction(token, 'register');
+                if (!captchaRes.success) {
+                  toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
+                  setRegisteringAuth(false);
+                  setLoading(false);
+                  return;
+                }
+              } catch (e) {
+                console.warn("reCAPTCHA execution error:", e);
+              }
+            }
+
             // 1. Ustvari uporabnika v Firebase Auth
             const userCredential = await createUserWithEmailAndPassword(auth, cleanEmail, password);
             const user = userCredential.user;
 
-            // 2. Shranimo osnovne podatke uporabnika v bazo, dokler je seansa aktivna
+            // 2. Inicializiramo račun preko strežniške poti, dokler je seansa aktivna
             try {
-              await setDoc(doc(db, 'users', user.uid), {
-                id: user.uid,
-                email: user.email || cleanEmail,
-                is_verified: false,
-                email_verified: false,
-                created_at: new Date().toISOString(),
-                subscription: 'FREE'
-              }, { merge: true });
+              await fetch('/api/profile/init', {
+                method: 'POST',
+                headers: await getAuthHeaders(),
+                body: JSON.stringify({
+                  accepted_terms: true,
+                  terms_version: TERMS_VERSION
+                })
+              });
             } catch (dbErr) {
-              console.warn("Napaka pri shranjevanju uporabnika v bazo:", dbErr);
+              console.warn("Napaka pri inicializaciji uporabnika:", dbErr);
             }
 
             // 3. Pošiljanje verifikacijskega sporočila izključno preko našega Resend strežniškega sistema
@@ -183,7 +241,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             if (emailRes.success) {
               toast.success("Račun je uspešno ustvarjen! Na vaš e-poštni naslov smo poslali sporočilo s potrditvenim gumbom. Pred prvo prijavo preverite svoj predal in potrdite naslov.");
             } else {
-              toast.error("Račun je bil ustvarjen, vendar e-pošte ni bilo mogoče odposlati: " + (emailRes.error || "Napaka pri komunikaciji s strežnikom. Uporabite spodnji gumb za ponovno pošiljanje."));
+              toast.error(friendlyError(emailRes.error, "Račun je bil ustvarjen, vendar e-pošte ni bilo mogoče odposlati. Uporabite spodnji gumb za ponovno pošiljanje."));
             }
           } catch (authError: any) {
             console.error("Registracija spodletela:", authError);
@@ -198,7 +256,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             } else if (errorCode === "auth/invalid-email") {
               toast.error("Vnesite veljaven e-poštni naslov.");
             } else {
-              toast.error(t("authError") + " " + (authError.message || ""));
+              toast.error(friendlyError(authError, "Registracija ni uspela. Poskusite znova."));
             }
           } finally {
             setRegisteringAuth(false);
@@ -220,7 +278,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
             toast.error("Ta e-poštni naslov je že registriran. Če še niste potrdili naslova, se poskusite prijaviti ali zahtevajte ponovno pošiljanje povezave.");
             setIsLogin(true);
         } else {
-            toast.error(t("authError") + " " + errorMsg);
+            toast.error(friendlyError(error, "Prijava ni uspela. Poskusite znova."));
         }
     } finally { 
         setRegisteringAuth(false);
@@ -232,59 +290,35 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
     setLoading(true);
     try {
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
+      const cred = await signInWithPopup(auth, provider);
       
-      const email = result.user.email;
-      
-      // Check if user already has a password provider linked
-      const hasPassword = result.user.providerData.some(p => p.providerId === 'password');
-      if (hasPassword) {
-          await safeSignOut(auth);
-          toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
-          setLoading(false);
-          return;
-      }
-      
-      // Check if another user document exists with the same email
-      const q = query(collection(db, "users"), where("email", "==", email));
-      const querySnapshot = await getDocs(q);
-      
-      let passwordAccountExists = false;
-      querySnapshot.forEach((docSnap) => {
-          const data = docSnap.data();
-          if (data.id !== result.user.uid && data.auth_provider !== 'google') {
-              passwordAccountExists = true;
-          }
+      const res = await fetch('/api/profile/init', {
+        method: 'POST',
+        headers: await getAuthHeaders(),
+        body: JSON.stringify({
+          // We don't send accepted_terms: true here because we want to force the redirect if it's a new user
+          // Actually, if it's a new user, they MUST see the terms screen.
+        })
       });
       
-      if (passwordAccountExists) {
-          await safeSignOut(auth);
-          toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
-          setLoading(false);
+      if (!res.ok) {
+        const errData = await res.json();
+        if (res.status === 400 && onAcceptTerms) {
+          // New user or missing terms
+          onAcceptTerms();
           return;
-      }
-      
-      const userRef = doc(db, "users", result.user.uid);
-      const userDoc = await getDoc(userRef);
-      
-      if (!userDoc.exists()) {
-          await setDoc(userRef, { 
-              id: result.user.uid, 
-              email: result.user.email, 
-              is_verified: false,
-              auth_provider: 'google'
-          }, { merge: true });
-      } else {
-          // Update only auth_provider if not set, DO NOT overwrite is_verified
-          await setDoc(userRef, { auth_provider: 'google' }, { merge: true });
+        }
+        console.warn("Profile init error:", errData.error);
       }
       
       onLoginSuccess();
     } catch (error: any) {
-      if (error.code === 'auth/account-exists-with-different-credential') {
-          toast.error("Ta e-mail je že registriran. Prosimo, prijavite se z e-mailom in geslom.");
+      if (error?.code === 'auth/popup-closed-by-user' || error?.code === 'auth/cancelled-popup-request') {
+        // No toast when popup was closed or cancelled by user
+      } else if (error?.code === 'auth/account-exists-with-different-credential') {
+        toast.error("Za ta e-poštni naslov že obstaja račun z geslom. Prijavite se z e-pošto in geslom, nato v Nastavitvah povežite Google račun.");
       } else {
-          toast.error(`${t("googleLoginError")} ${error.message}`);
+        toast.error(friendlyError(error, "Prijava z Google računom ni uspela. Poskusite znova."));
       }
       setLoading(false);
     }
@@ -296,6 +330,20 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
       
       setLoading(true);
       try {
+          if (executeRecaptcha) {
+            try {
+              const token = await executeRecaptcha('password_reset');
+              const captchaRes = await verifyCaptchaAction(token, 'password_reset');
+              if (!captchaRes.success) {
+                toast.error(friendlyError(captchaRes.error, "Preverjanje reCAPTCHA ni uspelo. Prosimo, poskusite znova."));
+                setLoading(false);
+                return;
+              }
+            } catch (e) {
+              console.warn("reCAPTCHA execution error:", e);
+            }
+          }
+
           let resetSuccess = false;
           try {
             const res = await sendPasswordResetAction(email);
@@ -314,8 +362,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
           toast.success(t('resetLinkSent') || 'Povezava za ponastavitev je poslana na vaš e-mail.');
           setIsForgotPassword(false);
       } catch (error: any) {
-        let errorMsg = error.message || JSON.stringify(error);
-        toast.error(t("authError") + " " + errorMsg);
+        toast.error(friendlyError(error, "Napaka pri ponastavitvi gesla. Poskusite znova."));
       } finally { setLoading(false); }
   };
 
@@ -381,6 +428,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                 />
                 <button
                   type="button"
+                  tabIndex={-1}
                   onClick={() => setShowPassword(prev => !prev)}
                   className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
                   aria-label={showPassword ? "Skrij geslo" : "Pokaži geslo"}
@@ -431,6 +479,7 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
                     />
                     <button
                       type="button"
+                      tabIndex={-1}
                       onClick={() => setShowConfirmPassword(prev => !prev)}
                       className="absolute right-4 top-1/2 -translate-y-1/2 p-2 text-slate-400 hover:text-[#0A1128] transition-colors focus:outline-none"
                       aria-label={showConfirmPassword ? "Skrij geslo" : "Pokaži geslo"}
@@ -459,7 +508,23 @@ export const AuthView: React.FC<{ t: any; onLoginSuccess: () => void; setIsVerif
               </div>
           )}
 
-          <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-3">
+          {!isLogin && (
+            <div className="flex items-start gap-2 px-2 mt-2">
+              <input 
+                type="checkbox" 
+                id="acceptTerms" 
+                required
+                className="w-4 h-4 mt-1 text-[#FEBA4F] bg-slate-50 border-slate-200 rounded focus:ring-[#FEBA4F] cursor-pointer"
+                checked={acceptTerms}
+                onChange={(e) => setAcceptTerms(e.target.checked)}
+              />
+              <label htmlFor="acceptTerms" className="text-xs font-bold text-slate-500 cursor-pointer">
+                Sprejemam <button type="button" onClick={() => onLegal?.('terms')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Pogoje uporabe</button> in <button type="button" onClick={() => onLegal?.('privacy')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Politiko zasebnosti</button>.
+              </label>
+            </div>
+          )}
+
+          <button type="submit" disabled={loading || (!isLogin && !acceptTerms)} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-3">
             {loading ? (
               <>
                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>

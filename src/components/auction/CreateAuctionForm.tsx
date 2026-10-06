@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Layers, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle } from 'lucide-react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { ArrowLeft, Layers, FileUp, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle, Scale } from 'lucide-react';
 import { Category, Region, AuctionItem } from "../../types";
 import { getCategoryTranslation } from "../../lib/translations";
-import { storage } from "../../lib/firebase";
+import { storage, auth } from "../../lib/firebase";
 import { ref, uploadBytesResumable, getDownloadURL, deleteObject, UploadTask } from 'firebase/storage';
 import { toast } from 'sonner';
-import { GoogleGenAI } from '@google/genai';
+import { getAuthHeaders } from '../../lib/authFetch';
 import imageCompression from 'browser-image-compression';
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import AuctionView from "@/src/components/auction/AuctionView";
@@ -13,6 +13,9 @@ import { CategoryAttributesInput } from "./CategoryAttributesInput";
 import { checkUserInvoiceData, InvoiceDataCheckResult } from "../../lib/invoiceDataCheck";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { getUserAuctionCycle } from "../../lib/utils";
+import { friendlyError } from "../../lib/friendlyError";
+import { calculateTotals, getEffectiveTier } from "../../lib/feeCalculator";
+import { Portal } from "../ui/Portal";
 
 const REGION_LOCATIONS: Record<Region, string[]> = {
     [Region.Pomurska]: ['Murska Sobota', 'Lendava', 'Ljutomer', 'Gornja Radgona', 'Beltinci', 'Drugo'],
@@ -153,6 +156,24 @@ export const CreateAuctionForm: React.FC<{
         shipping_cost?: boolean;
     }>({});
 
+    const totals = useMemo(() => {
+        const price = parseInt(formData.startingPrice) || 0;
+        if (price <= 0) return null;
+        
+        const tier = getEffectiveTier(userData);
+        const countryCode = userData?.country_code || 'SI';
+        const isBusiness = userData?.is_business === true;
+        const hasValidVatId = !!userData?.vat_id;
+        
+        return calculateTotals({
+            itemPriceCents: price * 100,
+            tier,
+            countryCode,
+            isBusiness,
+            hasValidVatId
+        });
+    }, [formData.startingPrice, userData]);
+
     useEffect(() => {
         if (initialData) {
             const initLoc = initialData.location?.SLO || (typeof initialData.location === 'string' ? initialData.location : '');
@@ -230,7 +251,7 @@ export const CreateAuctionForm: React.FC<{
         try {
             const compressedFiles = await Promise.all(
                 files.map(async (file) => {
-                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: true, initialQuality: 0.8 };
+                    const options = { maxSizeMB: 1, maxWidthOrHeight: 1200, useWebWorker: false, initialQuality: 0.8 };
                     return await imageCompression(file, options);
                 })
             );
@@ -296,48 +317,44 @@ export const CreateAuctionForm: React.FC<{
         try {
             setEnhancingIndex(index);
             const file = imageFiles[index];
+            if (!file) {
+                setEnhancingIndex(null);
+                return;
+            }
             
             // Convert file to base64
             const reader = new FileReader();
             reader.readAsDataURL(file);
+            reader.onerror = () => {
+                toast.error(friendlyError(new Error("Napaka pri branju slike."), t('imageEnhanceError')));
+                setEnhancingIndex(null);
+            };
             reader.onload = async () => {
-                const base64Data = (reader.result as string).split(',')[1];
-                const mimeType = file.type;
-
                 try {
-                    const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-                    if (!apiKey) {
-                        throw new Error('Gemini API Key is missing. Prosimo preverite .env datoteko in dodajte VITE_GEMINI_API_KEY.');
-                    }
-                    const ai = new GoogleGenAI({ apiKey });
-                    
-                    const response = await ai.models.generateContent({
-                        model: 'gemini-2.5-flash-image',
-                        contents: {
-                            parts: [
-                                {
-                                    inlineData: {
-                                        data: base64Data,
-                                        mimeType: mimeType,
-                                    },
-                                },
-                                {
-                                    text: 'Enhance the quality, lighting, and sharpness of this image. Keep the original subject exactly the same, just make it look more professional and appealing.',
-                                },
-                            ],
+                    const base64Data = (reader.result as string).split(',')[1];
+                    const mimeType = file.type || 'image/jpeg';
+
+                    const response = await fetch('/api/ai/enhance-image', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            ...await getAuthHeaders()
                         },
+                        body: JSON.stringify({
+                            image_base64: base64Data,
+                            mime_type: mimeType
+                        })
                     });
 
-                    let newImageUrl = null;
-                    let newBase64 = null;
-                    // Iterate through parts to find the image part as per skill
-                    for (const part of response.candidates?.[0]?.content?.parts || []) {
-                        if (part.inlineData) {
-                            newBase64 = part.inlineData.data;
-                            newImageUrl = `data:${part.inlineData.mimeType || 'image/png'};base64,${newBase64}`;
-                            break;
-                        }
+                    const resData = await response.json().catch(() => ({}));
+                    if (!response.ok) {
+                        const parsedErr = resData?.error || t('imageEnhanceError') || "Napaka pri izboljšavi slike.";
+                        throw new Error(parsedErr);
                     }
+
+                    const newBase64 = resData.image_base64;
+                    const newMime = resData.mime_type || 'image/png';
+                    const newImageUrl = `data:${newMime};base64,${newBase64}`;
 
                     if (newImageUrl && newBase64) {
                         // Create a new File object from the base64 data
@@ -347,7 +364,7 @@ export const CreateAuctionForm: React.FC<{
                             byteNumbers[i] = byteCharacters.charCodeAt(i);
                         }
                         const byteArray = new Uint8Array(byteNumbers);
-                        const newFile = new File([byteArray], `enhanced-${file.name}`, { type: 'image/png' });
+                        const newFile = new File([byteArray], `enhanced-${file.name}`, { type: newMime });
 
                         setImageFiles(prev => {
                             const newFiles = [...prev];
@@ -361,24 +378,19 @@ export const CreateAuctionForm: React.FC<{
                         });
                         toast.success(t('imageEnhanced'));
                     } else {
-                        // If no image part was returned, it might have just returned text
                         toast.info(t('imageNotChanged'));
                     }
                     
                 } catch (err: any) {
-                    console.error("Gemini API error:", err);
-                    if (err.message?.includes('API Key is missing')) {
-                         toast.error('Gemini API ključ manjka. Prosimo preverite .env datoteko.', { duration: 5000 });
-                    } else {
-                         toast.error(t('imageEnhanceError'));
-                    }
+                    console.error("Gemini enhancement API error:", err);
+                    toast.error(friendlyError(err, t('imageEnhanceError') || "Napaka pri izboljšavi slike."));
                 } finally {
                     setEnhancingIndex(null);
                 }
             };
-        } catch (error) {
+        } catch (error: any) {
             console.error("Error enhancing image:", error);
-            toast.error(t('imageEnhanceError'));
+            toast.error(friendlyError(error, t('imageEnhanceError')));
             setEnhancingIndex(null);
         }
     };
@@ -397,6 +409,21 @@ export const CreateAuctionForm: React.FC<{
             }
         };
     }, []);
+
+    const getStorageRefFromUrlOrPath = (urlOrPath: string) => {
+        if (urlOrPath.startsWith('http')) {
+            try {
+                const decoded = decodeURIComponent(urlOrPath.split('/o/')[1].split('?')[0]);
+                return ref(storage, decoded);
+            } catch (e) {
+                // fallback
+            }
+        }
+        if (urlOrPath.startsWith('auction-images/')) {
+            return ref(storage, urlOrPath);
+        }
+        return ref(storage, `auction-images/${urlOrPath}`);
+    };
 
     const handlePublish = async (e?: any, asDraft = false) => {
         if (!asDraft && userData && auctions) {
@@ -472,8 +499,9 @@ export const CreateAuctionForm: React.FC<{
                     if (cancelRef.current) throw new Error('CANCELED');
                     setUploadProgress(prev => ({ ...prev, [i]: { state: t('preparing'), percent: 20 } }));
                     
-                    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${compressedFile.name.replace(/[^a-zA-Z0-9.]/g, '_')}`;
-                    const storageRef = ref(storage, `auction-images/${fileName}`);
+                    const uid = auth.currentUser?.uid || 'anonymous';
+                    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}-${compressedFile.name.replace(/[^a-zA-r0-9.]/g, '_')}`;
+                    const storageRef = ref(storage, `auction-images/${uid}/${fileName}`);
                     
                     const uploadTask = uploadBytesResumable(storageRef, compressedFile, { contentType: compressedFile.type });
                     activeTasks.push(uploadTask);
@@ -489,7 +517,7 @@ export const CreateAuctionForm: React.FC<{
                     try {
                         await uploadTask;
                         downloadUrl = await getDownloadURL(storageRef);
-                        uploadedFilesRef.current.push(fileName);
+                        uploadedFilesRef.current.push(`${uid}/${fileName}`);
                     } catch (e: any) {
                         if (cancelRef.current || e?.code === 'storage/canceled') {
                             throw new Error('CANCELED');
@@ -501,7 +529,7 @@ export const CreateAuctionForm: React.FC<{
                             const superCompressed = await imageCompression(compressedFile, { 
                                 maxSizeMB: 0.07, 
                                 maxWidthOrHeight: 800, 
-                                useWebWorker: true,
+                                useWebWorker: false,
                                 initialQuality: 0.6
                             });
                             downloadUrl = await new Promise<string>((resolve, reject) => {
@@ -571,7 +599,7 @@ export const CreateAuctionForm: React.FC<{
                     ...(error.correctedDateStr ? { endDate: error.correctedDateStr } : {})
                 }));
                 setErrorMessage('');
-                toast.success(error.message, { duration: 5000 });
+                toast.error(friendlyError(error, "Čas zaključka dražbe je bil prilagojen."), { duration: 5000 });
                 setUploading(false);
                 return;
             }
@@ -580,7 +608,7 @@ export const CreateAuctionForm: React.FC<{
                     const filesToDelete = [...uploadedFilesRef.current];
                     uploadedFilesRef.current = [];
                     for (const path of filesToDelete) {
-                        try { await deleteObject(ref(storage, `auction-images/${path}`)); } catch (e) {}
+                        try { await deleteObject(getStorageRefFromUrlOrPath(path)); } catch (e) {}
                     }
                 }
                 return;
@@ -588,7 +616,7 @@ export const CreateAuctionForm: React.FC<{
             console.error("Error publishing auction:", error); 
             const errorMsg = error.message || JSON.stringify(error);
             setErrorMessage(errorMsg);
-            toast.error(`${t('imageUploadError')} ${errorMsg}`, { duration: 5000 });
+            toast.error(friendlyError(error, t('imageUploadError') || "Napaka pri nalaganju slik."), { duration: 5000 });
         } finally { 
             activeUploadTaskRef.current = null;
             setUploading(false); 
@@ -617,7 +645,7 @@ export const CreateAuctionForm: React.FC<{
             uploadedFilesRef.current = [];
             for (const path of filesToDelete) {
                 try {
-                    await deleteObject(ref(storage, `auction-images/${path}`));
+                    await deleteObject(getStorageRefFromUrlOrPath(path));
                 } catch (e) {
                     console.error("Failed to delete partially uploaded image:", e);
                 }
@@ -852,11 +880,17 @@ export const CreateAuctionForm: React.FC<{
                         <div className="grid grid-cols-2 sm:grid-cols-4 md:grid-cols-6 gap-4 animate-in">
                             {existingImages.map((src, i) => (
                                 <div key={`ex-${i}`} className="flex flex-col gap-2">
-                                     <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src.startsWith('http') ? src : undefined)}>
+                                    <div className="h-6 flex items-center justify-center">
+                                        {i === 0 && (
+                                            <span className="bg-[#FEBA4F] text-[#0A1128] text-[10px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest">
+                                                {t('mainImage')}
+                                            </span>
+                                        )}
+                                    </div>
+                                    <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src.startsWith('http') ? src : undefined)}>
                                         <SignedImg src={src} alt={`existing-${i}`} className="w-full h-full object-cover" />
-                                        {i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
                                         <button onClick={(e) => { e.stopPropagation(); setExistingImages(prev => prev.filter((_, idx) => idx !== i)); }} type="button" className="absolute top-2 right-2 bg-red-500 text-white p-1.5 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity hover:scale-110 shadow-lg z-20"><Trash2 size={16} /></button>
-                                     </div>
+                                    </div>
                                 </div>
                             ))}
                             {previews.map((src, i) => (
@@ -868,9 +902,15 @@ export const CreateAuctionForm: React.FC<{
                                     onDragOver={(e) => e.preventDefault()}
                                     onDrop={(e) => handleDrop(e, i)}
                                 >
+                                    <div className="h-6 flex items-center justify-center">
+                                        {existingImages.length === 0 && i === 0 && (
+                                            <span className="bg-[#FEBA4F] text-[#0A1128] text-[10px] font-black px-3 py-0.5 rounded-full uppercase tracking-widest">
+                                                {t('mainImage')}
+                                            </span>
+                                        )}
+                                    </div>
                                     <div className="relative group aspect-square rounded-2xl overflow-hidden border-2 border-slate-100 shadow-sm transition-transform hover:scale-105 cursor-pointer" onClick={() => setZoomedImage(src)}>
                                         <img src={src} className="w-full h-full object-cover" />
-                                        {existingImages.length === 0 && i === 0 && <div className="absolute top-2 left-2 bg-[#FEBA4F] text-[#0A1128] text-[8px] font-black px-2 py-0.5 rounded-full uppercase tracking-widest z-10">{t('mainImage')}</div>}
                                         <div className="absolute inset-x-0 top-0 h-1/2 bg-gradient-to-b from-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-start justify-center pt-2">
                                             <div className="bg-white/80 backdrop-blur-sm shadow text-[#0A1128] p-1.5 rounded-lg cursor-grab active:cursor-grabbing hover:bg-white" onClick={e => e.stopPropagation()}>
                                                 <GripHorizontal size={16} />
@@ -927,6 +967,56 @@ export const CreateAuctionForm: React.FC<{
                             <span>{errorMessage}</span>
                         </div>
                     )}
+
+                    {totals && (
+                        <div className="bg-[#0A1128]/5 border-2 border-dashed border-slate-200 rounded-[2rem] p-8 mb-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                            <h3 className="text-xs font-black uppercase tracking-widest text-slate-400 mb-6 flex items-center gap-2">
+                                <Scale size={14} /> Izračun stroškov in izplačila
+                            </h3>
+                            <div className="space-y-4">
+                                <div className="flex justify-between items-center">
+                                    <span className="text-sm font-bold text-slate-500">Cena predmeta:</span>
+                                    <span className="text-lg font-black text-[#0A1128]">{(totals.itemPriceCents / 100).toFixed(2)} €</span>
+                                </div>
+                                <div className="flex justify-between items-center group">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-bold text-slate-500 flex items-center gap-1.5">
+                                            Provizija platforme ({totals.feePercent}%):
+                                            {totals.feeIsMinimum && (
+                                                <div className="group/min relative">
+                                                    <AlertCircle size={14} className="text-[#FEBA4F] cursor-help" />
+                                                    <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 p-3 bg-[#0A1128] text-white text-[10px] font-bold rounded-xl opacity-0 group-hover/min:opacity-100 transition-opacity pointer-events-none z-50 shadow-2xl">
+                                                        Uporabljena je minimalna provizija, ki pokriva stroške Stripe plačila.
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </span>
+                                    </div>
+                                    <span className="text-sm font-black text-red-600">-{(totals.feeCents / 100).toFixed(2)} €</span>
+                                </div>
+                                {totals.vatCents > 0 && (
+                                    <div className="flex justify-between items-center">
+                                        <span className="text-sm font-bold text-slate-500">DDV na provizijo ({totals.vatRate}%):</span>
+                                        <span className="text-sm font-black text-red-600">-{(totals.vatCents / 100).toFixed(2)} €</span>
+                                    </div>
+                                )}
+                                <div className="pt-4 border-t border-slate-200 mt-4 flex justify-between items-center">
+                                    <div className="flex flex-col">
+                                        <span className="text-sm font-black uppercase tracking-widest text-[#0A1128]">Predvideno izplačilo:</span>
+                                        <span className="text-[10px] font-bold text-slate-400 italic">Neto znesek po vseh stroških</span>
+                                    </div>
+                                    <div className="bg-[#FEBA4F] px-6 py-2 rounded-xl shadow-lg border border-[#0A1128]/5">
+                                        <span className="text-xl font-black text-[#0A1128]">
+                                            {(totals.itemPriceCents / 100).toFixed(2)} €
+                                        </span>
+                                    </div>
+                                </div>
+                                <p className="text-[10px] text-slate-400 font-medium italic mt-4 text-center leading-relaxed">
+                                    * To je predvideni znesek, ki ga boste prejeli na svoj Stripe račun. Kupec plača celoten znesek (cena + provizija + DDV).
+                                </p>
+                            </div>
+                        </div>
+                    )}
                     
                     <div className={isPackageMode ? "grid grid-cols-1 md:grid-cols-2 gap-4" : ""}>
                         {isPackageMode && onSaveDraft && (
@@ -967,62 +1057,27 @@ export const CreateAuctionForm: React.FC<{
             </div>
 
             {zoomedImage && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in" onClick={() => setZoomedImage(null)}>
-                    <button onClick={() => setZoomedImage(null)} className="absolute top-6 right-6 w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white hover:bg-white hover:text-black transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
-                    <img src={zoomedImage} className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()} />
-                </div>
+                <Portal>
+                    <div className="fixed inset-0 z-[2100] flex items-center justify-center bg-black/90 backdrop-blur-sm p-4 animate-in" onClick={() => setZoomedImage(null)}>
+                        <button onClick={() => setZoomedImage(null)} className="absolute top-6 right-6 w-12 h-12 bg-white/10 rounded-2xl flex items-center justify-center text-white hover:bg-white hover:text-black transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
+                        <img src={zoomedImage} className="max-w-full max-h-full rounded-xl shadow-2xl object-contain" onClick={e => e.stopPropagation()} />
+                    </div>
+                </Portal>
             )}
 
             {showPreview && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
-                    <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
-                        <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
-                            <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
-                            <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
-                        </div>
-                        <div className="p-8 h-[80vh] overflow-y-auto flex flex-col gap-12" onClick={e => e.stopPropagation()}>
-                            <div>
-                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('cardPreview')}</h3>
-                               <div className="w-full max-w-sm mx-auto">
-                                   <AuctionCard 
-                                      item={{
-                                         id: 'preview',
-                                         title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
-                                         description: formData.description || 'Opis',
-                                         currentBid: parseInt(formData.startingPrice) || 0,
-                                         startingPrice: parseInt(formData.startingPrice) || 0,
-                                         bidCount: 0,
-                                         images: previews.length > 0 ? previews : ['https://picsum.photos/seed/placeholder/800/800'],
-                                         endTime: new Date(`${formData.endDate}T${formData.endTime}`),
-                                         sellerId: 'preview_seller_id',
-                                         sellerName: 'Predogled',
-                                         location: { SLO: formData.location || 'Lokacija' },
-                                         status: 'active',
-                                         category: formData.category,
-                                         region: formData.region,
-                                         condition: formData.condition,
-                                         delivery_option: formData.delivery_option,
-                                         shipping_fee_type: formData.shipping_fee_type,
-                                         shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
-                                         createdAt: new Date()
-                                      } as unknown as AuctionItem} 
-                                      t={t} 
-                                      language={language} 
-                                      isVerified={isLoggedIn} 
-                                      currentUserId="mock" 
-                                      isWatched={false} 
-                                      onWatchToggle={()=>{}} 
-                                      onClick={()=>{}} 
-                                      onBidSubmit={async () => undefined} 
-                                      onSellerClick={()=>{}} 
-                                   />
-                               </div>
+                <Portal>
+                    <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
+                        <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
+                            <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
+                                <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
+                                <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
                             </div>
-                            <div className="pb-12">
-                               <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
-                               <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
-                                   <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
-                                       <AuctionView 
+                            <div className="p-8 h-[80vh] overflow-y-auto flex flex-col gap-12" onClick={e => e.stopPropagation()}>
+                                <div>
+                                   <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('cardPreview')}</h3>
+                                   <div className="w-full max-w-sm mx-auto">
+                                       <AuctionCard 
                                           item={{
                                              id: 'preview',
                                              title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
@@ -1042,27 +1097,66 @@ export const CreateAuctionForm: React.FC<{
                                              delivery_option: formData.delivery_option,
                                              shipping_fee_type: formData.shipping_fee_type,
                                              shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
-                                             specifications: formData.specifications || {},
                                              createdAt: new Date()
                                           } as unknown as AuctionItem} 
                                           t={t} 
                                           language={language} 
                                           isVerified={isLoggedIn} 
                                           currentUserId="mock" 
-                                          currentPlan="FREE"
-                                          isWatched={false}
-                                          onWatchToggle={()=>{}}
-                                          onBack={()=>{}} 
-                                          onBidSubmit={async () => 'ok'} 
-                                          onCheckout={()=>{}} 
+                                          isWatched={false} 
+                                          onWatchToggle={()=>{}} 
+                                          onClick={()=>{}} 
+                                          onBidSubmit={async () => undefined} 
                                           onSellerClick={()=>{}} 
                                        />
                                    </div>
-                               </div>
+                                </div>
+                                <div className="pb-12">
+                                   <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
+                                   <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
+                                       <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
+                                           <AuctionView 
+                                              item={{
+                                                 id: 'preview',
+                                                 title: { SLO: formData.title || 'Naslov', EN: formData.title, DE: formData.title },
+                                                 description: formData.description || 'Opis',
+                                                 currentBid: parseInt(formData.startingPrice) || 0,
+                                                 startingPrice: parseInt(formData.startingPrice) || 0,
+                                                 bidCount: 0,
+                                                 images: previews.length > 0 ? previews : ['https://picsum.photos/seed/placeholder/800/800'],
+                                                 endTime: new Date(`${formData.endDate}T${formData.endTime}`),
+                                                 sellerId: 'preview_seller_id',
+                                                 sellerName: 'Predogled',
+                                                 location: { SLO: formData.location || 'Lokacija' },
+                                                 status: 'active',
+                                                 category: formData.category,
+                                                 region: formData.region,
+                                                 condition: formData.condition,
+                                                 delivery_option: formData.delivery_option,
+                                                 shipping_fee_type: formData.shipping_fee_type,
+                                                 shipping_cost: formData.shipping_fee_type === 'fixed' ? Number(formData.shipping_cost || 0) : null,
+                                                 specifications: formData.specifications || {},
+                                                 createdAt: new Date()
+                                              } as unknown as AuctionItem} 
+                                              t={t} 
+                                              language={language} 
+                                              isVerified={isLoggedIn} 
+                                              currentUserId="mock" 
+                                              currentPlan="FREE"
+                                              isWatched={false}
+                                              onWatchToggle={()=>{}}
+                                              onBack={()=>{}} 
+                                              onBidSubmit={async () => 'ok'} 
+                                              onCheckout={()=>{}} 
+                                              onSellerClick={()=>{}} 
+                                           />
+                                       </div>
+                                   </div>
+                                </div>
                             </div>
                         </div>
                     </div>
-                </div>
+                </Portal>
             )}
 
             <MissingInvoiceDataModal

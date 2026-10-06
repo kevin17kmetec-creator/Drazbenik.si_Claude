@@ -14,6 +14,7 @@ export interface PackageViewProps {
   watchlist: string[];
   currentUserId?: string;
   bidAuctionIds?: string[];
+  myBidsMap?: Map<string, number>;
   onWatchToggle: (id: string) => void;
   onAuctionClick: (item: AuctionItem) => void;
   onBidSubmit?: (item: AuctionItem, amount: number) => Promise<'ok' | 'outbid' | 'error' | 'login_required' | 'cancelled'> | void;
@@ -32,6 +33,7 @@ export const PackageView: React.FC<PackageViewProps> = ({
   watchlist,
   currentUserId,
   bidAuctionIds = [],
+  myBidsMap,
   onWatchToggle,
   onAuctionClick,
   onBidSubmit,
@@ -161,7 +163,7 @@ export const PackageView: React.FC<PackageViewProps> = ({
         style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}
       >
         {items.map(item => {
-          const itemHasBid = bidAuctionIds.includes(item.id) || Boolean(currentUserId && (item as any).top_bids && (item as any).top_bids.some((b: any) => b.user_id === currentUserId));
+          const itemHasBid = bidAuctionIds.includes(item.id);
           return (
             <AuctionCard
               key={item.id}
@@ -171,6 +173,7 @@ export const PackageView: React.FC<PackageViewProps> = ({
               isVerified={isVerified}
               currentUserId={currentUserId}
               hasBid={itemHasBid}
+              myMax={myBidsMap?.get(item.id)}
               isWatched={watchlist.includes(item.id)}
               onWatchToggle={() => onWatchToggle(item.id)}
               onClick={() => onAuctionClick(item)}

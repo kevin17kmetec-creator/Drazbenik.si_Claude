@@ -132,45 +132,197 @@ export async function generateInvoicePDF(
     doc.on('error', (err) => reject(err));
 
     // Data normalizations
-    const isSellerBusiness = seller.company_status === 'company' || seller.user_type === 'business' || seller.isCompany;
-    const isBuyerBusiness = buyer.company_status === 'company' || buyer.user_type === 'business' || buyer.isCompany;
-    const isB2C = isSellerBusiness && !isBuyerBusiness;
-    const isB2B = isSellerBusiness && isBuyerBusiness;
-    const isC2B = !isSellerBusiness && isBuyerBusiness;
+    const activeBuyer = transaction.buyer_snapshot || buyer || {};
+    const activeSeller = transaction.seller_snapshot || seller || {};
+
+    const sType = activeSeller.user_type || activeSeller.userType || 'individual';
+    const isSellerBusiness = sType === 'business';
+    const sellerVatStatus = activeSeller.vat_status || activeSeller.vatStatus || (isSellerBusiness ? 'exempt_small' : 'private');
+
+    const bType = activeBuyer.user_type || activeBuyer.userType || 'individual';
+    const isBuyerBusiness = bType === 'business';
+
+    let relationship = 'C2C';
+    if (isSellerBusiness && isBuyerBusiness) relationship = 'B2B';
+    else if (isSellerBusiness && !isBuyerBusiness) relationship = 'B2C';
+    else if (!isSellerBusiness && isBuyerBusiness) relationship = 'C2B';
+
+    // Helper to format address
+    const getSafeAddressLoc = (u: any) => {
+      if (!u) return 'Naslov ni na voljo';
+      if (typeof u === 'string') return u;
+      const street = u.street_address || u.street || u.company_street || u.companyStreet || u.address || '';
+      const postal = u.postal_code || u.postalCode || u.company_postal_code || u.companyPostalCode || u.zip || '';
+      const city = u.city || u.company_city || u.companyCity || u.place || '';
+      if (street && postal && city) return `${street}, ${postal} ${city}`;
+      if (street && city) return `${street}, ${city}`;
+      if (street) return street;
+      if (city) return city;
+      return u.address || 'Naslov ni na voljo';
+    };
+
+    // Required fields check:
+    const checkRequiredFields = () => {
+      const missing: string[] = [];
+      const isEmpty = (v: any) => !v || String(v).trim().length === 0;
+
+      // Seller validation
+      if (relationship === 'C2C' || relationship === 'C2B') {
+        const sName = `${activeSeller.first_name || activeSeller.firstName || ''} ${activeSeller.last_name || activeSeller.lastName || ''}`.trim() || activeSeller.name || '';
+        if (isEmpty(sName)) missing.push('seller.name');
+        
+        const sAddress = getSafeAddressLoc(activeSeller);
+        if (isEmpty(sAddress) || sAddress === 'Naslov ni na voljo') missing.push('seller.address');
+        
+        const sPostal = activeSeller.postal_code || activeSeller.postalCode || '';
+        if (isEmpty(sPostal)) missing.push('seller.postal_code');
+        
+        const sCity = activeSeller.city || '';
+        if (isEmpty(sCity)) missing.push('seller.city');
+        
+        const sCountry = activeSeller.country_code || activeSeller.countryCode || activeSeller.country || '';
+        if (isEmpty(sCountry)) missing.push('seller.country_code');
+      } else {
+        const sCompName = activeSeller.company_name || activeSeller.companyName || '';
+        if (isEmpty(sCompName)) missing.push('seller.company_name');
+        
+        const sAddress = getSafeAddressLoc(activeSeller);
+        if (isEmpty(sAddress) || sAddress === 'Naslov ni na voljo') missing.push('seller.address');
+        
+        const sPostal = activeSeller.postal_code || activeSeller.postalCode || activeSeller.company_postal_code || activeSeller.companyPostalCode || '';
+        if (isEmpty(sPostal)) missing.push('seller.postal_code');
+        
+        const sCity = activeSeller.city || activeSeller.company_city || activeSeller.companyCity || '';
+        if (isEmpty(sCity)) missing.push('seller.city');
+        
+        const sCountry = activeSeller.country_code || activeSeller.countryCode || activeSeller.country || '';
+        if (isEmpty(sCountry)) missing.push('seller.country_code');
+        
+        const sReg = activeSeller.registration_number || activeSeller.regNumber || activeSeller.registrationNumber || '';
+        if (isEmpty(sReg)) missing.push('seller.registration_number');
+        
+        const sTax = activeSeller.tax_id || activeSeller.taxId || activeSeller.tax_number || activeSeller.taxNumber || '';
+        if (isEmpty(sTax)) missing.push('seller.tax_id');
+        
+        if (sellerVatStatus === 'payer') {
+          const sVat = activeSeller.vat_id || activeSeller.vatId || '';
+          if (isEmpty(sVat)) missing.push('seller.vat_id');
+        }
+      }
+
+      // Buyer validation
+      if (relationship === 'C2C' || relationship === 'B2C') {
+        const bName = `${activeBuyer.first_name || activeBuyer.firstName || ''} ${activeBuyer.last_name || activeBuyer.lastName || ''}`.trim() || activeBuyer.name || '';
+        if (isEmpty(bName)) missing.push('buyer.name');
+        
+        const bAddress = getSafeAddressLoc(activeBuyer);
+        if (isEmpty(bAddress) || bAddress === 'Naslov ni na voljo') missing.push('buyer.address');
+        
+        const bPostal = activeBuyer.postal_code || activeBuyer.postalCode || '';
+        if (isEmpty(bPostal)) missing.push('buyer.postal_code');
+        
+        const bCity = activeBuyer.city || '';
+        if (isEmpty(bCity)) missing.push('buyer.city');
+        
+        const bCountry = activeBuyer.country_code || activeBuyer.countryCode || activeBuyer.country || '';
+        if (isEmpty(bCountry)) missing.push('buyer.country_code');
+      } else {
+        const bCompName = activeBuyer.company_name || activeBuyer.companyName || '';
+        if (isEmpty(bCompName)) missing.push('buyer.company_name');
+        
+        const bAddress = getSafeAddressLoc(activeBuyer);
+        if (isEmpty(bAddress) || bAddress === 'Naslov ni na voljo') missing.push('buyer.address');
+        
+        const bPostal = activeBuyer.postal_code || activeBuyer.postalCode || activeBuyer.company_postal_code || activeBuyer.companyPostalCode || '';
+        if (isEmpty(bPostal)) missing.push('buyer.postal_code');
+        
+        const bCity = activeBuyer.city || activeBuyer.company_city || activeBuyer.companyCity || '';
+        if (isEmpty(bCity)) missing.push('buyer.city');
+        
+        const bCountry = activeBuyer.country_code || activeBuyer.countryCode || activeBuyer.country || '';
+        if (isEmpty(bCountry)) missing.push('buyer.country_code');
+        
+        const bTax = activeBuyer.tax_id || activeBuyer.taxId || activeBuyer.tax_number || activeBuyer.taxNumber || '';
+        if (isEmpty(bTax)) missing.push('buyer.tax_id');
+        
+        const bReg = activeBuyer.registration_number || activeBuyer.regNumber || activeBuyer.registrationNumber || '';
+        if (isEmpty(bReg)) missing.push('buyer.registration_number');
+      }
+
+      return missing;
+    };
+
+    const missingFields = checkRequiredFields();
+    if (missingFields.length > 0) {
+      reject(new Error(`MISSING_REQUIRED_INVOICE_FIELDS: ${missingFields.join(', ')}`));
+      return;
+    }
 
     const docNo = salesInvoiceNo || `INV-${(transaction.id || auction.id || '000000').substring(0, 8).toUpperCase()}`;
     const todayStr = new Date().toLocaleDateString('sl-SI');
     const paymentDate = auction.paid_at ? new Date(auction.paid_at).toLocaleDateString('sl-SI') : todayStr;
 
-    const sellerName = seller.company_name || seller.companyName || 
-      `${seller.first_name || seller.firstName || ''} ${seller.last_name || seller.lastName || ''}`.trim() || 
-      (typeof seller.name === 'object' ? seller.name?.SLO : seller.name) || 
-      seller.sellerName || 
-      'Prodajalec';
+    const sellerName = isSellerBusiness 
+      ? (activeSeller.company_name || activeSeller.companyName || 'Prodajalec d.o.o.')
+      : `${activeSeller.first_name || activeSeller.firstName || ''} ${activeSeller.last_name || activeSeller.lastName || ''}`.trim() || 'Prodajalec';
 
-    const buyerName = buyer.company_name || buyer.companyName || 
-      `${buyer.first_name || buyer.firstName || ''} ${buyer.last_name || buyer.lastName || ''}`.trim() || 
-      (typeof buyer.name === 'object' ? buyer.name?.SLO : buyer.name) || 
-      'Kupec';
+    const buyerName = isBuyerBusiness
+      ? (activeBuyer.company_name || activeBuyer.companyName || 'Kupec d.o.o.')
+      : `${activeBuyer.first_name || activeBuyer.firstName || ''} ${activeBuyer.last_name || activeBuyer.lastName || ''}`.trim() || 'Kupec';
 
-    const sellerAddress = getSafeAddress(seller);
-    const buyerAddress = getSafeAddress(buyer);
-    const sellerPlace = getSafePlace(seller);
+    const sellerAddress = getSafeAddressLoc(activeSeller);
+    const buyerAddress = getSafeAddressLoc(activeBuyer);
+    const sellerPlace = getSafePlace(activeSeller);
 
-    const sellerTaxId = seller.tax_id || seller.taxId || seller.vat_id || seller.vatId || (isSellerBusiness ? 'SI 12345678' : '');
-    const sellerRegNo = seller.registration_number || seller.regNumber || seller.registrationNumber || (isSellerBusiness ? '8876543000' : '');
+    const sellerTaxId = activeSeller.tax_id || activeSeller.taxId || activeSeller.vat_id || activeSeller.vatId || '';
+    const sellerRegNo = activeSeller.registration_number || activeSeller.regNumber || activeSeller.registrationNumber || '';
 
-    const buyerTaxId = buyer.tax_id || buyer.taxId || buyer.vat_id || buyer.vatId || '';
-    const buyerRegNo = buyer.registration_number || buyer.regNumber || '';
+    const buyerTaxId = activeBuyer.tax_id || activeBuyer.taxId || activeBuyer.vat_id || activeBuyer.vatId || '';
+    const buyerRegNo = activeBuyer.registration_number || activeBuyer.regNumber || activeBuyer.registrationNumber || '';
 
-    const itemPrice = Number(transaction.amount_total || auction.currentBid || auction.current_price || transaction.item_amount || 0);
-    const vatRate = 0.22;
-    const isVatApplicable = isSellerBusiness;
-    const vatBase = isVatApplicable ? itemPrice / (1 + vatRate) : itemPrice;
-    const vatAmount = isVatApplicable ? itemPrice - vatBase : 0;
+    const itemPrice = Number(transaction.item_price ?? (transaction.item_amount ?? (transaction.item_cents ? transaction.item_cents / 100 : (auction.currentBid || auction.current_price || 0))));
+
+    let vatRate = 0;
+    let vatAmount = 0;
+    let vatBase = itemPrice;
+    let isVatApplicable = false;
+    let noteText = '';
+    let isReverseCharge = false;
+
+    const buyerCountry = (activeBuyer.country_code || activeBuyer.countryCode || activeBuyer.country || 'SI').trim().toUpperCase();
+
+    if (relationship === 'C2C' || relationship === 'C2B') {
+      vatRate = 0;
+      vatAmount = 0;
+      vatBase = itemPrice;
+      isVatApplicable = false;
+      noteText = 'DDV ni obračunan (prodajalec je fizična oseba).';
+    } else {
+      if (sellerVatStatus === 'payer') {
+        isVatApplicable = true;
+        if (relationship === 'B2B' && buyerCountry !== 'SI' && ['AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'DE', 'GR', 'HU', 'IE', 'IT', 'LV', 'LT', 'LU', 'MT', 'NL', 'PL', 'PT', 'RO', 'SK', 'ES', 'SE'].includes(buyerCountry) && buyerTaxId) {
+          isReverseCharge = true;
+          vatRate = 0;
+          vatAmount = 0;
+          vatBase = itemPrice;
+          noteText = 'Obrnjena davčna obveznost / Reverse charge po Direktivi Sveta 2006/112/ES in 76. a členu ZDDV-1.';
+        } else {
+          vatRate = 22;
+          vatBase = Math.round((itemPrice / 1.22) * 100) / 100;
+          vatAmount = Math.round((itemPrice - vatBase) * 100) / 100;
+          noteText = 'V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).';
+        }
+      } else {
+        vatRate = 0;
+        vatAmount = 0;
+        vatBase = itemPrice;
+        isVatApplicable = false;
+        noteText = 'DDV ni obračunan na podlagi 1. odstavka 94. člena ZDDV-1 (mali davčni zavezanec).';
+      }
+    }
 
     const itemTitle = (typeof auction.title === 'object' ? (auction.title?.SLO || auction.title?.EN) : auction.title) || 'Dražbeni predmet';
-    const auctionId = auction.id || transaction.auction_id || 'AUCT-88319';
+    const auctionId = auction.id || transaction.auction_id || 'ni podatka';
     const deliveryMethod = auction.delivery_method === 'post' ? 'Dostava po pošti' : auction.delivery_method === 'pickup' ? 'Osebni prevzem na lokaciji prodajalca' : 'Osebni prevzem ali po dogovoru';
 
     // Theme colors
@@ -195,7 +347,11 @@ export async function generateInvoicePDF(
 
     // Top Header: Title on Left, Logo on Right
     setBold();
-    const docTitle = isC2B ? 'KUPOPRODAJNA POGODBA' : !isSellerBusiness ? 'KUPOPRODAJNA POGODBA / RAČUN' : 'RAČUN / INVOICE';
+    const docTitle = (relationship === 'C2C')
+      ? 'POTRDILO O NAKUPU (C2C)'
+      : (relationship === 'C2B')
+        ? 'KUPOPRODAJNA POGODBA'
+        : 'RAČUN / INVOICE';
     doc.fontSize(20).fillColor(colorDark).text(docTitle, 40, 42);
 
     // Right logo: dražbenik.si
@@ -377,11 +533,7 @@ export async function generateInvoicePDF(
     setBold();
     doc.fontSize(7.5).fillColor(colorDark).text('Pravna opomba in DDV: ', 40, footY, { continued: true });
     setRegular();
-    doc.fillColor(colorMuted).text(
-      isSellerBusiness
-        ? 'V ceno je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).'
-        : 'DDV ni obračunan na podlagi 1. odstavka 94. člena ZDDV-1 (prodajalec je fizična oseba).'
-    );
+    doc.fillColor(colorMuted).text(noteText);
 
     footY += 15;
     setRegular();
@@ -398,9 +550,11 @@ export async function generateInvoicePDF(
     doc.addPage({ margin: 40, size: 'A4' });
 
     const feeDocNo = commissionInvoiceNo || `PROV-${(transaction.id || auction.id || '000000').substring(0, 8).toUpperCase()}`;
-    const feeBase = Number(transaction.platform_fee || (itemPrice * 0.10) / 1.22);
-    const feeVat = Number(transaction.vat_amount || feeBase * 0.22);
-    const feeTotal = Number(transaction.fee_total || feeBase + feeVat);
+    const feeBase = Number(transaction.platform_fee ?? (itemPrice * 0.10) / 1.22);
+    const feeVatRate = transaction.vat_rate !== undefined ? Number(transaction.vat_rate) : 22;
+    const feeVat = Number(transaction.vat_amount ?? feeBase * (feeVatRate / 100));
+    isReverseCharge = Boolean(transaction.is_reverse_charge);
+    const feeTotal = feeBase + feeVat;
 
     // Centered Title
     setBold();
@@ -498,9 +652,15 @@ export async function generateInvoicePDF(
 
     p2Y += 15;
     setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text('DDV / VAT (22%):', totalsLeft, p2Y);
+    doc.fontSize(8.5).fillColor(colorMuted).text(`DDV / VAT (${feeVatRate}%):`, totalsLeft, p2Y);
     setBold();
     doc.fontSize(8.5).fillColor(colorDark).text(`${formatEuro(feeVat)} €`, totalsLeft + 120, p2Y, { width: 110, align: 'right' });
+
+    if (isReverseCharge) {
+      p2Y += 15;
+      setBold();
+      doc.fontSize(8).fillColor('#D97706').text('Obrnjena davčna obveznost / Reverse charge', totalsLeft, p2Y, { width: 230 });
+    }
 
     p2Y += 15;
     doc.strokeColor(colorDark).lineWidth(1.5).moveTo(totalsLeft, p2Y).lineTo(totalsValueRight, p2Y).stroke();

@@ -64,8 +64,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
   const remainingCount = items.length - displayItems.length;
 
   const userBiddedItems = items.filter(it => 
-    bidAuctionIds?.includes(it.id) || 
-    Boolean(currentUserId && (it as any).top_bids && (it as any).top_bids.some((b: any) => b.user_id === currentUserId))
+    bidAuctionIds?.includes(it.id)
   );
 
   let borderClass = "border border-white/10 hover:border-[#FEBA4F]/40";

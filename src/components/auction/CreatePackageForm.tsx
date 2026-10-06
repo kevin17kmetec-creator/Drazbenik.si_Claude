@@ -72,8 +72,6 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
     if (userId && userId !== 'guest') {
       try {
         const sanitized = JSON.parse(JSON.stringify(payload, (k, v) => (v === undefined ? null : v)));
-        const userRef = doc(db, 'users', userId);
-        await updateDoc(userRef, { package_draft: sanitized }).catch(() => null);
         const draftDocRef = doc(db, 'package_drafts', userId);
         await setDoc(draftDocRef, sanitized, { merge: true }).catch(() => null);
       } catch (e) {
@@ -118,20 +116,10 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
             if (snap.exists()) remoteData = snap.data();
           } catch (e) {}
 
-          if (!remoteData) {
-            try {
-              const uSnap = await getDoc(doc(db, 'users', userId));
-              if (uSnap.exists() && uSnap.data()?.package_draft) {
-                remoteData = uSnap.data().package_draft;
-              }
-            } catch (e) {}
-          }
-
           if (remoteData) {
             const creationTime = remoteData.createdAt || remoteData.updatedAt || Date.now();
             if (Date.now() - creationTime > 3 * 24 * 60 * 60 * 1000) {
               await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
-              await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
               localStorage.removeItem(`drazbe_package_draft_${userId}`);
               localStorage.removeItem('drazbe_package_draft_latest');
             } else {
@@ -178,7 +166,6 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
         localStorage.removeItem('drazbe_package_draft_latest');
         if (userId && userId !== 'guest') {
           await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
-          await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
         }
         setItems([]);
         setPackageTitle("");
@@ -309,7 +296,6 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
       localStorage.removeItem('drazbe_package_draft_latest');
       if (userId && userId !== 'guest') {
         await deleteDoc(doc(db, 'package_drafts', userId)).catch(() => null);
-        await updateDoc(doc(db, 'users', userId), { package_draft: null }).catch(() => null);
       }
     } catch (error) {
       toast.error("Prišlo je do napake pri objavi.");

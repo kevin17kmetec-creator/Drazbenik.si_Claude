@@ -1,4 +1,5 @@
 import { Region } from '../types';
+import { getAuthHeaders } from './authFetch';
 
 export const getIncrement = (amount: number) => {
   if (amount < 10) return 1;
@@ -7,48 +8,6 @@ export const getIncrement = (amount: number) => {
   if (amount < 500) return 10;
   return 20;
 };
-
-export function calculateMarginalPlatformFee(currentPrice: number, subscriptionTier: string | null | undefined): number {
-    let bracket1Rate = 8;
-    let bracket2Rate = 5;
-    let bracket3Rate = 4;
-
-    if (subscriptionTier === 'PRO') {
-        bracket1Rate = 3;
-        bracket2Rate = 2.5;
-        bracket3Rate = 2;
-    } else if (subscriptionTier === 'BASIC') {
-        bracket1Rate = 6.5;
-        bracket2Rate = 4;
-        bracket3Rate = 3.2;
-    }
-
-    let totalFee = 0;
-    let remainingAmount = currentPrice;
-
-    if (remainingAmount > 0) {
-        const amountInBracket = Math.min(remainingAmount, 1000);
-        totalFee += amountInBracket * (bracket1Rate / 100);
-        remainingAmount -= amountInBracket;
-    }
-
-    if (remainingAmount > 0) {
-        const amountInBracket = Math.min(remainingAmount, 4000);
-        totalFee += amountInBracket * (bracket2Rate / 100);
-        remainingAmount -= amountInBracket;
-    }
-
-    if (remainingAmount > 0) {
-        totalFee += remainingAmount * (bracket3Rate / 100);
-    }
-
-    const absoluteMinimumFee = currentPrice * 0.02;
-    if (totalFee < absoluteMinimumFee) {
-        totalFee = absoluteMinimumFee;
-    }
-
-    return totalFee;
-}
 
 export const formatSeconds = (totalSeconds: number) => {
   if (totalSeconds <= 0) return "00:00";
@@ -222,3 +181,22 @@ export const normalizeRegionName = (reg: any): Region => {
 
   return Region.Osrednjeslovenska;
 };
+
+const finalizedAuctionIds = new Set<string>();
+
+export async function checkAndFinalizeAuctionClient(auctionId: string, onRefresh?: () => void) {
+  if (!auctionId || finalizedAuctionIds.has(auctionId)) return;
+  finalizedAuctionIds.add(auctionId);
+  try {
+    const headers = await getAuthHeaders();
+    await fetch('/api/auctions/finalize', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ auction_id: auctionId })
+    });
+    if (onRefresh) onRefresh();
+  } catch (e) {
+    console.warn("Failed to finalize auction on client:", e);
+  }
+}
+

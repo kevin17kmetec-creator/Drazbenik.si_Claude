@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { AlertCircle, Clock, X } from 'lucide-react';
+import { Portal } from './Portal';
 
 export const formatSeconds = (totalSeconds: number) => {
   if (totalSeconds <= 0) return "00:00";
@@ -58,16 +59,18 @@ export const LegalModal: React.FC<{ type: 'terms' | 'privacy' | 'how'; onClose: 
     };
 
     return (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center p-4">
-            <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
-            <div className="relative bg-white w-full max-w-2xl rounded-[3rem] p-10 lg:p-14 shadow-2xl animate-in border-4 border-[#FEBA4F]">
-                <button onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
-                <h3 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-8">{titles[type]}</h3>
-                <div className="text-slate-600 font-bold leading-relaxed text-lg whitespace-pre-line mb-10">
-                    {content[type]}
+        <Portal>
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+                <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
+                <div className="relative bg-white w-full max-w-2xl rounded-[3rem] p-10 lg:p-14 shadow-2xl animate-in border-4 border-[#FEBA4F]">
+                    <button onClick={onClose} className="absolute top-8 right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+                    <h3 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-8">{titles[type]}</h3>
+                    <div className="text-slate-600 font-bold leading-relaxed text-lg whitespace-pre-line mb-10">
+                        {content[type]}
+                    </div>
+                    <button onClick={onClose} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">Razumem</button>
                 </div>
-                <button onClick={onClose} className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl">Razumem</button>
             </div>
-        </div>
+        </Portal>
     );
 };

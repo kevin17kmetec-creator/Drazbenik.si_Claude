@@ -168,29 +168,14 @@ export async function uploadBufferToStorage(
     await file.save(buffer, {
       metadata: {
         contentType,
-        metadata: {
-          firebaseStorageDownloadTokens: `${Date.now()}_${Math.random().toString(36).substring(2, 9)}`
-        }
       },
       resumable: false
     });
 
-    try {
-      await file.makePublic();
-      return `https://storage.googleapis.com/${bucket.name}/${destinationPath}`;
-    } catch (makePublicErr) {
-      // If uniform bucket-level access is enabled, get a long-lived signed URL or standard public link
-      const [signedUrl] = await file.getSignedUrl({
-        action: 'read',
-        expires: '2030-01-01'
-      });
-      return signedUrl;
-    }
+    return destinationPath;
   } catch (error: any) {
     console.error(`[Firebase Admin Storage] Upload error for ${destinationPath}:`, error.message);
-    // Fallback direct URL format
-    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
-    return `https://firebasestorage.googleapis.com/v0/b/${bucketName}/o/${encodeURIComponent(destinationPath)}?alt=media`;
+    throw error;
   }
 }
 

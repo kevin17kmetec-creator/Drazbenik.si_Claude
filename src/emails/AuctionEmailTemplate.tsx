@@ -16,7 +16,7 @@ import {
   Preview,
 } from '@react-email/components';
 
-export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder';
+export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller';
 
 export interface AuctionEmailProps {
   type: EmailType;
@@ -32,6 +32,8 @@ export interface AuctionEmailProps {
   settingsUrl?: string;
   bidDifference?: number;
   formattedAmount?: string;
+  carrierName?: string;
+  trackingNumber?: string;
 }
 
 export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
@@ -48,6 +50,8 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
   settingsUrl = 'https://drazbe.eu/?tab=settings',
   bidDifference,
   formattedAmount,
+  carrierName,
+  trackingNumber,
 }) => {
   const formattedPrice = formattedAmount || `€${Number(currentPrice || 0).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
@@ -123,10 +127,62 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       badgeColor = '#FFFFFF';
       headline = 'Vaše plačilo je bilo uspešno!';
       subheadline = `Plačilo za dražbo "${auctionTitle}" je bilo uspešno obdelano. V priponki tega sporočila vam pošiljamo račun za opravljeno storitev ter potrdilo o nakupu (kupoprodajno pogodbo).`;
-      ctaText = 'Ogled dražbe';
+      ctaText = 'Status naročila';
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Plačan znesek:';
       highlightNote = 'Dokumenti so priloženi k temu sporočilu v PDF obliki.';
+      break;
+
+    case 'payment_received_seller':
+      previewText = `Prejeto plačilo za vašo dražbo "${auctionTitle}"!`;
+      badgeText = 'PREJETO PLAČILO';
+      badgeBg = '#10B981';
+      badgeColor = '#FFFFFF';
+      headline = 'Imate novo plačilo!';
+      subheadline = `Kupec je uspešno plačal za artikel "${auctionTitle}". Predmet morate odposlati ali predati v roku 7 dni. Sredstva so varno shranjena v escrow hrambi do potrditve prejema.`;
+      ctaText = 'Status naročila';
+      ctaUrl = auctionUrl || 'https://drazbe.eu';
+      priceLabel = 'Prejeti znesek:';
+      highlightNote = `Rok za odpremo: ${paymentDeadline || '7 dni'}.`;
+      break;
+
+    case 'item_shipped_buyer':
+      previewText = `Vaš predmet "${auctionTitle}" je bil poslan!`;
+      badgeText = 'PREDMET POSLAN';
+      badgeBg = '#3B82F6'; // Blue
+      badgeColor = '#FFFFFF';
+      headline = 'Vaš predmet je na poti!';
+      subheadline = `Prodajalec je označil, da je predmet "${auctionTitle}" oddan na pošto. ${carrierName ? `Prevoznik: ${carrierName}.` : ''} ${trackingNumber ? `Sledilna številka: ${trackingNumber}.` : ''}`;
+      ctaText = 'Status naročila';
+      ctaUrl = auctionUrl || 'https://drazbe.eu';
+      priceLabel = 'Artikel:';
+      highlightNote = 'Ko predmet prejmete, prosimo potrdite prejem na platformi.';
+      break;
+
+    case 'item_delivered_buyer':
+      previewText = `Ste prejeli predmet "${auctionTitle}"? Potrdite prejem!`;
+      badgeText = 'POTRDITE PREJEM';
+      badgeBg = '#FEBA4F';
+      badgeColor = '#0A1128';
+      headline = 'Je predmet prispel?';
+      subheadline = `Predmet "${auctionTitle}" bi moral biti že pri vas. Prosimo, da na platformi potrdite prejem, da lahko sprostimo izplačilo prodajalcu. V primeru težav lahko odprete spor.`;
+      ctaText = 'Potrdi prejem';
+      ctaUrl = auctionUrl || 'https://drazbe.eu';
+      priceLabel = 'Artikel:';
+      highlightNote = 'Če prejema ne potrdite ročno, se bo po določenem času potrdil samodejno.';
+      break;
+
+    case 'item_delivered_seller':
+      previewText = `Prejem predmeta "${auctionTitle}" je bil potrjen!`;
+      badgeText = 'PREJEM POTRJEN';
+      badgeBg = '#10B981';
+      badgeColor = '#FFFFFF';
+      headline = 'Kupec je potrdil prejem!';
+      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izplačilo na vaš Stripe račun bo sproženo samodejno čez 2 dni, če ne bo vloženih pritožb.`;
+      ctaText = 'Status naročila';
+      ctaUrl = auctionUrl || 'https://drazbe.eu';
+      priceLabel = 'Znesek izplačila:';
+      highlightNote = 'Sredstva bodo kmalu na vašem računu.';
       break;
 
     case 'review_reminder':

@@ -30,8 +30,6 @@ import {
   Globe
 } from 'lucide-react';
 import { toast } from 'sonner';
-import html2canvas from 'html2canvas';
-import jsPDF from 'jspdf';
 import { PackageCard } from "@/src/components/auction/PackageCard";
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import { AuctionItem } from '../../types';
@@ -249,6 +247,15 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
     if (!invoicePreviewRef.current) return;
     setIsPdfGenerating(true);
     try {
+      // Dynamically import required libraries on button click (Task 27)
+      const [html2canvasModule, jspdfModule, jspdfAutotableModule] = await Promise.all([
+        import('html2canvas'),
+        import('jspdf'),
+        import('jspdf-autotable')
+      ]);
+      const html2canvas = html2canvasModule.default;
+      const jsPDF = jspdfModule.default;
+
       // Instead of html2canvas which fails on some CSS, we use a hidden iframe or print window to generate a clean vector PDF
       const contentHtml = invoicePreviewRef.current.innerHTML;
       const printWindow = window.open('', '_blank');
@@ -545,8 +552,8 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
   const handleRunCron = async () => {
     setIsCronRunning(true);
     try {
-      const res = await fetch('/api/cron/check-auctions', {
-        method: 'GET',
+      const res = await fetch('/api/admin/run-cron', {
+        method: 'POST',
         headers: await getAuthHeaders()
       });
       let data: any;
@@ -1881,7 +1888,7 @@ export const TestSandboxView: React.FC<TestSandboxViewProps> = ({
               className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase text-xs tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all flex items-center gap-2 shadow-lg disabled:opacity-50 shrink-0"
             >
               <RefreshCw size={16} className={isCronRunning ? 'animate-spin' : ''} />
-              {isCronRunning ? 'Izvajanje preverjanja...' : 'Zaženi Cron preverjanje (/api/cron/check-auctions)'}
+              {isCronRunning ? 'Izvajanje preverjanja...' : 'Zaženi Cron preverjanje (/api/admin/run-cron)'}
             </button>
           </div>
 

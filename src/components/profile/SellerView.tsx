@@ -204,47 +204,6 @@ const SellerView: React.FC<SellerViewProps> = ({
     return counts;
   }, [reviews]);
 
-  const handleAddReview = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setIsSubmittingReview(true);
-    const authorName = auth.currentUser?.displayName || 'Preverjen kupec';
-    const reviewPayload = {
-      seller_id: seller.id,
-      sellerId: seller.id,
-      author: authorName,
-      author_id: auth.currentUser?.uid || '',
-      rating: newReview.rating,
-      comment: newReview.comment.trim(),
-      date: new Date().toLocaleDateString('sl-SI'),
-      created_at: new Date().toISOString(),
-      isVerified: true,
-      wouldRecommend: newReview.wouldRecommend
-    };
-
-    try {
-      const docRef = await addDoc(collection(db, 'reviews'), reviewPayload);
-      const createdReview: Review = {
-        id: docRef.id,
-        ...reviewPayload
-      };
-      setReviews(prev => [createdReview, ...prev]);
-      setNewReview({ rating: 5, comment: '', wouldRecommend: true });
-      toast.success('Ocena je bila uspešno oddana!');
-    } catch (err: any) {
-      console.error('Error saving review to Firestore:', err);
-      // Fallback local update
-      const fallbackReview: Review = {
-        id: `rev-${Date.now()}`,
-        ...reviewPayload
-      };
-      setReviews(prev => [fallbackReview, ...prev]);
-      setNewReview({ rating: 5, comment: '', wouldRecommend: true });
-      toast.success('Ocena je bila zabeležena!');
-    } finally {
-      setIsSubmittingReview(false);
-    }
-  };
-
   const memberSinceStr = useMemo(() => {
     if ((seller as any).created_at) {
       const d = new Date((seller as any).created_at);
@@ -558,85 +517,6 @@ const SellerView: React.FC<SellerViewProps> = ({
 
         {activeTab === 'reviews' && (
           <div className="max-w-4xl mx-auto">
-            {/* Add Review Section */}
-            {canLeaveReview && (
-              <div className="bg-slate-50 rounded-[3rem] p-8 sm:p-10 border-2 border-dashed border-slate-200 mb-12">
-                <div className="flex items-center gap-4 mb-8">
-                  <div className="bg-[#FEBA4F] p-3 rounded-2xl shadow-lg">
-                    <Award size={24} className="text-[#0A1128]" />
-                  </div>
-                  <div>
-                    <h3 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter italic">{t('leaveReview')}</h3>
-                    <p className="text-slate-400 font-bold text-sm">{t('reviewNotice')}</p>
-                  </div>
-                </div>
-
-                <form onSubmit={handleAddReview} className="space-y-6">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center gap-6">
-                    <div className="space-y-2">
-                      <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('rating')}</label>
-                      <div className="flex gap-2">
-                        {[1, 2, 3, 4, 5].map(star => (
-                          <button 
-                            key={star} 
-                            type="button"
-                            onClick={() => setNewReview({...newReview, rating: star})}
-                            className={`p-2 rounded-xl transition-all ${newReview.rating >= star ? 'text-[#FEBA4F] bg-[#FEBA4F]/10' : 'text-slate-300 bg-white'}`}
-                          >
-                            <Star size={24} fill={newReview.rating >= star ? 'currentColor' : 'none'} />
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    <div className="space-y-2 flex-1 w-full">
-                       <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('recommend')}</label>
-                       <div className="flex gap-3">
-                          <button 
-                            type="button"
-                            onClick={() => setNewReview({...newReview, wouldRecommend: true})}
-                            className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all border-2 ${newReview.wouldRecommend ? 'bg-green-50 border-green-200 text-green-600' : 'bg-white border-slate-100 text-slate-400'}`}
-                          >
-                            {t('yesRecommend')}
-                          </button>
-                          <button 
-                            type="button"
-                            onClick={() => setNewReview({...newReview, wouldRecommend: false})}
-                            className={`flex-1 py-3 rounded-xl font-black text-xs uppercase tracking-widest transition-all border-2 ${!newReview.wouldRecommend ? 'bg-red-50 border-red-200 text-red-600' : 'bg-white border-slate-100 text-slate-400'}`}
-                          >
-                            {t('noRecommend')}
-                          </button>
-                       </div>
-                    </div>
-                  </div>
-
-                  <div className="space-y-2">
-                    <label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('comment')}</label>
-                    <textarea 
-                      value={newReview.comment}
-                      onChange={e => setNewReview({...newReview, comment: e.target.value})}
-                      placeholder={t('commentPlaceholder')}
-                      className="w-full bg-white border border-slate-200 rounded-2xl py-4 px-6 font-bold h-32 outline-none focus:border-[#FEBA4F] transition-all resize-none"
-                    />
-                  </div>
-
-                  <button 
-                    type="submit" 
-                    disabled={isSubmittingReview}
-                    className="w-full bg-[#0A1128] text-white py-5 rounded-2xl font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl disabled:opacity-50"
-                  >
-                    {isSubmittingReview ? 'Oddajanje...' : t('publishReview')}
-                  </button>
-                </form>
-              </div>
-            )}
-
-            {!canLeaveReview && isLoggedIn && auth.currentUser?.uid !== seller.id && (
-              <div className="bg-slate-50 rounded-3xl p-6 border border-slate-100 mb-12 flex items-center gap-4 text-slate-500">
-                <AlertCircle size={20} />
-                <p className="text-sm font-bold">{t('reviewRestriction')}</p>
-              </div>
-            )}
-
             {/* Reviews Summary & Filter Header */}
             {reviews.length > 0 && (
               <div className="bg-slate-50 rounded-[3rem] p-6 sm:p-8 border border-slate-100 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">

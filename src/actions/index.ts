@@ -364,37 +364,6 @@ export async function createAuctionAction(params: {
 }
 
 /**
- * Zahtevek za izplačilo sredstev iz denarnice
- */
-export async function requestPayoutAction(params: {
-  user_id?: string;
-  amount: number;
-}, token?: string): Promise<ActionResponse> {
-  'use server';
-  return safeApiCall('/api/payouts/withdraw', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    body: JSON.stringify(params),
-  });
-}
-
-/**
- * Pridobitev Stripe Connect povezave za onboarding
- */
-export async function getStripeAccountLinkAction(params: {
-  user_id: string;
-  userId?: string;
-  return_url: string;
-  refresh_url: string;
-}): Promise<ActionResponse<{ url?: string }>> {
-  'use server';
-  return safeApiCall<{ url?: string }>('/api/stripe-account-link', {
-    method: 'POST',
-    body: JSON.stringify(params),
-  });
-}
-
-/**
  * Preverjanje statusa Stripe računa
  */
 export async function checkStripeAccountStatusAction(params?: {
