@@ -4,32 +4,84 @@
       "collectionGroup": "auctions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "status", "order": "ASCENDING" },
-        { "fieldPath": "end_time", "order": "ASCENDING" }
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "end_time",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "auctions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "post_auction_status", "order": "ASCENDING" },
-        { "fieldPath": "payment_deadline", "order": "ASCENDING" }
+        {
+          "fieldPath": "post_auction_status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "payment_deadline",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "auctions",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "buyer_received", "order": "ASCENDING" },
-        { "fieldPath": "received_at", "order": "ASCENDING" }
+        {
+          "fieldPath": "buyer_received",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "received_at",
+          "order": "ASCENDING"
+        }
       ]
     },
     {
       "collectionGroup": "users",
       "queryScope": "COLLECTION",
       "fields": [
-        { "fieldPath": "subscription_canceled", "order": "ASCENDING" },
-        { "fieldPath": "subscription_valid_until", "order": "ASCENDING" }
+        {
+          "fieldPath": "subscription_canceled",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "subscription_valid_until",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "auto_release_at",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "transactions",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "status",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "auto_complete_at",
+          "order": "ASCENDING"
+        }
       ]
     }
   ],

@@ -4,6 +4,7 @@ import { AuctionItem } from "../../types";
 import { getAuthHeaders } from "../../lib/authFetch";
 import { calculatePlatformFeeCents } from "../../lib/feeCalculator";
 import { Portal } from '../ui/Portal';
+import { PLATFORM_COMPANY } from '../../lib/platformCompany';
 
 interface InvoiceModalProps {
   isOpen: boolean;
@@ -480,13 +481,13 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
                     <h3 className="text-[11px] font-black uppercase tracking-wider mb-1.5 text-slate-400">
                       IZDAJATELJ (PLATFORMA)
                     </h3>
-                    <p className="font-black text-base text-[#0A1128]">Dizain d.o.o.</p>
-                    <p className="text-xs text-slate-600 mt-0.5">Karantanska ulica 28, 2000 Maribor</p>
+                    <p className="font-black text-base text-[#0A1128]">{PLATFORM_COMPANY.name}</p>
+                    <p className="text-xs text-slate-600 mt-0.5">{PLATFORM_COMPANY.address}</p>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Davčna številka: <strong className="text-slate-800">SI57008060</strong>
+                      Davčna številka: <strong className="text-slate-800">{PLATFORM_COMPANY.vatId}</strong>
                     </p>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Matična številka: <strong className="text-slate-800">9093494000</strong>
+                      Matična številka: <strong className="text-slate-800">{PLATFORM_COMPANY.registrationNumber}</strong>
                     </p>
                   </div>
 

@@ -64,6 +64,7 @@ import {
   getDocSnapshotData,
   FieldValue
 } from '../lib/firebase-admin';
+import { PLATFORM_COMPANY } from '../lib/platformCompany';
 
 async function safeGetDocs(queryRef: any) {
   try {
@@ -562,7 +563,7 @@ async function createAndSendSubscriptionInvoice(params: {
               Uradni PDF račun za vaš nakup je priložen temu sporočilu (<strong>${fileName}</strong>). Vse ugodnosti vašega paketa so že na voljo v vašem uporabniškem računu.
             </p>
             <div style="margin-top: 32px; padding-top: 20px; border-top: 1px solid #E2E8F0; font-size: 11px; color: #94A3B8; text-align: center;">
-              <p style="margin: 0;">Dizain d.o.o., Karantanska ulica 28, 2000 Maribor | ID za DDV: SI57008060</p>
+              <p style="margin: 0;">${PLATFORM_COMPANY.name}, ${PLATFORM_COMPANY.address} | ID za DDV: ${PLATFORM_COMPANY.vatId}</p>
               <p style="margin: 4px 0 0 0;">Sporočilo je bilo samodejno generirano s strani sistema dražbe.si.</p>
             </div>
           </div>
@@ -1093,7 +1094,8 @@ app.use((req, _res, next) => {
 
 function isPostalDelivery(method: any): boolean {
   if (typeof method !== 'string') return false;
-  return ['post', 'POSTAL_DELIVERY', 'delivery', 'shipping', 'both'].includes(method);
+  // Reale Werte: 'post' und 'shipping' (select-delivery), 'POSTAL_DELIVERY' nur als Altwert
+  return ['post', 'shipping', 'POSTAL_DELIVERY'].includes(method);
 }
 
 async function refundTransactionToBuyer(txId: string, reason: string): Promise<{ ok: boolean; status: string }> {
@@ -1222,7 +1224,8 @@ async function releaseSellerPayout(txId: string, reason: string) {
         metadata: { tx_id: txId, auction_id: tx.auction_id || '' }
       }, {
         stripeAccount: sellerStripeAccountId,
-        idempotencyKey: 'payout_' + txId
+        // Schluessel je Versuchsfolge: ein endgueltig fehlgeschlagener Versuch wird von Stripe sonst identisch wiederholt
+        idempotencyKey: 'payout_' + txId + '_' + (tx.payout_key_seq || 0)
       });
 
       await txRef.update({
@@ -1268,6 +1271,10 @@ async function releaseSellerPayout(txId: string, reason: string) {
         payout_status: 'release_failed',
         payout_error: safeErr.userMessage,
         payout_attempts: attempts,
+        // Bei Verbindungsfehlern denselben Schluessel behalten (Zahlung koennte angekommen sein)
+        payout_key_seq: (payoutErr?.type === 'StripeConnectionError' || payoutErr?.type === 'StripeAPIError')
+          ? (tx.payout_key_seq || 0)
+          : (tx.payout_key_seq || 0) + 1,
         next_payout_attempt_at: nextAttempt,
         payout_lease_until: 0
       });
@@ -1412,6 +1419,10 @@ async function finalizeAuctionPayment(params: {
     const autoReleaseAtIso = deliveryMethod === 'pickup'
       ? new Date(Date.now() + PICKUP_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString()
       : null;
+    // Versandfrist nur bei Paketversand (Abholung hat eigene Frist ueber auto_release_at)
+    const shippingDeadlineIso = isPostalDelivery(deliveryMethod)
+      ? new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString()
+      : null;
 
     const makeSnapshot = (user: any) => {
       const street = user.street_address || user.street || user.company_street || user.companyStreet || '';
@@ -1453,6 +1464,8 @@ async function finalizeAuctionPayment(params: {
       seller_net_cents: itemCents,
       seller_stripe_account_id: sellerStripeAccountId,
       held_since: nowIso,
+      delivery_method: deliveryMethod,
+      ...(shippingDeadlineIso ? { shipping_deadline: shippingDeadlineIso } : {}),
       auto_release_at: autoReleaseAtIso,
       hold_deadline_at: holdDeadlineIso,
       buyer_snapshot: buyerSnapshot,
@@ -4627,39 +4640,48 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
 
     for (const docSnap of snapshot.docs) {
       const tx = docSnap.data();
-      if (tx.delivery_method === 'pickup') continue;
+      // Lieferart aus der Transaktion, bei Altdaten aus der Auktion
+      let txDeliveryMethod = tx.delivery_method;
+      if (!txDeliveryMethod && tx.auction_id) {
+        const auctionSnap = await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id));
+        txDeliveryMethod = auctionSnap.exists() ? auctionSnap.data().delivery_method : null;
+      }
+      // Abholung oder noch nicht gewaehlte Lieferart: keine Versandfrist
+      if (!isPostalDelivery(txDeliveryMethod)) continue;
 
       let deadline = tx.shipping_deadline;
-      if (!deadline && tx.paid_at) {
-        deadline = new Date(new Date(tx.paid_at).getTime() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      const paidReference = tx.paid_at || tx.held_since;
+      if (!deadline && paidReference) {
+        deadline = new Date(new Date(paidReference).getTime() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
       }
 
       if (deadline && now >= deadline) {
-        // Real Stripe refund
-        let refundSuccess = false;
-        if (tx.stripe_payment_intent_id) {
+        // Echte Rueckerstattung ueber den zentralen Helper (reverse_transfer + refund_application_fee)
+        const refundResult = await refundTransactionToBuyer(docSnap.id, 'seller_no_shipment');
+
+        if (!refundResult.ok) {
+          // Status bleibt unveraendert, naechster Cron-Lauf versucht es erneut (idempotent)
+          await docSnap.ref.update({
+            refund_error: refundResult.status,
+            refund_failed_at: now
+          });
           try {
-            const stripe = getStripe();
-            await stripe.refunds.create({
-              payment_intent: tx.stripe_payment_intent_id,
-              reason: 'requested_by_customer',
-              metadata: { order_id: docSnap.id, reason: 'SELLER_NO_SHIPMENT' }
-            });
-            refundSuccess = true;
-          } catch (refundErr: any) {
-            console.error(`[cron] Stripe refund failed for order ${docSnap.id}:`, refundErr.message);
+            if (process.env.RESEND_API_KEY) {
+              const resendAdmin = new Resend(process.env.RESEND_API_KEY);
+              await resendAdmin.emails.send({
+                from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+                to: adminEmailAddress,
+                subject: "Vračilo zaradi neposlane pošiljke ni uspelo",
+                html: `<p>Samodejno vračilo za naročilo <strong>${docSnap.id}</strong> ni uspelo (status: ${refundResult.status}). Preverite naročilo v administraciji.</p>`
+              });
+            }
+          } catch (adminMailErr: any) {
+            console.error('[cron] Admin alert for failed refund not sent:', adminMailErr.message);
           }
+          continue;
         }
 
-        // Always update status even if refund failed (admin needs to see it)
-        await docSnap.ref.update({
-          status: 'CANCELLED',
-          payout_status: 'refunded',
-          cancelled_reason: 'SELLER_NO_SHIPMENT',
-          updated_at: now
-        });
-
-        // Add seller strike
+        // Verkaeufer-Strike und Notiz
         await adminDb.collection('seller_strikes').add({
           user_id: tx.seller_id,
           order_id: docSnap.id,
@@ -4677,6 +4699,39 @@ const handleProcessShippingDeadlines = async (req: express.Request, res: express
         }
 
         await checkAndApplySellerPenalties(tx.seller_id);
+
+        // E-Mails an Kaeufer und Verkaeufer, je einmal (email_flags.shipping_cancelled)
+        try {
+          const freshSnap = await docSnap.ref.get();
+          const flags = (freshSnap.data() || {}).email_flags || {};
+          if (!flags.shipping_cancelled && process.env.RESEND_API_KEY) {
+            const resendCron = new Resend(process.env.RESEND_API_KEY);
+            const fromAddr = process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>';
+            const buyerDoc = tx.buyer_id ? await safeGetDoc(adminDb.collection('users').doc(tx.buyer_id)) : null;
+            const sellerData = sellerDoc.exists() ? sellerDoc.data() : null;
+            const buyerEmail = buyerDoc && buyerDoc.exists() ? buyerDoc.data().email : null;
+            if (buyerEmail) {
+              await resendCron.emails.send({
+                from: fromAddr,
+                to: buyerEmail,
+                subject: "Naročilo je bilo preklicano",
+                html: `<p>Naročilo je bilo preklicano, ker prodajalec predmeta ni poslal v roku. Znesek vam vrnemo v celoti, vključno s provizijo.</p>`
+              });
+            }
+            if (sellerData?.email) {
+              await resendCron.emails.send({
+                from: fromAddr,
+                to: sellerData.email,
+                subject: "Naročilo je bilo preklicano",
+                html: `<p>Naročilo je bilo preklicano, ker predmet ni bil poslan v predpisanem roku. Kupcu smo vrnili znesek, vaš račun pa je prejel opozorilo.</p>`
+              });
+            }
+            await docSnap.ref.set({ email_flags: { ...flags, shipping_cancelled: true } }, { merge: true });
+          }
+        } catch (mailErr: any) {
+          console.error('[cron] Cancellation e-mails not sent:', mailErr.message);
+        }
+
         processed++;
       }
     }
@@ -4783,7 +4838,7 @@ app.post("/api/orders/:id/mark-as-shipped", async (req, res) => {
     if (tx.seller_id !== userId) return res.status(403).json({ error: "Nimate pravic." });
     if (tx.status !== 'HELD_IN_ESCROW') return res.status(400).json({ error: "Napačno stanje naročila." });
 
-    const amount = Number(tx.amount_total || tx.amount);
+    const amount = Number(tx.item_price ?? (tx.seller_net_cents ? tx.seller_net_cents / 100 : tx.amount_total));
     if (amount > 15 && !tracking_number) {
       return res.status(400).json({ error: "Za zneske nad 15 € je obvezen vnos sledilne številke." });
     }
@@ -4937,6 +4992,36 @@ const handleProcessEscrowCompletions = async (req: express.Request, res: express
       processed++;
     }
 
+    // (c2) fehlgeschlagene Auszahlungen erneut versuchen (max. PAYOUT_MAX_ATTEMPTS)
+    const failedSnap = await safeGetDocs(
+      adminDb.collection('transactions')
+        .where('payout_status', '==', 'release_failed')
+    );
+    for (const docSnap of failedSnap.docs) {
+      const tx = docSnap.data();
+      if ((tx.payout_attempts || 0) >= PAYOUT_MAX_ATTEMPTS) {
+        // Endgueltig fehlgeschlagen: Admin einmalig informieren
+        if (!tx.payout_failed_alert_sent && process.env.RESEND_API_KEY) {
+          try {
+            const resendFail = new Resend(process.env.RESEND_API_KEY);
+            await resendFail.emails.send({
+              from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+              to: adminEmailAddress,
+              subject: "Izplačilo prodajalcu ni uspelo",
+              html: `<p>Izplačilo za naročilo <strong>${docSnap.id}</strong> ni uspelo ${tx.payout_attempts}-krat. Napaka: ${tx.payout_error || 'neznana'}. Preverite prodajalčev Stripe račun.</p>`
+            });
+            await docSnap.ref.update({ payout_failed_alert_sent: true });
+          } catch (failMailErr: any) {
+            console.error('[cron] Admin alert for failed payout not sent:', failMailErr.message);
+          }
+        }
+        continue;
+      }
+      if (tx.next_payout_attempt_at && tx.next_payout_attempt_at > now) continue;
+      await releaseSellerPayout(docSnap.id, 'retry_failed');
+      processed++;
+    }
+
     // (e) hold alerts (90-day Stripe limit check)
     const holdAlertThreshold = new Date(Date.now() - HOLD_ALERT_DAYS * 24 * 60 * 60 * 1000).toISOString();
     const holdAlertSnap = await safeGetDocs(
@@ -4948,6 +5033,8 @@ const handleProcessEscrowCompletions = async (req: express.Request, res: express
 
     for (const docSnap of holdAlertSnap.docs) {
       const tx = docSnap.data();
+      // Abgeschlossene oder erstattete Transaktionen loesen keinen Alarm aus
+      if (['paid_out', 'refunded'].includes(tx.payout_status)) continue;
       const statusCheck = ['held', 'frozen', 'release_waiting_funds'].includes(tx.payout_status);
       if (!statusCheck) continue;
 

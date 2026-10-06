@@ -621,10 +621,18 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                             : (t('unknownSeller') || 'Prodajalec')}
                         </button>
                       )}
+                      <span className="text-[9px] font-black uppercase text-slate-600 bg-slate-200/70 px-1.5 py-0.5 rounded shrink-0">
+                        {(currentAuction as any).seller?.user_type === 'business' ? 'Podjetje' : 'Zasebna oseba'}
+                      </span>
                       <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-100/70 px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0">
                         <ShieldCheck size={10} /> Preverjen
                       </span>
                     </div>
+                    <p className="text-[10px] text-slate-400 mt-1">
+                      {(currentAuction as any).seller?.user_type === 'business'
+                        ? 'Za nakup od podjetja veljajo pravice potrošnika.'
+                        : 'Za nakup od zasebne osebe pravice potrošnika ne veljajo.'}
+                    </p>
                   </div>
 
                   {/* Fees and Terms */}

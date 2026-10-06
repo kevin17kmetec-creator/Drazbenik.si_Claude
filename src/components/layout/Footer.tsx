@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { 
     Mail, 
     Phone, 
@@ -18,6 +18,7 @@ import {
     Sparkles
 } from 'lucide-react';
 import { ViewState } from '../../types';
+import { Portal } from '../ui/Portal';
 
 interface FooterProps {
     t: any;
@@ -32,6 +33,7 @@ export const Footer: React.FC<FooterProps> = ({
     onTestSandbox,
     onNavigate 
 }) => {
+    const [showIllegalContentModal, setShowIllegalContentModal] = useState(false);
     return (
         <footer className="bg-[#0A1128] text-white border-t border-white/10 mt-auto">
             {/* Main Footer Links & Info */}
@@ -180,6 +182,14 @@ export const Footer: React.FC<FooterProps> = ({
                                     Politika zasebnosti
                                 </button>
                             </li>
+                            <li>
+                                <button 
+                                    onClick={() => setShowIllegalContentModal(true)} 
+                                    className="hover:text-white transition-colors text-left"
+                                >
+                                    Obvestila o nezakonitih vsebinah
+                                </button>
+                            </li>
                             {onTestSandbox && (
                                 <li>
                                     <button 
@@ -299,6 +309,24 @@ export const Footer: React.FC<FooterProps> = ({
                     </div>
                 </div>
             </div>
+                    {showIllegalContentModal && (
+                <Portal>
+                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4" onClick={() => setShowIllegalContentModal(false)}>
+                        <div className="bg-white text-[#0A1128] rounded-[2rem] p-8 max-w-lg w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
+                            <h3 className="font-black uppercase tracking-tight text-lg mb-4">Obvestila o nezakonitih vsebinah</h3>
+                            <p className="text-sm font-semibold leading-relaxed text-slate-600">
+                                Nezakonito vsebino ali sumljiv oglas lahko prijavite na naslov [VSTAVITE E-NASLOV PODPORE]. Prijavo obravnavamo čim prej in vas obvestimo o odločitvi.
+                            </p>
+                            <button
+                                onClick={() => setShowIllegalContentModal(false)}
+                                className="mt-6 w-full bg-[#0A1128] text-white py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors"
+                            >
+                                Zapri
+                            </button>
+                        </div>
+                    </div>
+                </Portal>
+            )}
         </footer>
     );
 };

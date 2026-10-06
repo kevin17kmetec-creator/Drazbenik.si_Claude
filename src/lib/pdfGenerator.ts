@@ -1,6 +1,7 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import path from 'path';
+import { PLATFORM_COMPANY } from './platformCompany';
 
 let cachedRegularFont: Buffer | null = null;
 let cachedBoldFont: Buffer | null = null;
@@ -572,20 +573,20 @@ export async function generateInvoicePDF(
 
     p2Y += 13;
     setBold();
-    doc.fontSize(10.5).fillColor(colorDark).text('Dizain d.o.o.', colLeft, p2Y, { width: 240 });
+    doc.fontSize(10.5).fillColor(colorDark).text(PLATFORM_COMPANY.name, colLeft, p2Y, { width: 240 });
     doc.text(buyerName, colRight, p2Y, { width: 240 });
 
     p2Y += 15;
     setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text('Karantanska ulica 28, 2000 Maribor', colLeft, p2Y, { width: 240 });
+    doc.fontSize(8.5).fillColor(colorMuted).text(PLATFORM_COMPANY.address, colLeft, p2Y, { width: 240 });
     doc.text(buyerAddress, colRight, p2Y, { width: 240 });
 
     p2Y += 13;
-    doc.text('Davčna številka: SI57008060', colLeft, p2Y);
+    doc.text(`Davčna številka: ${PLATFORM_COMPANY.vatId}`, colLeft, p2Y);
     doc.text(`Davčna številka: ${buyerTaxId ? buyerTaxId : 'Ni navedena'}`, colRight, p2Y);
 
     p2Y += 12;
-    doc.text('Matična številka: 9093494000', colLeft, p2Y);
+    doc.text(`Matična številka: ${PLATFORM_COMPANY.registrationNumber}`, colLeft, p2Y);
     if (buyerRegNo) {
       doc.text(`Matična številka: ${buyerRegNo}`, colRight, p2Y);
     }
@@ -874,20 +875,20 @@ export async function generateSubscriptionInvoicePDF(
 
     yPos += 13;
     setBold();
-    doc.fontSize(10.5).fillColor(colorDark).text('Dizain d.o.o.', colLeft, yPos, { width: 240 });
+    doc.fontSize(10.5).fillColor(colorDark).text(PLATFORM_COMPANY.name, colLeft, yPos, { width: 240 });
     doc.text(buyerName, colRight, yPos, { width: 240 });
 
     yPos += 15;
     setRegular();
-    doc.fontSize(8.5).fillColor(colorMuted).text('Karantanska ulica 28, 2000 Maribor, Slovenija', colLeft, yPos, { width: 240 });
+    doc.fontSize(8.5).fillColor(colorMuted).text(`${PLATFORM_COMPANY.address}, Slovenija`, colLeft, yPos, { width: 240 });
     doc.text(buyerAddress, colRight, yPos, { width: 240 });
 
     yPos += 13;
-    doc.text('Davčna številka: SI57008060', colLeft, yPos);
+    doc.text(`Davčna številka: ${PLATFORM_COMPANY.vatId}`, colLeft, yPos);
     doc.text(`Davčna številka: ${buyerTaxId ? buyerTaxId : 'Ni navedena'}`, colRight, yPos);
 
     yPos += 12;
-    doc.text('Matična številka: 9093494000', colLeft, yPos);
+    doc.text(`Matična številka: ${PLATFORM_COMPANY.registrationNumber}`, colLeft, yPos);
     if (buyerRegNo) {
       doc.text(`Matična številka: ${buyerRegNo}`, colRight, yPos);
     } else if (user.email) {
@@ -991,14 +992,14 @@ export async function generateSubscriptionInvoicePDF(
     doc.fontSize(7.5).fillColor(colorMuted);
     if (isReverseCharge) {
       doc.text(
-        'Dizain d.o.o. je davčni zavezanec za DDV v Sloveniji (ID za DDV: SI57008060). Obrnjena davčna obveznost / Reverse charge po Direktivi Sveta 2006/112/ES in 76. a členu ZDDV-1.',
+        `${PLATFORM_COMPANY.name} je davčni zavezanec za DDV v Sloveniji (ID za DDV: ${PLATFORM_COMPANY.vatId}). Obrnjena davčna obveznost / Reverse charge po Direktivi Sveta 2006/112/ES in 76. a členu ZDDV-1.`,
         40,
         footY,
         { width: 515 }
       );
     } else {
       doc.text(
-        'Dizain d.o.o. je davčni zavezanec za DDV v Sloveniji (ID za DDV: SI57008060). V ceno storitve je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).',
+        `${PLATFORM_COMPANY.name} je davčni zavezanec za DDV v Sloveniji (ID za DDV: ${PLATFORM_COMPANY.vatId}). V ceno storitve je vključen 22% DDV v skladu z Zakonom o davku na dodano vrednost (ZDDV-1).`,
         40,
         footY,
         { width: 515 }

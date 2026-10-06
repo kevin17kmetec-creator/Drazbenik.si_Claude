@@ -464,6 +464,11 @@ const WonAuctionItem: React.FC<{
                 {preview ? `€${(preview.feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
               </span>
             </div>
+            {preview?.feeIsMinimum && (
+              <p className="text-[10px] text-slate-400 font-bold -mt-1">
+                Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+              </p>
+            )}
             <div className="flex justify-between">
               <span>DDV {preview ? `${preview.vatRate} %` : "..."}:</span>
               <span className="text-[#0A1128]">
@@ -794,7 +799,8 @@ const MainApp: React.FC = () => {
           created_at: seller.created_at, 
           sold_count: seller.sold_count || 0,
           unpaid_penalties: seller.unpaid_penalties || 0,
-          identity_verified: Boolean(seller.identity_verified)
+          identity_verified: Boolean(seller.identity_verified),
+          user_type: seller.user_type || seller.userType || 'individual'
         }
       } as AuctionItem;
     });
@@ -1144,6 +1150,31 @@ const MainApp: React.FC = () => {
     },
     [captureCurrentNavState]
   );
+
+  // Globaler Hinweis: Antwortet der Server mit TERMS_REQUIRED, wird der Nutzer zur Zustimmung weitergeleitet
+  useEffect(() => {
+    const originalFetch = window.fetch;
+    let lastRedirect = 0;
+    window.fetch = async (...args) => {
+      const response = await originalFetch(...args);
+      if (response.status === 403) {
+        try {
+          const data = await response.clone().json();
+          if (data?.code === 'TERMS_REQUIRED' && Date.now() - lastRedirect > 3000) {
+            lastRedirect = Date.now();
+            toast.error("Za to dejanje morate sprejeti posodobljene pogoje uporabe.");
+            navigateTo("acceptTerms");
+          }
+        } catch {
+          // Keine JSON-Antwort: ignorieren
+        }
+      }
+      return response;
+    };
+    return () => {
+      window.fetch = originalFetch;
+    };
+  }, [navigateTo]);
 
   const goBack = useCallback(
     (fallbackView: ViewState = "grid") => {
@@ -4701,7 +4732,9 @@ const MainApp: React.FC = () => {
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
+        if (response.status === 403 && data.code === 'TERMS_REQUIRED') {
+          // Obvestilo in Weiterleitung erledigt der globale fetch-Handler
+        } else if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
           toast.error(data.error);
         } else {
           const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
@@ -5065,7 +5098,6 @@ const MainApp: React.FC = () => {
           userProfilePicture={
             userData?.profile_picture_url || userData?.profilePicture || ""
           }
-          userWalletBalance={userData?.wallet_balance || 0}
           userData={userData}
         />
         <main className="flex-1 flex flex-col">{content}</main>
@@ -5380,8 +5412,7 @@ const MainApp: React.FC = () => {
             onClose={() => setIsCheckoutOpen(false)}
             onSuccess={checkoutData.onSuccess}
             metadata={checkoutData.metadata}
-            userWalletBalance={userData?.wallet_balance || 0}
-          />
+            />
         )}
         <MissingInvoiceDataModal
           isOpen={appMissingInvoiceDataModal.isOpen}

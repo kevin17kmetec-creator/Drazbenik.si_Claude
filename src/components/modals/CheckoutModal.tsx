@@ -13,8 +13,7 @@ export const CheckoutModal: React.FC<{
   language: string;
   onSuccess: () => void;
   metadata?: any;
-  userWalletBalance?: number;
-}> = ({ isOpen, onClose, amount, title, t, language, onSuccess, metadata, userWalletBalance = 0 }) => {
+}> = ({ isOpen, onClose, amount, title, t, language, onSuccess, metadata }) => {
   if (!isOpen) return null;
 
   const [isLoading, setIsLoading] = useState(false);
