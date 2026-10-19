@@ -1,7 +1,7 @@
 import React from 'react';
 import { Category } from '../../types';
 import { getAttributeDefinitionsForCategory, getFieldOptions, AttributeFieldDef } from '../../lib/categoryAttributes';
-import { SlidersHorizontal, Sparkles } from 'lucide-react';
+import { SlidersHorizontal, Sparkles } from '../icons';
 
 interface CategoryAttributesInputProps {
   category: Category | string;

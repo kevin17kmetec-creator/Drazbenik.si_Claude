@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Share2, Link2, X, Check, Mail } from 'lucide-react';
+import { Share2, Link2, X, Check, Mail } from '../icons';
 import { toast } from 'sonner';
 import { AuctionItem } from '../../types';
 import { buildAuctionShareUrl, buildAuctionShareText, copyToClipboard, SHARE_TARGETS, ShareTarget } from '../../lib/share';
@@ -78,7 +78,7 @@ export const ShareButton: React.FC<{
       aria-modal="true"
       aria-label={label}
     >
-      <div className="w-full max-w-sm bg-white rounded-[2rem] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
+      <div className="w-full max-w-sm bg-white rounded-[1.35rem] p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start justify-between gap-3 mb-4">
           <div className="min-w-0">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{label}</p>
@@ -143,7 +143,7 @@ export const ShareButton: React.FC<{
           onClick={handleClick}
           aria-label={label}
           title={label}
-          className={`p-2 rounded-xl backdrop-blur-sm shadow-lg border bg-[#0A1128]/90 border-white/10 text-white hover:bg-white/10 transition-all ${className}`}
+          className={`p-2 rounded-full shadow-md border border-transparent bg-[#FFFDF7]/95 text-[#0A1128] hover:bg-[#FEBA4F] transition-all ${className}`}
         >
           <Share2 size={14} />
         </button>

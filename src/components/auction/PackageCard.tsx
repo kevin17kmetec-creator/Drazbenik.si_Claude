@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Layers, Clock, ChevronRight, Gavel, Sparkles, Building2, MapPin, Truck } from 'lucide-react';
+import { Layers, Clock, ChevronRight, Gavel, Sparkles, Building2, MapPin, Truck } from '../icons';
 import { AuctionItem, Seller } from '../../types';
 import { formatSeconds } from "../../lib/utils";
 
@@ -79,7 +79,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
 
   return (
     <div 
-      className={`col-span-full bg-[#0A1128] text-white rounded-2xl md:rounded-[2.5rem] p-3 sm:p-8 shadow-xl md:shadow-2xl transition-all duration-300 relative overflow-hidden group ${borderClass}`}
+      className={`col-span-full bg-[#0A1128] text-white rounded-2xl md:rounded-[1.35rem] p-3 sm:p-8 shadow-xl md:shadow-2xl transition-all duration-300 relative overflow-hidden group ${borderClass}`}
     >
       {/* Top Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 pb-4 md:pb-6 border-b border-white/10 relative z-10">

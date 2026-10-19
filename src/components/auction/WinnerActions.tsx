@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MessageSquare, Key, CheckCircle2, Star, FileText, Clock, Truck } from 'lucide-react';
+import { MessageSquare, Key, CheckCircle2, Star, FileText, Clock, Truck } from '../icons';
 import { toast } from '@/src/lib/toast';
 import { QRCodeSVG } from 'qrcode.react';
 import { LoadingButton } from '../ui/Common';
@@ -240,7 +240,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
                 title="Vaša oddana ocena za prodajalca"
               >
                 <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
-                <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
+                <span>Ocenjeno ({(wonItem as any).review_rating || 5}/5)</span>
               </button>
             ) : canLeaveReview(wonItem) ? (
               <button
@@ -398,7 +398,7 @@ export const WinnerActions: React.FC<WinnerActionsProps> = ({
             title="Vaša oddana ocena za prodajalca"
           >
             <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
-            <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
+            <span>Ocenjeno ({(wonItem as any).review_rating || 5}/5)</span>
           </button>
         ) : canLeaveReview(wonItem) ? (
           <button

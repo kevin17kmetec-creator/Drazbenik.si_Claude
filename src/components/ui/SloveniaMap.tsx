@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { RefreshCcw, MapPin } from 'lucide-react';
+import { RefreshCcw, MapPin } from '../icons';
 import { Region } from "../../types";
 import { SLOVENIA_REGIONS_PATHS } from "../../lib/sloveniaMapData";
 
@@ -81,7 +81,7 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
   }, [regionsData, selectedRegion, selectedRegions]);
 
   return (
-    <div className={`w-full bg-[#0A1128] rounded-[2rem] shadow-2xl relative select-none ${compact ? 'p-3' : 'p-4 sm:p-5'} border border-white/10`}>
+    <div className={`w-full bg-[#0A1128] rounded-[1.35rem] shadow-2xl relative select-none ${compact ? 'p-3' : 'p-4 sm:p-5'} border border-white/10`}>
       {/* Header section with Title & Clear Filter button */}
       {showTitle && (
         <div className="flex justify-between items-center mb-3">

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { AlertCircle, Clock, X } from 'lucide-react';
+import { AlertCircle, Clock, X } from '../icons';
 import { Portal } from './Portal';
 
 export const formatSeconds = (totalSeconds: number) => {
@@ -44,7 +44,7 @@ export const StaticTimer: React.FC<{ endTime: Date }> = ({ endTime }) => {
     update(); const t = setInterval(update, 1000); return () => clearInterval(t);
   }, [endTime]);
   return (
-    <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-2xl border-2 bg-[#FEBA4F]/10 border-[#FEBA4F]/30 text-[#FEBA4F] font-mono font-black text-2xl tabular-nums shadow-xl">
+    <div className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-[#FEBA4F]/50 bg-[#FEBA4F]/10 text-[#FEBA4F] font-bold text-2xl sm:text-3xl tabular-nums tracking-wide">
       <Clock size={20} /><span>{timeLeftStr}</span>
     </div>
   );
@@ -63,7 +63,7 @@ export const LegalModal: React.FC<{ type: 'terms' | 'privacy' | 'how'; onClose: 
             <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
                 <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
                 {/* Deutsches Kommentar: Responsives Modal fuer mobile Geraete mit max-h-[92dvh] und Innenabstand */}
-                <div className="relative bg-white w-full max-w-2xl rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 lg:p-14 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
+                <div className="relative bg-white w-full max-w-2xl rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 lg:p-14 shadow-2xl animate-in border-2 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
                     <button onClick={onClose} className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 min-w-[40px] min-h-[40px] flex items-center justify-center"><X size={24} /></button>
                     <h3 className="text-xl sm:text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4 sm:mb-8">{titles[type]}</h3>
                     <div className="text-slate-600 font-bold leading-relaxed text-sm sm:text-base md:text-lg whitespace-pre-line mb-6 sm:mb-10">

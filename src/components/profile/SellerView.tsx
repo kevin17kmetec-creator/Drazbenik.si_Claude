@@ -4,7 +4,7 @@ import {
   Star, MapPin, Calendar, Building2, User, CheckCircle2, 
   TrendingUp, History, MessageSquare, ArrowLeft, ShieldCheck,
   Award, Package, ThumbsUp, AlertCircle, ShieldAlert
-} from 'lucide-react';
+} from '../icons';
 import { collection, query, where, getDocs, addDoc } from 'firebase/firestore';
 import { toast } from 'sonner';
 import { Seller, AuctionItem, Review } from '../../types';
@@ -265,13 +265,13 @@ const SellerView: React.FC<SellerViewProps> = ({
       </button>
 
       {/* Seller Header Card */}
-      <div className="bg-white rounded-3xl md:rounded-[4rem] p-4 sm:p-12 shadow-xl md:shadow-2xl border border-slate-100 mb-6 md:mb-12 relative overflow-hidden">
+      <div className="bg-white rounded-3xl md:rounded-[1.35rem] p-4 sm:p-12 shadow-xl md:shadow-2xl border border-slate-100 mb-6 md:mb-12 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#FEBA4F]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
         
         <div className="flex flex-col lg:flex-row gap-6 lg:gap-12 relative z-10">
           {/* Profile Picture / Icon */}
           <div className="flex-shrink-0">
-            <div className="w-32 h-32 lg:w-44 lg:h-44 rounded-[3rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center overflow-hidden relative group">
+            <div className="w-32 h-32 lg:w-44 lg:h-44 rounded-[1.35rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center overflow-hidden relative group">
               {sellerAvatar ? (
                 <img 
                   src={sellerAvatar} 
@@ -454,7 +454,7 @@ const SellerView: React.FC<SellerViewProps> = ({
             {activeAuctions.length > 0 ? (
               activeAuctions.map(item => (
                 <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer">
-                  <div className="bg-[#0A1128] rounded-[2.5rem] overflow-hidden shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-full border border-white/5 relative">
+                  <div className="bg-[#0A1128] rounded-[1.35rem] overflow-hidden shadow-2xl hover:-translate-y-2 transition-all duration-300 group flex flex-col h-full border border-white/5 relative">
                     <div className="relative h-64 overflow-hidden">
                       <img 
                         src={item.images?.[0] || ''} 
@@ -507,7 +507,7 @@ const SellerView: React.FC<SellerViewProps> = ({
             {pastAuctions.length > 0 ? (
               pastAuctions.map(item => (
                 <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer opacity-85 hover:opacity-100 transition-all">
-                  <div className="bg-white rounded-[2.5rem] overflow-hidden shadow-xl border border-slate-100 flex flex-col h-full relative">
+                  <div className="bg-white rounded-[1.35rem] overflow-hidden shadow-xl border border-slate-100 flex flex-col h-full relative">
                     <div className="relative h-64 overflow-hidden">
                       <img 
                         src={item.images?.[0] || ''} 
@@ -556,7 +556,7 @@ const SellerView: React.FC<SellerViewProps> = ({
           <div className="max-w-4xl mx-auto">
             {/* Reviews Summary & Filter Header */}
             {reviews.length > 0 && (
-              <div className="bg-slate-50 rounded-[3rem] p-6 sm:p-8 border border-slate-100 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
+              <div className="bg-slate-50 rounded-[1.35rem] p-6 sm:p-8 border border-slate-100 mb-8 flex flex-col md:flex-row items-center justify-between gap-6">
                 <div className="flex items-center gap-5">
                   <div className="w-16 h-16 rounded-3xl bg-[#0A1128] text-[#FEBA4F] flex flex-col items-center justify-center font-black shadow-lg">
                     <span className="text-2xl leading-none">{averageRating || '5.0'}</span>
@@ -615,7 +615,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                 <div className="py-20 text-center text-slate-400 font-bold">Nalaganje ocen...</div>
               ) : filteredReviews.length > 0 ? (
                 filteredReviews.map(review => (
-                  <div key={review.id} className="bg-white rounded-[2.5rem] p-6 sm:p-8 shadow-lg border border-slate-100 transition-all hover:shadow-xl">
+                  <div key={review.id} className="bg-white rounded-[1.35rem] p-6 sm:p-8 shadow-lg border border-slate-100 transition-all hover:shadow-xl">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-4 pb-4 border-b border-slate-100">
                       <div className="flex items-center gap-4">
                         <div className="w-12 h-12 rounded-2xl bg-slate-50 flex items-center justify-center text-[#0A1128] font-black border border-slate-200 text-base">
@@ -694,12 +694,12 @@ const SellerView: React.FC<SellerViewProps> = ({
                   </div>
                 ))
               ) : (
-                <div className="py-20 text-center bg-white rounded-[3rem] p-8 border border-slate-100">
+                <div className="py-20 text-center bg-white rounded-[1.35rem] p-8 border border-slate-100">
                   <div className="bg-slate-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 text-slate-300">
                     <MessageSquare size={32} />
                   </div>
                   <p className="text-slate-400 font-bold text-base">
-                    {ratingFilter === 'all' ? t('noReviews') : `Ni ocen z izbrano oceno (${ratingFilter}★).`}
+                    {ratingFilter === 'all' ? t('noReviews') : `Ni ocen z izbrano oceno (${ratingFilter}/5).`}
                   </p>
                 </div>
               )}

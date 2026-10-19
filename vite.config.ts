@@ -26,8 +26,7 @@ export default defineConfig(({ mode }) => {
             manualChunks: {
               vendor: ['react', 'react-dom'],
               
-              stripe: ['@stripe/stripe-js', '@stripe/react-stripe-js'],
-              lucide: ['lucide-react']
+              stripe: ['@stripe/stripe-js', '@stripe/react-stripe-js']
             }
           },
           onwarn(warning, warn) {

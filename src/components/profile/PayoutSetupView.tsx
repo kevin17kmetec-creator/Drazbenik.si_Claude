@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { ConnectComponentsProvider, ConnectAccountOnboarding } from '@stripe/react-connect-js';
-import { CheckCircle2, AlertCircle, AlertTriangle, ShieldCheck, Building2, Info } from 'lucide-react';
+import { CheckCircle2, AlertCircle, AlertTriangle, ShieldCheck, Building2, Info } from '../icons';
 import { TERMS_VERSION } from '../../lib/termsVersion';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from 'sonner';

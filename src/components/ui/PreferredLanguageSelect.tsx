@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Globe } from 'lucide-react';
+import { Globe } from '../icons';
 import { auth } from '../../lib/firebase';
 import { toast } from '../../lib/toast';
 

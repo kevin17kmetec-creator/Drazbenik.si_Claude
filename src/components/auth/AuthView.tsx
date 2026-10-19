@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft, Eye, EyeOff } from '../icons';
 import { LoadingButton } from '../ui/Common';
 import { auth, db, safeSignOut, setRegisteringAuth } from "../../lib/firebase";
 import { doc, getDoc } from 'firebase/firestore';
@@ -370,10 +370,10 @@ export const AuthView: React.FC<{
   if (isForgotPassword) {
       return (
         <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-6 md:py-20 animate-in flex justify-center">
-          <div className="bg-white w-full max-w-xl rounded-3xl md:rounded-[4rem] p-5 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
+          <div className="bg-white w-full max-w-xl rounded-3xl md:rounded-[1.35rem] p-5 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
             <button onClick={() => setIsForgotPassword(false)} className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('backToLogin')}</button>
             <div className="text-center mb-10">
-                <div className="bg-[#FEBA4F] w-16 h-16 md:w-20 md:h-20 rounded-3xl md:rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><ShieldCheck size={40} className="text-[#0A1128]" /></div>
+                <div className="bg-[#FEBA4F] w-16 h-16 md:w-20 md:h-20 rounded-3xl md:rounded-[1.35rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><ShieldCheck size={40} className="text-[#0A1128]" /></div>
                 <h2 className="text-2xl md:text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{t('forgotPassword')}</h2>
                 <p className="text-slate-400 font-bold text-sm">{t('forgotPasswordDesc')}</p>
             </div>
@@ -383,7 +383,7 @@ export const AuthView: React.FC<{
                 type="submit"
                 loading={loading}
                 loadingText={t('processing') || 'Obdelujem...'}
-                className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl"
+                className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl"
               >
                 {t('sendLink')}
               </LoadingButton>
@@ -395,9 +395,9 @@ export const AuthView: React.FC<{
 
   return (
     <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-6 md:py-20 animate-in flex justify-center">
-      <div className="bg-white w-full max-w-xl rounded-3xl md:rounded-[4rem] p-5 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
+      <div className="bg-white w-full max-w-xl rounded-3xl md:rounded-[1.35rem] p-5 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
         <div className="text-center mb-10">
-            <div className="bg-[#FEBA4F] w-16 h-16 md:w-20 md:h-20 rounded-3xl md:rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><User size={40} className="text-[#0A1128]" /></div>
+            <div className="bg-[#FEBA4F] w-16 h-16 md:w-20 md:h-20 rounded-3xl md:rounded-[1.35rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><User size={40} className="text-[#0A1128]" /></div>
             <h2 className="text-2xl md:text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{isLogin ? t('login') : t('register')}</h2>
         </div>
         <form onSubmit={handleSubmit} className="space-y-6 mb-8">
@@ -538,7 +538,7 @@ export const AuthView: React.FC<{
             loading={loading}
             loadingText={t('processing') || 'Obdelujem...'}
             disabled={!isLogin && !acceptTerms}
-            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl"
+            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl"
           >
             {isLogin ? t('login') : t('createAccount')}
           </LoadingButton>
@@ -556,7 +556,7 @@ export const AuthView: React.FC<{
               onClick={handleGoogleLogin}
               loading={loading}
               loadingText="Prijavljam..."
-              className="w-full bg-white border-2 border-slate-100 text-[#0A1128] py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest hover:border-[#FEBA4F] transition-all shadow-sm"
+              className="w-full bg-white border-2 border-slate-100 text-[#0A1128] py-5 rounded-[1.35rem] font-black uppercase text-xs tracking-widest hover:border-[#FEBA4F] transition-all shadow-sm"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>

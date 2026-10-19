@@ -15,7 +15,7 @@ import {
     Clock,
     PlusCircle,
     Sparkles
-} from 'lucide-react';
+} from '../icons';
 import { ViewState } from '../../types';
 
 interface FooterProps {
@@ -31,7 +31,7 @@ export const Footer: React.FC<FooterProps> = ({
 }) => {
     const [showIllegalContentModal, setShowIllegalContentModal] = useState(false);
     return (
-        <footer className="bg-[#0A1128] text-white border-t border-white/10 mt-auto">
+        <footer className="bg-[#0A1128] text-white border-t-4 border-[#FEBA4F] mt-auto">
             {/* Main Footer Links & Info */}
             <div className="max-w-[1600px] mx-auto px-6 py-10 md:py-14">
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-8 lg:gap-12">
@@ -236,8 +236,8 @@ export const Footer: React.FC<FooterProps> = ({
             <div className="border-t border-white/5 bg-white/[0.015]">
                 <div className="max-w-[1600px] mx-auto px-6 py-3.5">
                     <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-4">
-                        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5">
-                            <div className="w-7 h-7 rounded-lg bg-[#FEBA4F]/10 border border-[#FEBA4F]/20 flex items-center justify-center text-[#FEBA4F] shrink-0">
+                        <div className="flex items-center gap-3 px-3 py-2 lg:border-l lg:first:border-l-0 border-white/10">
+                            <div className="w-9 h-9 rounded-full bg-[#FEBA4F]/10 border border-[#FEBA4F]/60 ring-1 ring-offset-2 ring-offset-[#0A1128] ring-[#FEBA4F]/25 flex items-center justify-center text-[#FEBA4F] shrink-0">
                                 <ShieldCheck size={15} />
                             </div>
                             <div className="min-w-0">
@@ -246,8 +246,8 @@ export const Footer: React.FC<FooterProps> = ({
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5">
-                            <div className="w-7 h-7 rounded-lg bg-[#FEBA4F]/10 border border-[#FEBA4F]/20 flex items-center justify-center text-[#FEBA4F] shrink-0">
+                        <div className="flex items-center gap-3 px-3 py-2 lg:border-l lg:first:border-l-0 border-white/10">
+                            <div className="w-9 h-9 rounded-full bg-[#FEBA4F]/10 border border-[#FEBA4F]/60 ring-1 ring-offset-2 ring-offset-[#0A1128] ring-[#FEBA4F]/25 flex items-center justify-center text-[#FEBA4F] shrink-0">
                                 <Lock size={14} />
                             </div>
                             <div className="min-w-0">
@@ -256,8 +256,8 @@ export const Footer: React.FC<FooterProps> = ({
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5">
-                            <div className="w-7 h-7 rounded-lg bg-[#FEBA4F]/10 border border-[#FEBA4F]/20 flex items-center justify-center text-[#FEBA4F] shrink-0">
+                        <div className="flex items-center gap-3 px-3 py-2 lg:border-l lg:first:border-l-0 border-white/10">
+                            <div className="w-9 h-9 rounded-full bg-[#FEBA4F]/10 border border-[#FEBA4F]/60 ring-1 ring-offset-2 ring-offset-[#0A1128] ring-[#FEBA4F]/25 flex items-center justify-center text-[#FEBA4F] shrink-0">
                                 <CardIcon size={14} />
                             </div>
                             <div className="min-w-0">
@@ -266,8 +266,8 @@ export const Footer: React.FC<FooterProps> = ({
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2.5 px-3 py-2 rounded-xl bg-white/[0.02] border border-white/5">
-                            <div className="w-7 h-7 rounded-lg bg-[#FEBA4F]/10 border border-[#FEBA4F]/20 flex items-center justify-center text-[#FEBA4F] shrink-0">
+                        <div className="flex items-center gap-3 px-3 py-2 lg:border-l lg:first:border-l-0 border-white/10">
+                            <div className="w-9 h-9 rounded-full bg-[#FEBA4F]/10 border border-[#FEBA4F]/60 ring-1 ring-offset-2 ring-offset-[#0A1128] ring-[#FEBA4F]/25 flex items-center justify-center text-[#FEBA4F] shrink-0">
                                 <Zap size={14} />
                             </div>
                             <div className="min-w-0">
@@ -307,7 +307,7 @@ export const Footer: React.FC<FooterProps> = ({
               <Portal>
                 {/* Deutscher Kommentar: Responsives Modal fuer Meldung unzulaessiger Inhalte */}
                 <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-3 sm:p-4" onClick={() => setShowIllegalContentModal(false)}>
-                  <div className="bg-white text-[#0A1128] rounded-3xl sm:rounded-[2rem] p-5 sm:p-8 max-w-lg w-full shadow-2xl max-h-[92dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                  <div className="bg-white text-[#0A1128] rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-8 max-w-lg w-full shadow-2xl max-h-[92dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
                     <h3 className="font-black uppercase tracking-tight text-base sm:text-lg mb-3 sm:mb-4">Obvestila o nezakonitih vsebinah</h3>
                     <p className="text-xs sm:text-sm font-semibold leading-relaxed text-slate-600">
                       Nezakonito vsebino ali sumljiv oglas lahko prijavite na naslov info@drazbenik.si. Prijavo obravnavamo čim prej in vas obvestimo o odločitvi.

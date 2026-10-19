@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { confirmDialog } from '../../lib/dialog';
 import { CreateAuctionForm } from "@/src/components/auction/CreateAuctionForm";
-import { Layers, Plus, Trash2, ArrowLeft, CheckCircle, Edit3 } from 'lucide-react';
+import { Layers, Plus, Trash2, ArrowLeft, CheckCircle, Edit3 } from '../icons';
 import { toast } from 'sonner';
 import { db, auth } from "@/src/lib/firebase";
 import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
@@ -385,7 +385,7 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
         </div>
       </div>
 
-      <div className="bg-white p-4 md:p-8 rounded-3xl md:rounded-[2rem] shadow-xl border border-slate-100 mb-6 md:mb-8 relative overflow-hidden">
+      <div className="bg-white p-4 md:p-8 rounded-3xl md:rounded-[1.35rem] shadow-xl border border-slate-100 mb-6 md:mb-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-2 h-full bg-[#FEBA4F]"></div>
         <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] mb-3">Naslov zbirke</label>
         <input 
@@ -419,14 +419,14 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
         </div>
         
         {items.length === 0 && (
-          <div className="text-center p-12 bg-white rounded-[2rem] border-2 border-dashed border-slate-200">
+          <div className="text-center p-12 bg-white rounded-[1.35rem] border-2 border-dashed border-slate-200">
             <p className="text-slate-400 font-bold text-base">V zbirki še ni dražb. Zbirka mora vsebovati vsaj 2 dražbi.</p>
           </div>
         )}
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {items.map((item, idx) => (
-            <div key={idx} className={"bg-white text-[#0A1128] rounded-3xl md:rounded-[2rem] p-3 md:p-5 flex gap-3 md:gap-5 shadow-lg border-2 transition-all " + (item.is_published ? "border-green-400" : "border-slate-200 hover:border-[#FEBA4F]")}>
+            <div key={idx} className={"bg-white text-[#0A1128] rounded-3xl md:rounded-[1.35rem] p-3 md:p-5 flex gap-3 md:gap-5 shadow-lg border-2 transition-all " + (item.is_published ? "border-green-400" : "border-slate-200 hover:border-[#FEBA4F]")}>
                <img src={item.images[0]} className="w-20 h-20 md:w-24 md:h-24 shrink-0 object-cover rounded-2xl border border-slate-200" alt="Item" />
                <div className="flex-1 min-w-0 flex flex-col justify-center">
                  <h3 className="font-black text-base line-clamp-1">{item.title.SLO}</h3>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, User, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ArrowLeft, User, Building2, CheckCircle2, AlertCircle } from '../icons';
 import { LoadingButton } from '../ui/Common';
 import { PreferredLanguageSelect } from '../ui/PreferredLanguageSelect';
 
@@ -104,7 +104,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
     return (
         <div className="max-w-4xl mx-auto py-16 px-6 animate-in">
             <button onClick={onBack} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('back')}</button>
-            <div className="bg-white rounded-3xl md:rounded-[4rem] p-5 md:p-12 shadow-xl md:shadow-2xl border border-slate-100">
+            <div className="bg-white rounded-3xl md:rounded-[1.35rem] p-5 md:p-12 shadow-xl md:shadow-2xl border border-slate-100">
                 <h2 className="text-2xl md:text-4xl font-black mb-4 uppercase tracking-tighter italic">{t('identityVerification')}</h2>
                 <p className="text-slate-400 font-bold mb-12">V skladu z 18. členom SP je za sodelovanje na dražbi obvezna verifikacija podatkov.</p>
 
@@ -121,19 +121,19 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             currentLanguage={language}
                             onLanguageChange={onLanguageChange}
                         />
-                        <div className="flex gap-2 md:gap-4 p-2 bg-slate-50 rounded-3xl md:rounded-[2.5rem]">
+                        <div className="flex gap-2 md:gap-4 p-2 bg-slate-50 rounded-3xl md:rounded-[1.35rem]">
                             <button 
                                 type="button"
                                 disabled={isVerified}
                                 onClick={() => setType('individual')} 
-                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'individual' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
+                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'individual' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
                                 <User size={18} /> {t('individual')}
                             </button>
                             <button 
                                 type="button"
                                 disabled={isVerified}
                                 onClick={() => setType('business')} 
-                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'business' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
+                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'business' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
                                 <Building2 size={18} /> {t('business')}
                             </button>
                         </div>
@@ -167,7 +167,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             type="submit" 
                             loading={isVerifying}
                             loadingText="Pošiljam..."
-                            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+                            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
                         >
                             Potrdi verifikacijo
                         </LoadingButton>
@@ -183,7 +183,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('verificationDate')}</p><p className="font-bold">{new Date().toLocaleDateString(window.localStorage.getItem('language') === 'SLO' ? 'sl-SI' : window.localStorage.getItem('language') === 'EN' ? 'en-US' : 'de-DE')}</p></div>
                             <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('statusText')}</p><p className="font-bold text-green-600">{t('statusActive')}</p></div>
                         </div>
-                        <button onClick={onBack} className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all">{t('backToAuctions')}</button>
+                        <button onClick={onBack} className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all">{t('backToAuctions')}</button>
                     </div>
                 )}
             </div>

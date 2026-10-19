@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { X, Truck, Package, Info, AlertCircle } from 'lucide-react';
+import { X, Truck, Package, Info, AlertCircle } from '../icons';
 import { Portal } from '../ui/Portal';
 import { LoadingButton } from '../ui/Common';
 import { toast } from 'sonner';
@@ -84,7 +84,7 @@ export const MarkShippedModal: React.FC<MarkShippedModalProps> = ({
       <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
         <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={onClose}></div>
         {/* Deutscher Kommentar: Versandmodal mit max-h-[92dvh] und responsiver Skalierung fuer Smartphones */}
-        <div className="relative bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 lg:p-14 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
+        <div className="relative bg-white w-full max-w-lg rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 lg:p-14 shadow-2xl animate-in border-2 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
           <button onClick={onClose} className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 min-w-[40px] min-h-[40px] flex items-center justify-center" aria-label="Zapri"><X size={24} /></button>
           
           <div className="flex items-center gap-3 sm:gap-4 mb-6 sm:mb-8">
@@ -192,7 +192,7 @@ export const MarkShippedModal: React.FC<MarkShippedModalProps> = ({
               loading={loading}
               disabled={!canSubmit}
               loadingText="Shranjujem..."
-              className="w-full bg-[#0A1128] text-white py-3.5 sm:py-6 rounded-2xl sm:rounded-[2rem] font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
+              className="w-full bg-[#0A1128] text-white py-3.5 sm:py-6 rounded-2xl sm:rounded-[1.35rem] font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Potrdi odpremo
             </LoadingButton>

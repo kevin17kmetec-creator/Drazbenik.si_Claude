@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { alertDialog } from '../../lib/dialog';
-import { FileText, Download, Gavel, Repeat, Loader2 } from 'lucide-react';
+import { FileText, Download, Gavel, Repeat, Loader2 } from '../icons';
 import { auth } from '../../lib/firebase';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { LoadingButton } from '../ui/Common';

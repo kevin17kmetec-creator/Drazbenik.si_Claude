@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertTriangle, ArrowRight, X, ShieldAlert, FileText, CheckCircle2 } from 'lucide-react';
+import { AlertTriangle, ArrowRight, X, ShieldAlert, FileText, CheckCircle2 } from '../icons';
 import { MissingField } from "../../lib/invoiceDataCheck";
 import { Portal } from '../ui/Portal';
 
@@ -27,7 +27,7 @@ export const MissingInvoiceDataModal: React.FC<MissingInvoiceDataModalProps> = (
       {/* Deutscher Kommentar: Responsives Modal fuer fehlende Rechnungsdaten */}
       <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div 
-          className="bg-white rounded-3xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 max-w-lg w-full shadow-2xl border border-slate-100 relative overflow-hidden animate-in zoom-in-95 duration-200 max-h-[92dvh] overflow-y-auto"
+          className="bg-white rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-8 md:p-10 max-w-lg w-full shadow-2xl border border-slate-100 relative overflow-hidden animate-in zoom-in-95 duration-200 max-h-[92dvh] overflow-y-auto"
           role="dialog"
           aria-modal="true"
         >

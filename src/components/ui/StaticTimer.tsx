@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Clock } from 'lucide-react';
+import { Clock } from '../icons';
 import { formatSeconds } from "../../lib/utils";
 
 export const StaticTimer: React.FC<{ endTime: Date }> = ({ endTime }) => {
@@ -12,8 +12,8 @@ export const StaticTimer: React.FC<{ endTime: Date }> = ({ endTime }) => {
     update(); const t = setInterval(update, 1000); return () => clearInterval(t);
   }, [endTime]);
   return (
-    <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-2xl border-2 bg-[#FEBA4F]/10 border-[#FEBA4F]/30 text-[#FEBA4F] font-mono font-black text-2xl tabular-nums shadow-xl">
-      <Clock size={20} /><span>{timeLeftStr}</span>
+    <div className="inline-flex items-center gap-2.5 px-4 py-2.5 rounded-xl border border-[#FEBA4F]/50 bg-[#FEBA4F]/10 text-[#FEBA4F] font-bold text-2xl sm:text-3xl tabular-nums tracking-wide">
+      <Clock size={24} /><span>{timeLeftStr}</span>
     </div>
   );
 };

@@ -1,11 +1,11 @@
 import { normalizeImageFile } from '../../lib/imageConvert';
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Truck, UserCheck, CreditCard, AlertCircle } from 'lucide-react';
+import { CheckCircle2, Clock, Truck, UserCheck, CreditCard, AlertCircle } from '../icons';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { Portal } from '../ui/Portal';
 import { toast } from 'sonner';
 import { compressImage as imageCompression } from '../../lib/imageCompress';
-import { Camera, ImagePlus, X as XIcon } from 'lucide-react';
+import { Camera, ImagePlus, X as XIcon } from '../icons';
 import { CameraCapture, isCameraSupported } from '../ui/CameraCapture';
 
 interface PaymentStatus {
@@ -175,7 +175,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
   ];
 
   return (
-    <div className="bg-white rounded-[2.5rem] p-8 md:p-10 border border-slate-100 shadow-xl overflow-hidden relative">
+    <div className="bg-white rounded-[1.35rem] p-8 md:p-10 border border-slate-100 shadow-xl overflow-hidden relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 relative z-10">
         {steps.map((step, idx) => {
           const isCurrent = !step.isDone && (idx === 0 || steps[idx - 1].isDone);

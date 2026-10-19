@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { confirmDialog } from '../../lib/dialog';
-import { Search, AlertTriangle, CheckCircle2, XCircle } from 'lucide-react';
+import { Search, AlertTriangle, CheckCircle2, XCircle } from '../icons';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from '../../lib/toast';
 

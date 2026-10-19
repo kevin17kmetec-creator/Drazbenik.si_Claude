@@ -19,7 +19,7 @@ import {
   Clock,
   ShieldCheck,
   Star
-} from 'lucide-react';
+} from '../icons';
 import { AuctionItem } from '../../types';
 import { useChat } from "../../context/ChatContext";
 import { auth } from "../../lib/firebase";
@@ -247,7 +247,7 @@ export const MessagesView: React.FC<{
         <ArrowLeft size={16} /> Nazaj na dražbe
       </button>
 
-      <div className="bg-white rounded-3xl md:rounded-[2.5rem] flex flex-col md:flex-row shadow-xl md:shadow-2xl border border-slate-100 h-[calc(100dvh-220px)] min-h-[480px] max-h-[85vh] overflow-hidden relative">
+      <div className="bg-white rounded-3xl md:rounded-[1.35rem] flex flex-col md:flex-row shadow-xl md:shadow-2xl border border-slate-100 h-[calc(100dvh-220px)] min-h-[480px] max-h-[85vh] overflow-hidden relative">
         {/* LEFT SIDEBAR (CONVERSATIONS) */}
         <div className={`w-full md:w-1/3 md:min-w-[300px] md:max-w-[400px] border-r border-slate-100 flex-col bg-slate-50/50 ${activeChat && currentChatConv ? "hidden md:flex" : "flex"}`}>
           <div className="p-4 md:p-6 border-b border-slate-100">
@@ -444,7 +444,7 @@ export const MessagesView: React.FC<{
                         className="flex items-center gap-1.5 bg-green-50 text-green-700 hover:bg-green-100 border-2 border-green-200 px-3.5 py-2 rounded-xl text-xs font-black uppercase tracking-wider shadow-sm transition-all"
                         title="Vaša oddana ocena za prodajalca"
                       >
-                        <Star size={13} className="text-[#FEBA4F] fill-[#FEBA4F]" /> Ocenjeno ({(currentChatConv.auction as any).review_rating || 5}★)
+                        <Star size={13} className="text-[#FEBA4F] fill-[#FEBA4F]" /> Ocenjeno ({(currentChatConv.auction as any).review_rating || 5}/5)
                       </button>
                     ) : onLeaveReview ? (
                       canLeaveReview(currentChatConv.auction) ? (
@@ -549,13 +549,13 @@ export const MessagesView: React.FC<{
                           onClick={() => sendQuickReply('Lep pozdrav! Kdaj vam ustreza osebni prevzem?')}
                           className="bg-white border border-slate-200 hover:border-[#FEBA4F] text-slate-700 hover:text-[#0A1128] text-xs font-bold py-2 px-3.5 rounded-xl transition-all shadow-sm"
                         >
-                          👋 Kdaj vam ustreza osebni prevzem?
+                          Kdaj vam ustreza osebni prevzem?
                         </button>
                         <button
                           onClick={() => sendQuickReply('Pozdravljeni! Sporočite mi točno lokacijo za prevzem.')}
                           className="bg-white border border-slate-200 hover:border-[#FEBA4F] text-slate-700 hover:text-[#0A1128] text-xs font-bold py-2 px-3.5 rounded-xl transition-all shadow-sm"
                         >
-                          📍 Kje točno se dobiva?
+                          Kje točno se dobiva?
                         </button>
                       </div>
                     )}

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ShieldCheck, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { ShieldCheck, ArrowLeft, CheckCircle2 } from '../icons';
 import { LoadingButton } from '../ui/Common';
 import { toast } from 'sonner';
 import { getAuthHeaders } from '../../lib/authFetch';
@@ -44,20 +44,20 @@ export const TermsUpdateView: React.FC<{
 
   return (
     <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
-      <div className="bg-white w-full max-w-4xl rounded-[4rem] p-10 lg:p-16 shadow-2xl border border-slate-100 flex flex-col">
+      <div className="bg-white w-full max-w-4xl rounded-[1.35rem] p-10 lg:p-16 shadow-2xl border border-slate-100 flex flex-col">
         <button onClick={onBack} className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors self-start">
           <ArrowLeft size={16}/> Nazaj
         </button>
         
         <div className="text-center mb-10">
-          <div className="bg-[#FEBA4F] w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg">
+          <div className="bg-[#FEBA4F] w-20 h-20 rounded-[1.35rem] flex items-center justify-center mx-auto mb-6 shadow-lg">
             <ShieldCheck size={40} className="text-[#0A1128]" />
           </div>
           <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Posodobljeni pogoji uporabe</h2>
           <p className="text-slate-400 font-bold text-sm">Za nadaljnjo uporabo platforme drazbenik.si morate prebrati in sprejeti nove pogoje uporabe.</p>
         </div>
 
-        <div className="flex-1 bg-slate-50 rounded-[2rem] p-8 md:p-10 mb-10 overflow-y-auto max-h-[50vh] border border-slate-100 custom-scrollbar">
+        <div className="flex-1 bg-slate-50 rounded-[1.35rem] p-8 md:p-10 mb-10 overflow-y-auto max-h-[50vh] border border-slate-100 custom-scrollbar">
           <div className="text-slate-600 font-bold leading-relaxed text-sm md:text-base whitespace-pre-line text-justify">
             {t('termsText')}
           </div>
@@ -75,7 +75,7 @@ export const TermsUpdateView: React.FC<{
             onClick={handleAccept} 
             loading={loading}
             loadingText="Obdelujem..."
-            className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+            className="w-full bg-[#0A1128] text-white py-6 rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
           >
             Sprejemam pogoje in želim nadaljevati
           </LoadingButton>

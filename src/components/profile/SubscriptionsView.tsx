@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { alertDialog } from '../../lib/dialog';
-import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from 'lucide-react';
+import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from '../icons';
 import { SubscriptionTier } from "../../types";
 import { auth } from "../../lib/firebase";
 import { getAuthHeaders } from "../../lib/authFetch";
@@ -135,7 +135,7 @@ export const SubscriptionsView: React.FC<{
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
         {plans.map(plan => (
-          <div key={plan.tier} className={`rounded-3xl md:rounded-[3rem] p-5 md:p-10 flex flex-col ${plan.color} ${currentPlan === plan.tier ? 'ring-4 ring-offset-4 ring-[#FEBA4F]' : ''}`}>
+          <div key={plan.tier} className={`rounded-3xl md:rounded-[1.35rem] p-5 md:p-10 flex flex-col ${plan.color} ${currentPlan === plan.tier ? 'ring-4 ring-offset-4 ring-[#FEBA4F]' : ''}`}>
             {currentPlan === plan.tier && (
               <div className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-80 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -209,7 +209,7 @@ export const SubscriptionsView: React.FC<{
       )}
 
       {/* RAČUNI ZA NAROČNINE */}
-      <div className="mt-8 md:mt-16 bg-white border border-slate-200 rounded-3xl md:rounded-[3rem] p-4 sm:p-10 shadow-sm">
+      <div className="mt-8 md:mt-16 bg-white border border-slate-200 rounded-3xl md:rounded-[1.35rem] p-4 sm:p-10 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-[#FEBA4F]">

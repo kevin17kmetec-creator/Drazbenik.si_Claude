@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, AlertCircle } from 'lucide-react';
+import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, AlertCircle } from '../icons';
 import { createCheckoutSessionAction, confirmCheckoutSessionAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
 import { Portal } from '../ui/Portal';
@@ -271,7 +271,7 @@ export const CheckoutModal: React.FC<{
       <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
         <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => { resetModalState(); onClose(); }}></div>
         {/* Deutscher Kommentar: Das Kassenmodal erhaelt max-h-[92dvh] overflow-y-auto und responsive Abstaende fuer Mobilgeraete */}
-        <div className="relative bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
+        <div className="relative bg-white w-full max-w-lg rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl animate-in border-2 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
           <button 
             type="button" 
             onClick={() => { resetModalState(); onClose(); }} 

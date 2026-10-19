@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Cookie } from 'lucide-react';
+import { Cookie } from '../icons';
 
 // Deutscher Kommentar: Hinweis auf technisch notwendige Speicherung (keine Tracking- oder Werbe-Cookies); Auswahl wird 12 Monate gespeichert
 const STORAGE_KEY = 'cookie_notice_ack';

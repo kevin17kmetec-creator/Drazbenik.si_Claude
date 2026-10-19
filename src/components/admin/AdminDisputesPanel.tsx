@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { confirmDialog } from '../../lib/dialog';
-import { RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
+import { RefreshCw, AlertTriangle, CheckCircle2 } from '../icons';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from '../../lib/toast';
 

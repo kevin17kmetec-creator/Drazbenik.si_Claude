@@ -3,7 +3,7 @@ import { Category, Region, AuctionItem } from '../../types';
 import { getAttributeDefinitionsForCategory, getFieldOptions } from '../../lib/categoryAttributes';
 import { getCategoryTranslation } from '../../lib/translations';
 import { matchesSelectedRegion } from '../../lib/utils';
-import { Filter, X, Truck, MapPin, Check, ChevronDown, Sparkles, Search } from 'lucide-react';
+import { Filter, X, Truck, MapPin, Check, ChevronDown, Sparkles, Search } from '../icons';
 import { Portal } from '../ui/Portal';
 
 // Filterzustand mit Arrays für Mehrfachauswahl

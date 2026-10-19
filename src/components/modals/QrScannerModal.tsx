@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Html5Qrcode } from 'html5-qrcode';
-import { Camera, X, AlertCircle } from 'lucide-react';
+import { Camera, X, AlertCircle } from '../icons';
 import { Portal } from '../ui/Portal';
 
 interface QrScannerModalProps {
@@ -174,7 +174,7 @@ export const QrScannerModal: React.FC<QrScannerModalProps> = ({
         onClick={onClose}
       >
         <div
-          className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-8 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+          className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-8 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
           onClick={(e) => e.stopPropagation()}
         >
           <button

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, HelpCircle, Info } from 'lucide-react';
+import { AlertTriangle, HelpCircle, Info } from '../icons';
 import { Portal } from './Portal';
 import { DialogRequest, registerDialogHost } from '../../lib/dialog';
 
@@ -46,7 +46,7 @@ export const DialogHost: React.FC = () => {
     <Portal>
       <div className="fixed inset-0 z-[3000] flex items-center justify-center p-3 sm:p-4" role="dialog" aria-modal="true" aria-labelledby="app-dialog-title">
         <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => close(false)}></div>
-        <div className="relative bg-white w-full max-w-md rounded-3xl sm:rounded-[2.5rem] p-6 sm:p-9 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
+        <div className="relative bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-6 sm:p-9 shadow-2xl animate-in border-2 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
           <div className="flex items-start gap-4 mb-5">
             <div className={`p-3 rounded-2xl shrink-0 ${danger ? 'bg-red-50' : 'bg-[#FEBA4F]/10'}`}>
               <Icon className={danger ? 'text-red-500' : 'text-[#FEBA4F]'} size={26} />

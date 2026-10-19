@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Star, Award, CheckCircle2, ShieldCheck, Image as ImageIcon } from 'lucide-react';
+import { X, Star, Award, CheckCircle2, ShieldCheck, Image as ImageIcon } from '../icons';
 import { AuctionItem } from '../../types';
 import { Portal } from '../ui/Portal';
 import { LoadingButton } from '../ui/Common';
@@ -86,7 +86,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
       {/* Deutscher Kommentar: Responsives Bewertung-Modal mit max-h und Touch-Zielen */}
       <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-md z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
         <div 
-          className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative border border-slate-100 overflow-hidden max-h-[92dvh] flex flex-col"
+          className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative border border-slate-100 overflow-hidden max-h-[92dvh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
         {/* Close Button */}

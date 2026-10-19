@@ -114,12 +114,14 @@ import {
   List,
   Scale,
   FileText,
+  Check,
+  Package,
   HelpCircle,
   Languages,
   FileUp,
   Key,
   QrCode,
-} from "lucide-react";
+} from './components/icons';
 
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -204,7 +206,7 @@ const SignedImg = ({
   );
 };
 
-import { Timer } from "lucide-react";
+import { Timer } from './components/icons';
 
 const PaymentTimer: React.FC<{ endTime: string | Date; deadlineAt?: string | Date | null }> = ({ endTime, deadlineAt }) => {
   const [timeLeft, setTimeLeft] = useState<{
@@ -554,7 +556,7 @@ const WonAuctionItem: React.FC<{
   return (
     <div
       key={wonItem.id}
-      className={`flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 transition-colors group ${
+      className={`flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 transition-colors group ${
         isOverdue 
           ? "border-red-500 bg-red-50/20 shadow-sm" 
           : "border-slate-100 hover:border-[#FEBA4F]"
@@ -3781,7 +3783,7 @@ const MainApp: React.FC = () => {
                         isCompleted ? 'bg-emerald-100 text-emerald-600' :
                         isActive ? 'bg-[#0A1128] text-white border-2 border-[#FEBA4F]' : 'bg-slate-100 text-slate-400'
                       }`}>
-                        {isCompleted ? '✓' : idx + 1}
+                        {isCompleted ? <Check size={16} strokeWidth={2.5} /> : idx + 1}
                       </div>
                       <span className={`text-xs font-black uppercase tracking-wider ${
                         isCompleted ? 'text-emerald-600' :
@@ -3930,7 +3932,7 @@ const MainApp: React.FC = () => {
                   className={`bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent transition-all group ${limitReached ? "opacity-60 cursor-not-allowed" : "hover:border-blue-500 cursor-pointer hover:-translate-y-1"}`}
                 >
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <span className="text-4xl">📄</span>
+                    <FileText size={40} className="text-[#0A1128]" />
                   </div>
                   <h2 className="text-2xl font-bold mb-4">Enojna dražba</h2>
                   <p className="text-gray-500 line-height-relaxed">
@@ -3944,7 +3946,7 @@ const MainApp: React.FC = () => {
                 >
                   <div className="absolute top-6 right-6 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">NOVO</div>
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <span className="text-4xl">📦</span>
+                    <Package size={40} className="text-[#0A1128]" />
                   </div>
                   <h2 className="text-2xl font-bold mb-4">Večpredmetna dražba</h2>
                   <p className="text-gray-500 line-height-relaxed">
@@ -4311,7 +4313,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> {t("back")}
           </button>
-          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <Gavel size={40} className="text-[#0A1128]" />
@@ -4408,7 +4410,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
-          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <Trophy size={40} className="text-[#0A1128]" />
@@ -4477,7 +4479,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
-          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <CreditCard size={40} className="text-[#0A1128]" />
@@ -4529,7 +4531,7 @@ const MainApp: React.FC = () => {
                   return (
                     <div
                       key={soldItem.id}
-                      className="grid grid-cols-1 sm:grid-cols-[7rem_minmax(0,1fr)] lg:grid-cols-[8.5rem_minmax(0,1fr)_19rem] items-start gap-4 lg:gap-6 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
+                      className="grid grid-cols-1 sm:grid-cols-[7rem_minmax(0,1fr)] lg:grid-cols-[8.5rem_minmax(0,1fr)_19rem] items-start gap-4 lg:gap-6 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
                     >
                       <div
                         className="w-24 h-24 md:w-32 md:h-32 shrink-0 bg-slate-100 rounded-2xl md:rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
@@ -4891,7 +4893,7 @@ const MainApp: React.FC = () => {
             <ArrowLeft size={16} /> Nazaj
           </button>
 
-          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
                 <MessageSquare size={40} className="text-slate-400" />
@@ -4926,7 +4928,7 @@ const MainApp: React.FC = () => {
                     return (
                       <div
                         key={pkg.package_id}
-                        className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
+                        className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
                       >
                         <button 
                           onClick={() => setDeleteUnsoldModal({
@@ -4992,7 +4994,7 @@ const MainApp: React.FC = () => {
                   return (
                     <div
                       key={soldItem.id}
-                      className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
+                      className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
                     >
                       <button 
                         onClick={() => setDeleteUnsoldModal({
@@ -5155,7 +5157,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
-          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <Eye size={40} className="text-[#0A1128]" />
@@ -5244,8 +5246,8 @@ const MainApp: React.FC = () => {
               className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12 scroll-mt-32"
             >
               <div className="flex items-center gap-4 flex-wrap">
-                <div className="bg-[#FEBA4F] w-2.5 h-10 rounded-full shadow-lg"></div>
-                <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
+                <span className="w-12 h-12 rounded-full bg-[#0A1128] text-[#FEBA4F] flex items-center justify-center shadow-lg ring-2 ring-offset-2 ring-offset-[#F5EFE2] ring-[#FEBA4F]/60"><Gavel size={22} /></span>
+                <h2 className="text-3xl sm:text-4xl text-[#0A1128]">
                   {activeView === "lastChance"
                     ? t("lastChanceTitle")
                     : selectedRegions.length > 0
@@ -6127,7 +6129,7 @@ const MainApp: React.FC = () => {
           <Portal>
             {/* Deutscher Kommentar: Responsives Splosni pogoji poslovanja Modal fuer mobile Geraete */}
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in">
-              <div className="bg-white w-full max-w-xl rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 lg:p-14 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
+              <div className="bg-white w-full max-w-xl rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 lg:p-14 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
                 <button
                   onClick={handleCancelTerms}
                   className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-[#0A1128] transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
@@ -6256,7 +6258,7 @@ const MainApp: React.FC = () => {
                 className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm animate-in fade-in"
                 onClick={() => setDeleteUnsoldModal(null)}
               />
-              <div className="relative bg-white rounded-3xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10 max-h-[92dvh] overflow-y-auto">
+              <div className="relative bg-white rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-8 md:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10 max-h-[92dvh] overflow-y-auto">
                 <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-4 sm:mb-6 mx-auto shadow-inner">
                   <Trash2 size={28} />
                 </div>
@@ -6315,7 +6317,7 @@ const MainApp: React.FC = () => {
           <Portal>
             {/* Deutscher Kommentar: Responsives Versandart-Auswahl-Modal */}
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in">
-              <div className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
+              <div className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
                 <button
                   onClick={() =>
                     setDeliveryMethodModal({
@@ -6408,7 +6410,7 @@ const MainApp: React.FC = () => {
               }}
             >
               <div 
-                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 {receiptConfirmState !== 'loading' && receiptConfirmState !== 'success' && !receiptConfirmLoading && (
@@ -6477,7 +6479,7 @@ const MainApp: React.FC = () => {
             {/* Deutscher Kommentar: Responsives Timeline-Modal */}
             <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
               <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => setTimelineModalAuctionId(null)}></div>
-              <div className="relative bg-white w-full max-w-4xl rounded-3xl sm:rounded-[3rem] p-1 shadow-2xl animate-in border-2 sm:border-4 border-[#FEBA4F] max-h-[92dvh] overflow-hidden flex flex-col">
+              <div className="relative bg-white w-full max-w-4xl rounded-3xl sm:rounded-[1.35rem] p-1 shadow-2xl animate-in border-2 sm:border-2 border-[#FEBA4F] max-h-[92dvh] overflow-hidden flex flex-col">
                  <div className="p-4 sm:p-8 pb-3 sm:pb-4 flex justify-between items-center border-b border-slate-100">
                     <h3 className="text-lg sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter">Status plačila in dostave</h3>
                     <button onClick={() => setTimelineModalAuctionId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 min-w-[40px] min-h-[40px] flex items-center justify-center" aria-label="Zapri"><X size={22} /></button>
@@ -6556,7 +6558,7 @@ const MainApp: React.FC = () => {
               }}
             >
               <div
-                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
@@ -6676,7 +6678,7 @@ const MainApp: React.FC = () => {
           <Portal>
             {/* Deutscher Kommentar: Responsives Modal fuer QR-Uebergabebestaetigung */}
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in" onClick={(e) => e.stopPropagation()}>
-              <div className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto">
+              <div className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto">
                 <div className="bg-amber-100 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
                   <Key size={32} className="text-amber-600" />
                 </div>

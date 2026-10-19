@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, AlertTriangle } from 'lucide-react';
+import { X, CheckCircle, AlertTriangle } from '../icons';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { AuctionItem, SubscriptionTier } from '../../types';

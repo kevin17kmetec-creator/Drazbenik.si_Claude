@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Minus, Plus, Lock, Trophy, ShieldCheck, Truck } from 'lucide-react';
+import { MapPin, ChevronLeft, ChevronRight, Clock, Eye, Minus, Plus, Lock, Trophy, ShieldCheck, Truck } from '../icons';
 import { AuctionItem, Seller } from "../../types";
 import { getIncrement, formatSeconds, checkAndFinalizeAuctionClient } from "../../lib/utils";
 import { getShippingPriceLabel } from "../../lib/shippingRules";
@@ -92,136 +92,145 @@ export const AuctionCard: React.FC<{
     setIsBidding(false);
   };
 
-  // Border logic
-  let borderClass = "border-transparent";
+  // Deutscher Kommentar: Rahmenlogik – eigene Gebote bleiben gruen (fuehrend) bzw. rot (ueberboten) markiert
+  let borderClass = "border-[#E4DBC7]";
   if (hasBid) {
     borderClass = isWinner ? "border-green-500 border-2 ring-2 ring-green-500/20" : "border-red-500 border-2 ring-2 ring-red-500/20";
   }
 
+  // Deutscher Kommentar: Beschriftung des Gebotsknopfes (zweiwortige Texte werden zweizeilig gesetzt)
+  const bidLabel = (() => {
+    const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
+    const words = rawText.trim().split(/\s+/);
+    if (words.length === 2) {
+      return (
+        <span className="flex flex-col items-center leading-tight">
+          <span>{words[0]}</span>
+          <span>{words[1]}</span>
+        </span>
+      );
+    }
+    return <span>{rawText}</span>;
+  })();
+
+  const imageCount = signedImages.length || item.images.length;
+  const shippingLabel = getShippingPriceLabel(item);
+
   return (
-    <div className={`bg-[#0A1128] rounded-2xl md:rounded-[2.5rem] overflow-hidden shadow-xl md:shadow-2xl hover:shadow-2xl md:hover:-translate-y-2 transition-all duration-300 group flex flex-col border relative ${borderClass}`}>
-      <div className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer group/image" onClick={onClick}>
-        <img 
-          src={signedImages[currentImageIndex] || item.images[currentImageIndex]} 
-          alt={item.title[language] || item.title['SLO']} 
-          loading="lazy" 
-          referrerPolicy="no-referrer" 
-          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" 
+    <div className={`bg-[#FFFDF7] rounded-[1.35rem] overflow-hidden shadow-xl hover:shadow-2xl md:hover:-translate-y-1.5 transition-all duration-300 group flex flex-col border relative ${borderClass}`}>
+      <div className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer group/image bg-[#E9E1CE]" onClick={onClick}>
+        <img
+          src={signedImages[currentImageIndex] || item.images[currentImageIndex]}
+          alt={item.title[language] || item.title['SLO']}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-700"
         />
-        {(signedImages.length > 1 || item.images.length > 1) && (
+        <div className="absolute inset-x-0 bottom-0 h-16 bg-gradient-to-t from-[#0A1128]/35 to-transparent pointer-events-none"></div>
+        {imageCount > 1 && (
           <>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev - 1 + (signedImages.length || item.images.length)) % (signedImages.length || item.images.length)); }}
-              className="absolute left-2 top-1/2 -translate-y-1/2 p-1 bg-white/30 hover:bg-white/60 rounded-full opacity-0 group-hover/image:opacity-100 transition-opacity"
+            <button
+              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev - 1 + imageCount) % imageCount); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#FFFDF7]/90 text-[#0A1128] hover:bg-[#FFFDF7] rounded-full opacity-0 group-hover/image:opacity-100 transition-opacity shadow-md"
+              aria-label="Prejšnja slika"
             >
-                <ChevronLeft size={16} className="text-white" />
+              <ChevronLeft size={16} />
             </button>
-            <button 
-              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev + 1) % (signedImages.length || item.images.length)); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-white/30 hover:bg-white/60 rounded-full opacity-0 group-hover/image:opacity-100 transition-opacity"
+            <button
+              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev + 1) % imageCount); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 bg-[#FFFDF7]/90 text-[#0A1128] hover:bg-[#FFFDF7] rounded-full opacity-0 group-hover/image:opacity-100 transition-opacity shadow-md"
+              aria-label="Naslednja slika"
             >
-                <ChevronRight size={16} className="text-white" />
+              <ChevronRight size={16} />
             </button>
+            <div className="absolute bottom-2.5 left-1/2 -translate-x-1/2 flex gap-1 pointer-events-none">
+              {Array.from({ length: Math.min(imageCount, 6) }).map((_, i) => (
+                <span key={i} className={`h-1 rounded-full transition-all ${i === currentImageIndex ? 'w-4 bg-[#FEBA4F]' : 'w-1.5 bg-white/70'}`}></span>
+              ))}
+            </div>
           </>
         )}
-        <div className="absolute top-2 left-2 md:top-4 md:left-4 bg-[#0A1128]/90 backdrop-blur-sm px-2 md:px-3.5 py-1 md:py-1.5 rounded-lg md:rounded-xl max-w-[70%] truncate text-[8px] md:text-[9px] font-black uppercase tracking-widest text-white shadow-lg flex items-center gap-1.5 border border-white/10">
-          <MapPin size={10} className="text-[#FEBA4F]" /> {item.location[language] || item.location['SLO']}
+        <div className="absolute top-2.5 left-2.5 md:top-3.5 md:left-3.5 bg-[#FFFDF7]/95 px-2.5 py-1 rounded-md max-w-[68%] truncate text-[10px] font-bold tracking-wide text-[#0A1128] shadow-sm flex items-center gap-1.5">
+          <MapPin size={12} className="shrink-0" /> <span className="truncate">{item.location[language] || item.location['SLO']}</span>
         </div>
 
-        <div className="absolute top-2 right-2 md:top-4 md:right-4 flex flex-col items-end gap-2">
-          <button 
+        <div className="absolute top-2.5 right-2.5 md:top-3.5 md:right-3.5 flex flex-col items-end gap-2">
+          <button
             onClick={(e) => { e.stopPropagation(); onWatchToggle(); }}
-            className={`p-2 rounded-xl backdrop-blur-sm shadow-lg border transition-all ${isWatched ? 'bg-[#FEBA4F] border-[#FEBA4F] text-[#0A1128]' : 'bg-[#0A1128]/90 border-white/10 text-white hover:bg-white/10'}`}
+            className={`p-2 rounded-full shadow-md border transition-all ${isWatched ? 'bg-[#FEBA4F] border-[#FEBA4F] text-[#0A1128]' : 'bg-[#FFFDF7]/95 border-transparent text-[#0A1128] hover:bg-[#FEBA4F]'}`}
           >
-            <Eye size={14} />
+            <Eye size={15} />
           </button>
           <ShareButton item={item} language={language} t={t} />
           {isWinner && (
-            <div className="bg-green-500 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border border-green-400/50 animate-pulse">
-              <Trophy size={10} /> {t('leading') || 'Vodilni'}
+            <div className="bg-green-600 text-white px-3 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest shadow-md flex items-center gap-1.5">
+              <Trophy size={12} /> {t('leading') || 'Vodilni'}
             </div>
           )}
         </div>
       </div>
-      <div className="p-3 sm:p-6 flex flex-col flex-1">
-        <h3 className="text-sm sm:text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 cursor-pointer mb-2 md:mb-4" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
 
-        <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-4">
-          <div className="bg-white/5 p-1.5 md:p-2 rounded-lg text-[#FEBA4F] border border-white/10"><Clock size={14} /></div>
-          <div className="text-[10px] font-black uppercase tracking-widest text-white">
-            <span className="text-slate-400 block">{t('timeLeft')}</span>
-            <span className="text-[#FEBA4F] tabular-nums text-xs md:text-sm">{timeLeftStr}</span>
-          </div>
-        </div>
-        <div className="mt-auto pt-3 md:pt-6 border-t border-white/10">
-          <div className="flex justify-between items-end mb-3 md:mb-6">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
-              <p className="text-lg md:text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
-              {getShippingPriceLabel(item) && (
-                <p className="text-[10px] md:text-[11px] font-bold text-slate-300 mt-0.5 flex items-center gap-1"><Truck size={11} className="text-[#FEBA4F] shrink-0" />{getShippingPriceLabel(item)}</p>
+      {/* Deutscher Kommentar: Perforierte Abrisskante wie bei einer Auktionskarte */}
+      <div className="relative h-0">
+        <div className="absolute left-3 right-3 top-0 border-t-2 border-dashed border-[#E4DBC7]"></div>
+        <span className="absolute -left-2.5 -top-2.5 w-5 h-5 rounded-full bg-[#F5EFE2] border border-[#E4DBC7]"></span>
+        <span className="absolute -right-2.5 -top-2.5 w-5 h-5 rounded-full bg-[#F5EFE2] border border-[#E4DBC7]"></span>
+      </div>
+
+      <div className="p-3.5 sm:p-5 pt-4 sm:pt-5 flex flex-col flex-1">
+        <h3 className="text-[15px] sm:text-lg leading-snug text-[#0A1128] hover:text-[#B26F00] transition-colors line-clamp-2 cursor-pointer mb-3 md:mb-4 min-h-[2.6em]" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
+
+        <div className="mt-auto">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-end gap-2.5 mb-3 md:mb-4">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 mb-0.5">{t('currentBid')}</p>
+              <p className="font-display text-2xl md:text-[1.7rem] leading-none text-[#0A1128] tabular-nums">€{item.currentBid.toLocaleString('sl-SI')}</p>
+              {shippingLabel && (
+                <p className="text-[11px] font-semibold text-slate-600 mt-1.5 flex items-center gap-1.5"><Truck size={13} className="shrink-0" />{shippingLabel}</p>
               )}
               {isWinner && (myMax || 0) > item.currentBid && (
-                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(myMax).toLocaleString('sl-SI')}</p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-green-700 mt-1">Moja max: €{Number(myMax).toLocaleString('sl-SI')}</p>
               )}
             </div>
-            <div className="text-right">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('bidCount')}</p>
-              <p className="text-sm font-black text-[#FEBA4F]">{item.bidCount}</p>
+            <div className="shrink-0 flex sm:flex-col items-center sm:items-end justify-between gap-1.5">
+              <div className="bg-[#0A1128] text-[#FEBA4F] pl-2 pr-2.5 py-1 rounded-md flex items-center gap-1.5 shadow-sm" title={t('timeLeft')}>
+                <Clock size={13} />
+                <span className="font-bold tabular-nums text-xs md:text-[13px] tracking-wide">{timeLeftStr}</span>
+              </div>
+              <p className="text-[10px] font-bold uppercase tracking-widest text-slate-500 whitespace-nowrap">{t('bidCount')}: {item.bidCount}</p>
             </div>
           </div>
+
           {isSeller ? (
-            <div className="h-12 w-full bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-black text-[10px] uppercase tracking-widest cursor-default select-none">
-              <ShieldCheck size={14} className="text-[#FEBA4F]" /> Vaša dražba
+            <div className="h-12 w-full bg-slate-100 border border-slate-200 rounded-xl flex items-center justify-center gap-2 text-slate-600 font-bold text-[11px] uppercase tracking-widest cursor-default select-none">
+              <ShieldCheck size={15} /> Vaša dražba
             </div>
           ) : (
-            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2 md:gap-4 w-full relative">
-               <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 md:flex-[5]">
-                  <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
-                  <div className="flex-1 flex items-center justify-center px-1">
-                      <span className="text-[#FEBA4F] font-black text-lg mr-1">€</span>
-                      <input type="text" value={bidValue} readOnly className="w-full bg-transparent text-center text-white font-black text-lg outline-none tabular-nums" />
+            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2 md:gap-3 w-full relative">
+              <div className="flex items-center bg-slate-100 rounded-xl border border-slate-200 p-1 md:flex-[5]">
+                <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-500 hover:text-[#0A1128] hover:bg-white rounded-lg transition-all flex-shrink-0" aria-label="Zmanjšaj"><Minus size={15} /></button>
+                <div className="flex-1 flex items-center justify-center px-1">
+                  <span className="text-slate-500 font-bold text-base mr-1">€</span>
+                  <input type="text" value={bidValue} readOnly className="w-full bg-transparent text-center text-[#0A1128] font-bold text-lg outline-none tabular-nums" />
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-500 hover:text-[#0A1128] hover:bg-white rounded-lg transition-all flex-shrink-0" aria-label="Povečaj"><Plus size={15} /></button>
+              </div>
+              <button
+                onClick={handleBidClick}
+                disabled={isBidding}
+                className={`h-10 md:h-12 md:flex-[4] px-2 py-1.5 leading-tight text-center rounded-xl font-bold text-[11px] uppercase tracking-widest transition-all shadow-md flex items-center justify-center gap-2 ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F]' : 'bg-slate-200 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
+              >
+                {isBidding ? (
+                  <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
+                ) : !onBidSubmit || !isVerified ? (
+                  <div className="flex items-center justify-center gap-1.5">
+                    <Lock size={14} className="flex-shrink-0" />
+                    {bidLabel}
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
-               </div>
-               <button 
-                  onClick={handleBidClick} 
-                  disabled={isBidding} 
-                  className={`h-10 md:h-12 md:flex-[4] px-2 py-1.5 leading-tight text-center rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
-               >
-                  {isBidding ? (
-                      <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
-                  ) : !onBidSubmit || !isVerified ? (
-                      <div className="flex items-center justify-center gap-1.5">
-                        <Lock size={14} className="flex-shrink-0" />
-                        {(() => {
-                            const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
-                            const words = rawText.trim().split(/\s+/);
-                            if (words.length === 2) {
-                              return (
-                                <span className="flex flex-col items-center leading-tight">
-                                  <span>{words[0]}</span>
-                                  <span>{words[1]}</span>
-                                </span>
-                              );
-                            }
-                            return <span>{rawText}</span>;
-                        })()}
-                      </div>
-                  ) : (() => {
-                      const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
-                      const words = rawText.trim().split(/\s+/);
-                      if (words.length === 2) {
-                        return (
-                          <span className="flex flex-col items-center leading-tight">
-                            <span>{words[0]}</span>
-                            <span>{words[1]}</span>
-                          </span>
-                        );
-                      }
-                      return <span>{rawText}</span>;
-                  })()}
-               </button>
+                ) : (
+                  bidLabel
+                )}
+              </button>
             </div>
           )}
         </div>

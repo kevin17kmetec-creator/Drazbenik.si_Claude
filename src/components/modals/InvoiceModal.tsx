@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, FileText, Download, ExternalLink, Loader2 } from 'lucide-react';
+import { X, FileText, Download, ExternalLink, Loader2 } from '../icons';
 import { AuctionItem } from "../../types";
 import { getAuthHeaders } from "../../lib/authFetch";
 import { Portal } from '../ui/Portal';

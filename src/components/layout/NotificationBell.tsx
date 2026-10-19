@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCheck } from 'lucide-react';
+import { Bell, CheckCheck } from '../icons';
 import { translateText, normalizeLang } from '../../lib/translateUi';
 
 export interface NotificationItem {

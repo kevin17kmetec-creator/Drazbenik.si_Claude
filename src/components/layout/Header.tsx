@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Star, Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare, FileText, Menu, X, MapPin, Tag } from 'lucide-react';
+import { Check, Star, Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare, FileText, Menu, X, MapPin, Tag } from '../icons';
 import { ViewState, Region, Category, AuctionItem } from "../../types";
 import { Portal } from '../ui/Portal';
 import { useChat } from "../../context/ChatContext";
@@ -231,7 +231,7 @@ export const Header: React.FC<{
   );
 
   return (
-    <header ref={headerRef} className="bg-[#0A1128] text-white shadow-2xl border-b border-white/10 sticky top-0 z-[500]">
+    <header ref={headerRef} className="bg-[#0A1128] text-white shadow-2xl border-b-2 border-[#FEBA4F] sticky top-0 z-[500]">
       {showTermsUpdateBar && (
         <div className="bg-[#FEBA4F] text-[#0A1128] px-4 sm:px-6 py-2.5 sm:py-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 animate-in fade-in slide-in-from-top duration-500">
           {/* Leiste fuer aktualisierte Bedingungen beim Laden */}
@@ -355,7 +355,7 @@ export const Header: React.FC<{
                 <ChevronDown size={14} className={isUserMenuOpen ? 'rotate-180 transition-transform' : 'transition-transform'}/>
               </button>
               {isUserMenuOpen && (
-                <div className="absolute top-full right-0 mt-3 w-max min-w-[16rem] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-[2rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in [&_button]:whitespace-nowrap">
+                <div className="absolute top-full right-0 mt-3 w-max min-w-[16rem] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-[1.35rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in [&_button]:whitespace-nowrap">
                     {userData && (
                       <div className="px-6 py-4 border-b border-slate-100 mb-2 bg-slate-50">
                           <div className="flex items-center justify-between mb-1">
@@ -779,7 +779,7 @@ export const Header: React.FC<{
                       onClick={() => { toggleRegion(r); }} 
                       className={`text-left py-1.5 px-2 text-[11px] font-bold hover:text-[#FEBA4F] flex items-center justify-between ${activeRegions.some(x => x === r) ? 'text-[#FEBA4F]' : 'text-slate-300'}`}
                     >
-                      <span>{activeRegions.some(x => x === r) ? '✓ ' : ''}{r}</span>
+                      <span className="flex items-center gap-1.5">{activeRegions.some(x => x === r) ? <Check size={12} strokeWidth={2.5} /> : null}{r}</span>
                       {regionCounts[r] > 0 && <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-slate-300">{regionCounts[r]}</span>}
                     </button>
                   ))}

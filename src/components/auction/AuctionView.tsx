@@ -4,7 +4,7 @@ import {
   ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
   MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck, ExternalLink
-} from 'lucide-react';
+} from '../icons';
 import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
 import { getIncrement, checkAndFinalizeAuctionClient } from "../../lib/utils";
@@ -346,10 +346,10 @@ export default function AuctionView({
         </button>
       </div>
 
-      <div className="bg-white rounded-[2rem] overflow-hidden shadow-xl border border-slate-100 p-4 lg:p-6">
+      <div className="bg-white rounded-[1.35rem] overflow-hidden shadow-xl border border-slate-100 p-4 lg:p-6">
         <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[auto_1fr] gap-6">
           <div className="lg:col-span-8 lg:col-start-1 lg:row-start-1 order-1">
-            <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
+            <div className="bg-white p-6 rounded-[1.35rem] border border-slate-200 shadow-sm">
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div className="flex flex-col gap-2">
                   <h1 className="text-2xl md:text-3xl font-black uppercase tracking-tighter text-[#0A1128] leading-tight">{title}</h1>
@@ -374,7 +374,7 @@ export default function AuctionView({
               </div>
 
               <div className="flex flex-col gap-4">
-                <div className="flex-1 bg-white border border-slate-200 rounded-[2rem] p-4 flex items-center justify-center relative min-h-[300px] max-h-[55vh] shadow-sm overflow-hidden group">
+                <div className="flex-1 bg-white border border-slate-200 rounded-[1.35rem] p-4 flex items-center justify-center relative min-h-[300px] max-h-[55vh] shadow-sm overflow-hidden group">
                   {signedImages.length > 0 ? (
                     <>
                       <img 
@@ -427,7 +427,7 @@ export default function AuctionView({
           </div>
 
           <div className="lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:row-span-2 order-2 space-y-6">
-            <div className="bg-[#0A1128] text-white border border-white/5 rounded-[2rem] p-5 flex flex-col w-full shadow-2xl relative overflow-hidden">
+            <div className="bg-[#0A1128] text-white border border-white/5 rounded-[1.35rem] p-5 flex flex-col w-full shadow-2xl relative overflow-hidden">
               {/* Deutscher Kommentar: Bei beendeter Auktion nimmt der Overlay-Container am normalen Layoutfluss teil (relative w-full), damit die Karte mit dem Inhalt dynamisch waechst */}
               {isEnded && (
                 <div className="relative w-full bg-[#0A1128]/95 backdrop-blur-md z-10 flex flex-col items-center justify-center p-4 sm:p-8 text-center">
@@ -678,7 +678,7 @@ export default function AuctionView({
             </div>
 
             {/* Key Buyer Decision Information: Delivery, Location, Condition */}
-            <div className="bg-white border-2 border-slate-200/90 rounded-[2rem] overflow-hidden shadow-lg">
+            <div className="bg-white border-2 border-slate-200/90 rounded-[1.35rem] overflow-hidden shadow-lg">
               <div className="p-3 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <div className="w-7 h-7 rounded-lg bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">
@@ -845,7 +845,7 @@ export default function AuctionView({
               if (entries.length === 0) return null;
 
               return (
-                <div className="bg-white border-2 border-slate-200/90 rounded-[2rem] overflow-hidden shadow-lg animate-in fade-in">
+                <div className="bg-white border-2 border-slate-200/90 rounded-[1.35rem] overflow-hidden shadow-lg animate-in fade-in">
                   <div className="p-3 border-b border-slate-100 bg-[#0A1128] text-white flex items-center justify-between">
                     <div className="flex items-center gap-2">
                       <div className="w-7 h-7 rounded-lg bg-[#FEBA4F] text-[#0A1128] flex items-center justify-center font-black">

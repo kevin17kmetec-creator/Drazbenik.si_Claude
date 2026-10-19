@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, Layers, Clock, ShieldCheck, Building2, MapPin, Truck } from 'lucide-react';
+import { ArrowLeft, Layers, Clock, ShieldCheck, Building2, MapPin, Truck } from '../icons';
 import { AuctionItem, Seller } from '../../types';
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import { formatSeconds } from "../../lib/utils";
@@ -93,7 +93,7 @@ export const PackageView: React.FC<PackageViewProps> = ({
       </button>
 
       {/* Collection Header Banner */}
-      <div className="bg-[#0A1128] text-white rounded-[2.5rem] p-8 sm:p-12 shadow-2xl mb-12 border border-white/10 relative overflow-hidden">
+      <div className="bg-[#0A1128] text-white rounded-[1.35rem] p-8 sm:p-12 shadow-2xl mb-12 border border-white/10 relative overflow-hidden">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-8 relative z-10">
           <div>
             <div className="flex items-center gap-3 mb-3 flex-wrap">

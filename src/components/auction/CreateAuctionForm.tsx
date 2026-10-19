@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, Layers, FileUp, Camera, ImagePlus, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { ArrowLeft, Layers, FileUp, Camera, ImagePlus, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle, CheckCircle2 } from '../icons';
 import { Category, Region, AuctionItem } from "../../types";
 import { getCategoryTranslation } from "../../lib/translations";
 import { storage, auth } from "../../lib/firebase";
@@ -873,7 +873,7 @@ export const CreateAuctionForm: React.FC<{
               </div>
             )}
             <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-[#0A1128] transition-colors mb-10 font-black text-[10px] uppercase tracking-widest"><ArrowLeft size={16} /> {t('cancel')}</button>
-            <div className="bg-white rounded-3xl md:rounded-[3rem] p-4 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
+            <div className="bg-white rounded-3xl md:rounded-[1.35rem] p-4 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
                 <h2 className="text-2xl md:text-4xl font-black text-[#0A1128] mb-6 md:mb-8 uppercase tracking-tighter">{t('newAuction')}</h2>
                 <div className="space-y-8">
                     <div className="space-y-4">
@@ -1063,7 +1063,7 @@ export const CreateAuctionForm: React.FC<{
                             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                             onDragLeave={() => setIsDragging(false)}
                             onDrop={(e) => { e.preventDefault(); setIsDragging(false); if(e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files)); }}
-                            className={`p-6 md:p-12 border-4 border-dashed rounded-3xl md:rounded-[2.5rem] text-center transition-all cursor-pointer relative group ${
+                            className={`p-6 md:p-12 border-4 border-dashed rounded-3xl md:rounded-[1.35rem] text-center transition-all cursor-pointer relative group ${
                                 invalidFields.images 
                                     ? 'border-red-500 bg-red-50/20' 
                                     : isDragging 
@@ -1305,7 +1305,7 @@ export const CreateAuctionForm: React.FC<{
             {showPreview && (
                 <Portal>
                     <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
-                        <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
+                        <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[1.35rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
                             <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
                                 <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
                                 <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
@@ -1350,7 +1350,7 @@ export const CreateAuctionForm: React.FC<{
                                 </div>
                                 <div className="pb-12">
                                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
-                                   <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
+                                   <div className="border border-slate-200 rounded-[1.35rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
                                        <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
                                            <AuctionView 
                                               item={{
