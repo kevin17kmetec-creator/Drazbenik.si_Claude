@@ -60,6 +60,7 @@ export interface Review {
   author_id?: string;
   seller_id?: string;
   created_at?: string;
+  dispute_status?: string;
 }
 
 export interface AuctionItem {
@@ -98,6 +99,9 @@ export interface AuctionItem {
   package_id?: string;
   createdAt?: string | number | Date;
   created_at?: string | number | Date;
+  bank_transfer_used?: boolean;
+  payment_deadline?: string;
+  end_time?: string;
 }
 
 export interface AuctionPackage {
@@ -120,6 +124,7 @@ export interface BidHistory {
 
 export enum Category {
   Oblacila = 'Oblačila',
+  Telefoni = 'Telefoni',
   Racunalniki = 'Računalniki',
   ProstiCasInSport = 'Prosti čas in šport',
   DomInVrt = 'Dom in vrt',
@@ -157,4 +162,4 @@ export enum Region {
   ObalnoKraska = 'Obalno-kraška'
 }
 
-export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'testSandbox' | 'package' | 'payoutSetup' | 'acceptTerms';
+export type ViewState = 'grid' | 'detail' | 'login' | 'sellerProfile' | 'createAuction' | 'settings' | 'verification' | 'winnings' | 'lastChance' | 'subscriptions' | 'watchlist' | 'myBids' | 'mySold' | 'messages' | 'myUnsold' | 'myArchive' | 'package' | 'payoutSetup' | 'acceptTerms' | 'adminAccounting';

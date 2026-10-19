@@ -24,24 +24,26 @@ export const MissingInvoiceDataModal: React.FC<MissingInvoiceDataModalProps> = (
 
   return (
     <Portal>
-      <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+      {/* Deutscher Kommentar: Responsives Modal fuer fehlende Rechnungsdaten */}
+      <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
         <div 
-          className="bg-white rounded-[2.5rem] p-8 md:p-10 max-w-lg w-full shadow-2xl border border-slate-100 relative overflow-hidden animate-in zoom-in-95 duration-200"
+          className="bg-white rounded-3xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 max-w-lg w-full shadow-2xl border border-slate-100 relative overflow-hidden animate-in zoom-in-95 duration-200 max-h-[92dvh] overflow-y-auto"
           role="dialog"
           aria-modal="true"
         >
         {/* Close Button */}
         <button
           onClick={onClose}
-          className="absolute top-6 right-6 w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-[#0A1128] transition-colors flex items-center justify-center"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 w-10 h-10 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-[#0A1128] transition-colors flex items-center justify-center"
           aria-label="Zapri"
         >
           <X size={20} />
         </button>
 
         {/* Warning Icon Badge */}
-        <div className="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200/60 flex items-center justify-center text-amber-600 mb-6 shadow-sm">
-          <FileText size={32} />
+        <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-amber-50 border border-amber-200/60 flex items-center justify-center text-amber-600 mb-4 sm:mb-6 shadow-sm">
+          <FileText size={24} className="sm:hidden" />
+          <FileText size={32} className="hidden sm:block" />
         </div>
 
         {/* Title & Subtitle */}

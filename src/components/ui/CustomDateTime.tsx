@@ -90,9 +90,7 @@ export const CustomDatePicker = ({ value, onChange, minDateStr, maxDateStr }) =>
                             
                             const dateStr = formatDate(date);
                             const isSelected = value === dateStr;
-                            // TESTING PHASE: Allowed all dates
-                            // const isSelectable = date >= minDate && date <= maxDate;
-                            const isSelectable = true;
+                            const isSelectable = date >= minDate && date <= maxDate;
                             
                             return (
                                 <button
@@ -164,9 +162,8 @@ export const CustomTimePicker = ({ value, onChange }) => {
         onChange(`${hours}:${m}`);
     };
 
-    // TESTING PHASE: Allowed all hours 0-23
+    // Deutscher Kommentar: Alle Stunden und Minuten waehlbar - Paketauktionen brauchen minutengenaue Endzeiten (2 Minuten Abstand)
     const validHours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')); 
-    // TESTING PHASE: Allowed 1-minute increments
     const validMinutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'));
 
     return (

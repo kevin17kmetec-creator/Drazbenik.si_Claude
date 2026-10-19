@@ -8,3 +8,8 @@ export const PRE_RELEASE_BUYER_REMINDER_HOURS = 48;
 export const PAYOUT_MAX_ATTEMPTS = 5;
 export const HOLD_ALERT_DAYS = 60;
 export const HOLD_HARD_LIMIT_DAYS = 75;
+
+// Deutscher Kommentar: Minimale Auszahlungssumme in Cent (10 EUR) und automatische Auszahlungsfrist in Tagen
+export const MIN_PAYOUT_CENTS = 1000;
+export const PAYOUT_AUTO_DAYS = 30;
+

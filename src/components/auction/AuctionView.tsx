@@ -3,16 +3,23 @@ import {
   Clock, Lock, CheckCircle2, AlertCircle, Image as ImageIcon,
   ChevronLeft, ChevronRight, Eye, MapPin, Info, Gavel, Truck, Trophy,
   CreditCard, Landmark, Plus, Minus, X, Calendar as CalendarIcon, Phone, Mail, User,
-  MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck
+  MessageSquare, Sparkles, Building2, Package, Tag, ShieldCheck, ExternalLink
 } from 'lucide-react';
 import { doc, collection, query, orderBy, limit, onSnapshot } from 'firebase/firestore';
 import { db, registerSnapshotListener } from "../../lib/firebase";
 import { getIncrement, checkAndFinalizeAuctionClient } from "../../lib/utils";
 import { calculateTotals } from "../../lib/feeCalculator";
+import { ShareButton } from '../ui/ShareButton';
 import { PaymentTimeline } from "../orders/PaymentTimeline";
 import { useFeePreview } from "../../lib/useFeePreview";
 import { formatAttributeLabel } from "../../lib/categoryAttributes";
 import { toast } from 'sonner';
+import { WinnerActions } from './WinnerActions';
+import { Portal } from '../ui/Portal';
+import { LoadingButton } from '../ui/Common';
+import { cancelBankTransferPayment } from '../../lib/bankTransfer';
+import { openCenteredPopup } from '../../lib/popup';
+import { watchBankTransferPopup } from '../../lib/bankTransferWatcher';
 
 const TimeBox = ({ value, label }: { value: number, label: string }) => (
   <div className="flex flex-col items-center justify-center bg-white/10 rounded-xl w-14 h-14 md:w-16 md:h-16 border border-white/10">
@@ -21,7 +28,29 @@ const TimeBox = ({ value, label }: { value: number, label: string }) => (
   </div>
 );
 
-export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onSellerClick, t, language, isVerified, currentPlan, isWatched, onWatchToggle, currentUserId, myMax, myBidsMap }: { 
+export default function AuctionView({ 
+  item, 
+  onBack, 
+  onBidSubmit, 
+  onCheckout, 
+  onSellerClick, 
+  t, 
+  language, 
+  isVerified, 
+  currentPlan, 
+  isWatched, 
+  onWatchToggle, 
+  currentUserId, 
+  myMax, 
+  myBidsMap,
+  user,
+  setReceiptConfirmModal,
+  openReviewModal,
+  canLeaveReview,
+  onOpenMessages,
+  onOpenInvoice,
+  setDeliveryMethodModal
+}: { 
   item: any, 
   onBack: () => void, 
   onBidSubmit: (item: any, amount: number) => Promise<"error" | "ok" | "outbid" | "login_required" | "cancelled">,
@@ -35,7 +64,14 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   onWatchToggle?: () => void,
   currentUserId?: string,
   myMax?: number,
-  myBidsMap?: Map<string, number>
+  myBidsMap?: Map<string, number>,
+  user?: any,
+  setReceiptConfirmModal?: (data: any) => void,
+  openReviewModal?: (item: any) => void,
+  canLeaveReview?: (item: any) => boolean,
+  onOpenMessages?: (auctionId: string) => void,
+  onOpenInvoice?: (auction: any) => void,
+  setDeliveryMethodModal?: (data: any) => void
 }) {
   const [auctionData, setAuctionData] = useState<any>(item);
 
@@ -144,11 +180,13 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     };
   }, [endTime, currentAuction?.status, currentAuction?.id]);
 
-  const isWinner = currentUserId && (
+  const isWinner = Boolean(currentUserId && (
     currentAuction.winnerId === currentUserId || 
     currentAuction.winner_id === currentUserId ||
+    currentAuction.second_winner_id === currentUserId ||
+    currentAuction.secondWinnerId === currentUserId ||
     (currentAuction.second_highest_bidder_id === currentUserId && (currentAuction.post_auction_status === 'offered_2nd' || currentAuction.post_auction_status === 'awaiting_payment_2nd'))
-  );
+  ));
   const isSeller = Boolean(currentUserId && (
     currentAuction.sellerId === currentUserId || 
     currentAuction.seller_id === currentUserId ||
@@ -186,7 +224,6 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
     if (!bidAmount || isNaN(Number(bidAmount)) || isSeller) return;
     if (!onBidSubmit) {
       toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
-      window.location.hash = '#login';
       return;
     }
     
@@ -212,6 +249,57 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
   const handleCheckout = async () => {
     if (isPaid) return;
     onCheckout(currentAuction);
+  };
+
+  const [cancellingBt, setCancellingBt] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+  const [openingInstructions, setOpeningInstructions] = useState(false);
+
+  // Deutscher Kommentar: Ruft die URL der Zahlungsanweisungen fuer die Bankueberweisung ab und oeffnet diese in neuem Tab
+  const handleOpenBankTransferInstructions = async () => {
+    if (!user || !currentAuction?.id) return;
+    setOpeningInstructions(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/checkout/bank-transfer-instructions?auction_id=${encodeURIComponent(currentAuction.id)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data?.url) {
+        const instrPopup = openCenteredPopup(data.url, '_blank', 560, 820);
+        watchBankTransferPopup(instrPopup, currentAuction.id);
+      } else {
+        toast.error(data?.error || "Navodila za nakazilo trenutno niso na voljo.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri odpiranju navodil.");
+    } finally {
+      setOpeningInstructions(false);
+    }
+  };
+
+  // Deutscher Kommentar: Bricht die anstehende Bankueberweisung ueber die gemeinsame Hilfsfunktion ab
+  const handleCancelBankTransfer = async () => {
+    if (!user || !currentAuction?.id) return;
+    setCancellingBt(true);
+    try {
+      const res = await cancelBankTransferPayment({
+        auctionId: currentAuction.id,
+        user
+      });
+      if (res.success) {
+        setShowCancelConfirm(false);
+        toast.success("Nakazilo je preklicano. Dražbo lahko zdaj plačate s kartico.");
+      } else {
+        toast.error(res.error || "Napaka pri preklicu nakazila.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri preklicu.");
+    } finally {
+      setCancellingBt(false);
+    }
   };
 
   if (!item) return <div className="p-10 text-center font-bold text-slate-500 animate-pulse">{t('loading')}...</div>;
@@ -259,8 +347,8 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
       </div>
 
       <div className="bg-white rounded-[2rem] overflow-hidden shadow-xl border border-slate-100 p-4 lg:p-6">
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <div className="lg:col-span-8 order-1">
+        <div className="grid grid-cols-1 lg:grid-cols-12 lg:grid-rows-[auto_1fr] gap-6">
+          <div className="lg:col-span-8 lg:col-start-1 lg:row-start-1 order-1">
             <div className="bg-white p-6 rounded-[2rem] border border-slate-200 shadow-sm">
               <div className="flex justify-between items-start gap-4 mb-6">
                 <div className="flex flex-col gap-2">
@@ -282,22 +370,10 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   <Eye size={20} className={`${isWatched ? 'text-[#0A1128]' : 'text-slate-400 group-hover:text-[#FEBA4F]'} transition-colors`} />
                   <span className={`text-[9px] font-black uppercase tracking-widest ${isWatched ? 'text-[#0A1128]' : 'text-slate-500 group-hover:text-[#0A1128]'}`}>{t('watch')}</span>
                 </button>
+                <ShareButton item={item} language={language} t={t} variant="tile" />
               </div>
 
-              <div className="flex gap-4">
-                {signedImages.length > 1 && (
-                  <div className="flex flex-col gap-2 overflow-y-auto max-h-[55vh] scrollbar-hide">
-                    {signedImages.map((img: string, idx: number) => (
-                      <button 
-                        key={idx} 
-                        onClick={() => setSelectedImage(img)}
-                        className={`w-20 h-20 aspect-square bg-white border-2 rounded-xl overflow-hidden shrink-0 transition-all ${selectedImage === img || (!selectedImage && idx === 0) ? 'border-[#FEBA4F] shadow-lg scale-105' : 'border-slate-200 hover:border-slate-300 opacity-70 hover:opacity-100'}`}
-                      >
-                        <img src={img} alt={`Thumb ${idx}`} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className="flex flex-col gap-4">
                 <div className="flex-1 bg-white border border-slate-200 rounded-[2rem] p-4 flex items-center justify-center relative min-h-[300px] max-h-[55vh] shadow-sm overflow-hidden group">
                   {signedImages.length > 0 ? (
                     <>
@@ -333,14 +409,28 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                     </div>
                   )}
                 </div>
+                {signedImages.length > 1 && (
+                  <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+                    {signedImages.map((img: string, idx: number) => (
+                      <button 
+                        key={idx} 
+                        onClick={() => setSelectedImage(img)}
+                        className={`w-16 h-16 sm:w-20 sm:h-20 aspect-square bg-white border-2 rounded-xl overflow-hidden shrink-0 transition-all ${selectedImage === img || (!selectedImage && idx === 0) ? 'border-[#FEBA4F] shadow-lg scale-105' : 'border-slate-200 hover:border-slate-300 opacity-70 hover:opacity-100'}`}
+                      >
+                        <img src={img} alt={`Thumb ${idx}`} loading="lazy" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           </div>
 
-          <div className="lg:col-span-4 order-2 space-y-6">
+          <div className="lg:col-span-4 lg:col-start-9 lg:row-start-1 lg:row-span-2 order-2 space-y-6">
             <div className="bg-[#0A1128] text-white border border-white/5 rounded-[2rem] p-5 flex flex-col w-full shadow-2xl relative overflow-hidden">
+              {/* Deutscher Kommentar: Bei beendeter Auktion nimmt der Overlay-Container am normalen Layoutfluss teil (relative w-full), damit die Karte mit dem Inhalt dynamisch waechst */}
               {isEnded && (
-                <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md z-10 flex flex-col items-center justify-center p-8 text-center">
+                <div className="relative w-full bg-[#0A1128]/95 backdrop-blur-md z-10 flex flex-col items-center justify-center p-4 sm:p-8 text-center">
                   {isPaid ? (
                     <div className="w-full max-w-md bg-green-500/10 border-2 border-green-500/30 rounded-3xl p-6 mb-2 flex flex-col items-center">
                       <div className="w-16 h-16 rounded-full bg-green-500/20 border border-green-500/40 flex items-center justify-center mb-4 text-green-400 shadow-lg shadow-green-500/10">
@@ -365,6 +455,23 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                           Plačano dne: {new Date(currentAuction.paid_at).toLocaleDateString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
                         </span>
                       )}
+
+                      {/* WinnerActions nur fuer den Gewinner rendern (DEL D) */}
+                      {isWinner && setReceiptConfirmModal && openReviewModal && canLeaveReview && (
+                        <div className="w-full mt-4 pt-4 border-t border-white/10 text-slate-900">
+                          <WinnerActions 
+                            wonItem={currentAuction}
+                            user={user}
+                            isPaid={true}
+                            setReceiptConfirmModal={setReceiptConfirmModal}
+                            openReviewModal={openReviewModal}
+                            canLeaveReview={canLeaveReview}
+                            onOpenMessages={onOpenMessages}
+                            onOpenInvoice={onOpenInvoice}
+                            onOpenDeliveryChooser={setDeliveryMethodModal ? (auctionId: string) => setDeliveryMethodModal({ isOpen: true, auctionId, deliveryMethod: null }) : undefined}
+                          />
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <>
@@ -378,24 +485,84 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       </div>
                       
                       {isWinner ? (
-                        <>
-                          <p className="text-slate-300 font-bold mb-6">
-                            {t('winnerNotice') || 'Čestitamo, zmagali ste! Prosimo, dokončajte plačilo.'}
-                          </p>
-                          <button 
-                            onClick={handleCheckout}
-                            disabled={loading || isPaid}
-                            className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
-                          >
-                            <Lock size={18} /> {loading ? '...' : (t('payNow') || 'Plačaj zdaj')}
-                          </button>
-                        </>
+                        currentAuction.bank_transfer_pending === true ? (
+                          <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-6 mb-3 text-left">
+                            <h4 className="text-lg font-black text-[#FEBA4F] uppercase tracking-tight mb-2 flex items-center gap-2">
+                              <ShieldCheck size={20} />
+                              Plačilo z nakazilom
+                            </h4>
+                            <p className="text-slate-300 text-sm font-bold mb-4">
+                              Izbrali ste plačilo z bančnim nakazilom (SEPA). Znesek nakažite po navodilih, ki jih lahko kadar koli odprete s spodnjim gumbom. Plačilo se potrdi samodejno, ko denar prispe.
+                            </p>
+                            {currentAuction.bank_transfer_deadline_at && (
+                              <div className="text-xs text-slate-400 font-bold mb-4">
+                                Rok za prejem nakazila: <span className="text-[#FEBA4F]">{new Date(currentAuction.bank_transfer_deadline_at).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                              </div>
+                            )}
+                            <button
+                              onClick={handleOpenBankTransferInstructions}
+                              disabled={openingInstructions}
+                              className="w-full text-xs bg-[#FEBA4F] hover:bg-white text-[#0A1128] font-black uppercase tracking-wider py-3.5 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 mb-2 disabled:opacity-50 cursor-pointer"
+                            >
+                              {openingInstructions ? (
+                                <>
+                                  <div className="w-4 h-4 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
+                                  <span>Nalaganje navodil...</span>
+                                </>
+                              ) : (
+                                <>
+                                  <ExternalLink size={15} />
+                                  <span>Odpri navodila za nakazilo</span>
+                                </>
+                              )}
+                            </button>
+                            <LoadingButton
+                              onClick={() => setShowCancelConfirm(true)}
+                              disabled={cancellingBt}
+                              loading={cancellingBt}
+                              loadingText="Prekinjam..."
+                              className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50 cursor-pointer"
+                            >
+                              Raje plačam s kartico
+                            </LoadingButton>
+                            <p className="text-[11px] text-slate-400 font-bold leading-snug mt-2.5 text-center">
+                              Če nakazila še niste poslali, ga lahko kadarkoli zamenjate s plačilom s kartico.
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-slate-300 font-bold mb-6">
+                              {t('winnerNotice') || 'Čestitamo, zmagali ste! Prosimo, dokončajte plačilo.'}
+                            </p>
+                            <LoadingButton 
+                              onClick={handleCheckout}
+                              disabled={loading || isPaid}
+                              loading={loading}
+                              loadingText="Odpiram plačilo..."
+                              className="w-full bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-xl font-black uppercase tracking-widest hover:bg-white transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 mb-3"
+                            >
+                              <Lock size={18} /> {t('payNow') || 'Plačaj zdaj'}
+                            </LoadingButton>
+                          </>
+                        )
                       ) : isSeller ? (
-                        <>
-                          <p className="text-slate-300 font-bold mb-4">
-                            {t('sellerWinnerNotice') || 'Zmagovalec je bil obveščen in preusmerjen na plačilo.'}
-                          </p>
-                        </>
+                        currentAuction.bank_transfer_pending === true ? (
+                          <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-6 mb-3 text-left">
+                            <h4 className="text-lg font-black text-[#FEBA4F] uppercase tracking-tight mb-2 flex items-center gap-2">
+                              <ShieldCheck size={20} />
+                              Plačilo v obdelavi
+                            </h4>
+                            <p className="text-slate-300 text-sm font-bold">
+                              Kupec je izbral plačilo z bančnim nakazilom. Čakamo na potrditev prejema sredstev s strani našega plačilnega partnerja (to lahko traja do 3 delovne dni). Ko bo plačilo potrjeno, vas bomo nemudoma obvestili.
+                            </p>
+                          </div>
+                        ) : (
+                          <>
+                            <p className="text-slate-300 font-bold mb-4">
+                              {t('sellerWinnerNotice') || 'Zmagovalec je bil obveščen in preusmerjen na plačilo.'}
+                            </p>
+                          </>
+                        )
                       ) : (
                         <p className="text-slate-300 font-bold">
                           {t('notWinnerNotice') || 'Dražba se je končala. Niste zmagovalec.'}
@@ -406,105 +573,108 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                 </div>
               )}
 
-              <div className="flex justify-center items-center gap-2 mb-2">
-                <TimeBox value={d} label={t('days')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
-                <TimeBox value={h} label={t('hours')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
-                <TimeBox value={m} label={t('minutes')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
-                <TimeBox value={s} label={t('seconds')} />
-              </div>
-              <p className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">
-                {isValidDate ? `${auctionDate.toLocaleDateString('sl-SI')}, ${auctionDate.toLocaleTimeString('sl-SI', {hour: '2-digit', minute:'2-digit'})} ${t('uhr')}` : t('unknown')}
-              </p>
+              {/* Deutscher Kommentar: Biet- und Zeitelemente bei beendeter Auktion vollstaendig ausblenden, um leeren Raum zu vermeiden */}
+              <div className={isEnded ? "hidden" : "contents"}>
+                <div className="flex justify-center items-center gap-2 mb-2">
+                  <TimeBox value={d} label={t('days')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
+                  <TimeBox value={h} label={t('hours')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
+                  <TimeBox value={m} label={t('minutes')} /> <span className="text-2xl font-black text-slate-500 mb-4">:</span>
+                  <TimeBox value={s} label={t('seconds')} />
+                </div>
+                <p className="text-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-4">
+                  {isValidDate ? `${auctionDate.toLocaleDateString('sl-SI')}, ${auctionDate.toLocaleTimeString('sl-SI', {hour: '2-digit', minute:'2-digit'})} ${t('uhr')}` : t('unknown')}
+                </p>
 
-              <div className="grid grid-cols-2 gap-y-4 gap-x-4 w-full mb-4">
-                <div className="text-center border-r border-white/10">
-                  <p className="text-2xl font-black text-[#FEBA4F]">{currentAuction.bidCount || currentAuction.bid_count || bidCount || 0}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('bidCount')}</p>
-                </div>
-                <div className="text-center">
-                  <p className="text-2xl font-black text-white">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('startingPrice')}</p>
-                </div>
-                
-                <div className="text-center border-r border-white/10 pt-4 border-t">
-                  <p className="text-2xl font-black text-green-400">
-                    {isWinner ? `€ ${effectiveMyMax || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
-                  </p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
-                </div>
-                <div className="text-center pt-4 border-t border-white/10">
-                  <p className="text-4xl font-black text-[#FEBA4F]">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
-                </div>
-              </div>
-              {!isEnded && !isSeller && (
-              <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
-                  {isWinner 
-                    ? (t('proxyBidLeadingTip') || 'Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.')
-                    : (t('proxyBidTip') || 'Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.')}
-              </p>
-              )}
-
-              {error && <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-red-500/20">{error}</div>}
-              {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
-
-              {!isEnded && (
-                isSeller ? (
-                  <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center my-2 mt-auto">
-                    <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[#FEBA4F] flex items-center justify-center mx-auto mb-2">
-                      <Lock size={18} />
-                    </div>
-                    <p className="text-xs font-black uppercase tracking-widest text-[#FEBA4F] mb-1">
-                      Vaša dražba
-                    </p>
-                    <p className="text-xs font-bold text-slate-400">
-                      Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.
-                    </p>
+                <div className="grid grid-cols-2 gap-y-4 gap-x-4 w-full mb-4">
+                  <div className="text-center border-r border-white/10">
+                    <p className="text-2xl font-black text-[#FEBA4F]">{currentAuction.bidCount || currentAuction.bid_count || bidCount || 0}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('bidCount')}</p>
                   </div>
-                ) : (
-                  <div className="flex flex-col gap-3 w-full mt-auto">
-                    <div className="relative flex-1">
-                      <button 
-                        onClick={() => handleAdjustBid('down')}
-                        className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
-                      >
-                        <Minus size={20} />
-                      </button>
-                      <input 
-                        type="text" 
-                        value={`€ ${bidAmount}`}
-                        readOnly
-                        className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
-                      >
-                      </input>
-                      <button 
-                        onClick={() => handleAdjustBid('up')}
-                        className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
-                      >
-                        <Plus size={20} />
-                      </button>
+                  <div className="text-center">
+                    <p className="text-2xl font-black text-white">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('startingPrice')}</p>
+                  </div>
+                  
+                  <div className="text-center border-r border-white/10 pt-4 border-t">
+                    <p className="text-2xl font-black text-green-400">
+                      {isWinner ? `€ ${effectiveMyMax || currentAuction.currentBid || currentAuction.current_price || currentBid || '-'}` : '-'}
+                    </p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1 flex items-center justify-center gap-1"><Lock size={10}/> {t('myMaxBid')}</p>
+                  </div>
+                  <div className="text-center pt-4 border-t border-white/10">
+                    <p className="text-4xl font-black text-[#FEBA4F]">€ {currentAuction.currentBid || currentAuction.current_price || currentBid || 0}</p>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mt-1">{t('currentBid')}</p>
+                  </div>
+                </div>
+                {!isEnded && !isSeller && (
+                <p className="text-[10px] font-bold text-slate-400 text-center mb-4 leading-relaxed bg-white/5 p-3 rounded-xl">
+                    {isWinner 
+                      ? (t('proxyBidLeadingTip') || 'Ste vodilni ponudnik! Vnesite višji znesek, če želite povišati vašo maksimalno ponudbo.')
+                      : (t('proxyBidTip') || 'Vnesite najvišji znesek, ki ste ga pripravljeni plačati. Vaša maksimalna ponudba ostane skrivnost. Sistem bo samodejno višal ponudbo v vašem imenu.')}
+                </p>
+                )}
+
+                {error && <div className="mb-4 p-3 bg-red-500/10 text-red-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-red-500/20">{error}</div>}
+                {bidSuccess && <div className="mb-4 p-3 bg-green-500/10 text-green-400 rounded-xl font-bold text-[10px] uppercase tracking-widest text-center border border-green-500/20">{t('bidSuccessMsg')}</div>}
+
+                {!isEnded && (
+                  isSeller ? (
+                    <div className="bg-white/5 border border-white/10 rounded-2xl p-5 text-center my-2 mt-auto">
+                      <div className="w-10 h-10 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[#FEBA4F] flex items-center justify-center mx-auto mb-2">
+                        <Lock size={18} />
+                      </div>
+                      <p className="text-xs font-black uppercase tracking-widest text-[#FEBA4F] mb-1">
+                        Vaša dražba
+                      </p>
+                      <p className="text-xs font-bold text-slate-400">
+                        Kot avtor dražbe ne morete oddajati ponudb na lasten predmet.
+                      </p>
                     </div>
-                    <button 
-                      onClick={handlePlaceBid}
-                      disabled={loading}
-                      className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2 ${
-                        isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
-                      }`}
-                    >
-                      {loading ? (
-                        <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                      ) : !isVerified || !onBidSubmit ? (
-                        <>
-                          <Lock size={16} />
+                  ) : (
+                    <div className="flex flex-col gap-3 w-full mt-auto">
+                      <div className="relative flex-1">
+                        <button 
+                          onClick={() => handleAdjustBid('down')}
+                          className="absolute left-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                        >
+                          <Minus size={20} />
+                        </button>
+                        <input 
+                          type="text" 
+                          value={`€ ${bidAmount}`}
+                          readOnly
+                          className="w-full h-14 bg-white/5 border-2 border-white/10 rounded-xl px-14 font-black text-xl text-white outline-none focus:border-[#FEBA4F] text-center transition-colors"
+                        >
+                        </input>
+                        <button 
+                          onClick={() => handleAdjustBid('up')}
+                          className="absolute right-2 top-2 bottom-2 aspect-square bg-white/10 border border-white/10 rounded-lg flex items-center justify-center hover:border-[#FEBA4F] hover:text-[#FEBA4F] text-slate-400 transition-colors"
+                        >
+                          <Plus size={20} />
+                        </button>
+                      </div>
+                      <button 
+                        onClick={handlePlaceBid}
+                        disabled={loading}
+                        className={`h-14 px-8 rounded-xl font-black uppercase tracking-widest transition-all shadow-lg disabled:opacity-50 w-full flex items-center justify-center gap-2 ${
+                          isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500 hover:bg-slate-700'
+                        }`}
+                      >
+                        {loading ? (
+                          <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                        ) : !isVerified || !onBidSubmit ? (
+                          <>
+                            <Lock size={16} />
+                            <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
+                          </>
+                        ) : (
                           <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
-                        </>
-                      ) : (
-                        <span>{isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : t('placeBid')}</span>
-                      )}
-                    </button>
-                  </div>
-                )
-              )}
+                        )}
+                      </button>
+                    </div>
+                  )
+                )}
+              </div>
             </div>
 
             {/* Key Buyer Decision Information: Delivery, Location, Condition */}
@@ -603,7 +773,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                       <Building2 size={12} className="text-[#FEBA4F]" />
                       <p className="text-[10px] font-black uppercase tracking-widest">{t('seller')}:</p>
                     </div>
-                    <div className="flex items-center justify-between p-2.5 bg-slate-50 rounded-xl border border-slate-200/80 gap-1">
+                    <div className="flex flex-col gap-1.5 p-2.5 bg-slate-50 rounded-xl border border-slate-200/80">
                       {(currentAuction as any).is_seller_deleted || currentAuction.sellerName === "Uporabnik je bil izbrisan" || ((currentAuction as any).seller && ((currentAuction as any).seller.is_deleted || (currentAuction as any).seller.isDeleted)) ? (
                         <span className="text-xs font-bold text-slate-400 truncate">
                           Izbrisan uporabnik
@@ -614,19 +784,21 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                             const sellerInput = (currentAuction as any).seller || currentAuction.sellerId || (currentAuction as any).seller_id;
                             if (sellerInput && onSellerClick) onSellerClick(sellerInput);
                           }}
-                          className="text-xs font-black text-[#0A1128] hover:text-[#FEBA4F] transition-colors truncate text-left underline underline-offset-2"
+                          className="text-sm font-black text-[#0A1128] hover:text-[#FEBA4F] transition-colors break-words text-left underline underline-offset-2"
                         >
                           {currentAuction.sellerName && currentAuction.sellerName !== "Neznan prodajalec" && currentAuction.sellerName !== "Neznan Prodajalec" 
                             ? currentAuction.sellerName 
                             : (t('unknownSeller') || 'Prodajalec')}
                         </button>
                       )}
+                      <div className="flex flex-wrap items-center gap-1.5">
                       <span className="text-[9px] font-black uppercase text-slate-600 bg-slate-200/70 px-1.5 py-0.5 rounded shrink-0">
                         {(currentAuction as any).seller?.user_type === 'business' ? 'Podjetje' : 'Zasebna oseba'}
                       </span>
                       <span className="text-[9px] font-black uppercase text-emerald-600 bg-emerald-100/70 px-1.5 py-0.5 rounded flex items-center gap-0.5 shrink-0">
                         <ShieldCheck size={10} /> Preverjen
                       </span>
+                      </div>
                     </div>
                     <p className="text-[10px] text-slate-400 mt-1">
                       {(currentAuction as any).seller?.user_type === 'business'
@@ -638,12 +810,12 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
                   {/* Fees and Terms */}
                   <div className="col-span-2 pt-2 border-t border-slate-100">
                     <div className="flex items-center justify-between text-xs font-bold text-slate-600">
-                      <span>Provizija platforme ({activeFeePercent} %):</span>
-                      <span className="font-extrabold text-[#0A1128]">€{grossFeeEur.toFixed(2)}</span>
+                      <span>{activeFeeIsMinimum ? 'Provizija platforme (minimalna)' : `Provizija platforme (${activeFeePercent} %)`}:</span>
+                      <span className="font-extrabold text-[#0A1128]">€{(activeFeeCents / 100).toFixed(2)}</span>
                     </div>
                     {activeFeeIsMinimum && (
-                      <p className="text-[10px] text-[#FEBA4F] font-bold mt-1">
-                        Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+                      <p className="text-[10px] text-slate-400 mt-0.5">
+                        Uporabljena je minimalna provizija 1,00 €.
                       </p>
                     )}
                     <p className="text-[10px] text-slate-400 mt-0.5">
@@ -705,7 +877,7 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
             })()}
           </div>
 
-          <div className="lg:col-span-8 order-3 space-y-6">
+          <div className="lg:col-span-8 lg:col-start-1 lg:row-start-2 self-start order-3 space-y-6">
             {isPaid && (isSeller || isWinner) && (
               <div className="animate-in fade-in slide-in-from-top-4 duration-700">
                 <PaymentTimeline auctionId={currentAuction.id} />
@@ -763,6 +935,51 @@ export default function AuctionView({ item, onBack, onBidSubmit, onCheckout, onS
         </div>
       </div>
 
+      {showCancelConfirm && (
+        <Portal>
+          {/* Deutscher Kommentar: Responsives Bestaetigungsmodal fuer Stornierung der Bankueberweisung in AuctionView */}
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-4">
+            <div 
+              className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" 
+              onClick={() => { if (!cancellingBt) setShowCancelConfirm(false); }} 
+            />
+            <div className="relative bg-white border border-slate-200 rounded-3xl p-5 sm:p-8 max-w-md w-full shadow-2xl text-center z-10 animate-in fade-in zoom-in-95 duration-200 max-h-[92dvh] overflow-y-auto">
+              <div className="bg-amber-100 w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-5 text-amber-600">
+                <AlertCircle size={28} />
+              </div>
+              <h3 className="text-lg sm:text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-2 sm:mb-3">
+                Preklic bančnega nakazila
+              </h3>
+              <p className="text-slate-600 font-bold mb-5 sm:mb-6 text-xs sm:text-sm leading-relaxed">
+                Nakazilo bo preklicano. Če ste denar že nakazali, plačila ne preklicujte. Nadaljujem?
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={handleCancelBankTransfer}
+                  disabled={cancellingBt}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-3.5 px-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-lg min-h-[44px]"
+                >
+                  {cancellingBt ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Prekinjam...</span>
+                    </>
+                  ) : (
+                    <span>Prekliči nakazilo</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  disabled={cancellingBt}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 cursor-pointer min-h-[40px] flex items-center justify-center"
+                >
+                  Nazaj
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
 
     </div>
   );

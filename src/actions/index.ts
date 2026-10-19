@@ -25,6 +25,7 @@ interface ActionResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  code?: string;
 }
 
 /**
@@ -69,10 +70,12 @@ async function safeApiCall<T = any>(url: string, options?: RequestInit): Promise
 
     if (!res.ok) {
       let errorMsg = `Napaka strežnika (${res.status})`;
+      let code: string | undefined;
       try {
         if (contentType.includes('application/json')) {
           const errData = await res.json();
           errorMsg = errData.error || errData.message || errorMsg;
+          code = errData.code;
         } else {
           const text = await res.text();
           if (text && text.length < 250 && !text.includes('<!DOCTYPE') && !text.includes('<html')) {
@@ -82,7 +85,7 @@ async function safeApiCall<T = any>(url: string, options?: RequestInit): Promise
       } catch (e) {
         // Fallback na privzeto sporočilo
       }
-      return { success: false, error: errorMsg };
+      return { success: false, error: errorMsg, code };
     }
 
     if (contentType.includes('application/json')) {
@@ -111,6 +114,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
   sessionId?: string;
   success?: boolean;
   error?: string;
+  code?: string;
 }> {
   'use server';
   try {
@@ -155,7 +159,12 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(data.error || 'Napaka pri vzpostavitvi seje za plačilo.');
+        return {
+          url: null,
+          success: false,
+          error: data.error || 'Napaka pri vzpostavitvi seje za plačilo.',
+          code: data.code
+        };
       }
       return {
         url: data.url || null,
@@ -269,7 +278,7 @@ export async function createCheckoutSessionAction(planOrParams?: any): Promise<{
     return {
       url: null,
       success: false,
-      error: error?.message || 'Napaka pri vzpostavitvi povezave s sistemom Stripe.',
+      error: error?.message || 'Napaka pri vzpostavitvi povezave s plačilnim sistemom.',
     };
   }
 }

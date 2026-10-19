@@ -1,6 +1,6 @@
 import React from 'react';
 import { Category } from '../../types';
-import { getAttributeDefinitionsForCategory, AttributeFieldDef } from '../../lib/categoryAttributes';
+import { getAttributeDefinitionsForCategory, getFieldOptions, AttributeFieldDef } from '../../lib/categoryAttributes';
 import { SlidersHorizontal, Sparkles } from 'lucide-react';
 
 interface CategoryAttributesInputProps {
@@ -20,6 +20,13 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
 
   const handleFieldChange = (key: string, selectedValue: string, customText?: string) => {
     const updated = { ...specifications };
+
+    // Deutscher Kommentar: Aendert sich die Marke, wird das davon abhaengige Modell zurueckgesetzt
+    if (customText === undefined && specifications[key] !== (selectedValue === 'Drugo' ? '' : selectedValue)) {
+      definitions.forEach((d) => {
+        if (d.optionsByParent?.parentKey === key) delete updated[d.key];
+      });
+    }
     
     if (selectedValue === 'Drugo') {
       if (customText !== undefined) {
@@ -31,7 +38,7 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
         }
       } else {
         // Just selected 'Drugo', keep existing if it was already custom or empty
-        if (!updated[key] || definitions.find(d => d.key === key)?.options.includes(updated[key])) {
+        if (!updated[key] || getFieldOptions(definitions.find(d => d.key === key) as AttributeFieldDef, specifications).includes(updated[key])) {
           updated[key] = '';
         }
       }
@@ -68,15 +75,18 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {definitions.map((def) => {
           const currentValue = specifications[def.key] || '';
-          const isStandardOption = def.options.includes(currentValue) && currentValue !== 'Drugo';
+          const defOptions = getFieldOptions(def, specifications);
+          const waitsForParent = Boolean(def.optionsByParent) && defOptions.length === 0 && !currentValue;
+          const isStandardOption = defOptions.includes(currentValue) && currentValue !== 'Drugo';
           const isCustomValue = currentValue !== '' && !isStandardOption;
           const selectValue = isStandardOption ? currentValue : isCustomValue ? 'Drugo' : '';
 
           return (
             <div key={def.key} className="space-y-2 flex flex-col justify-start">
               <div className="flex items-center justify-between">
+                {/* Kategoriespezifische Merkmale sind alle optional */}
                 <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-1">
-                  {def.label}
+                  {def.label} <span className="normal-case font-bold text-slate-400">(neobvezno)</span>
                 </label>
                 {currentValue && (
                   <button
@@ -95,14 +105,15 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
 
               <select
                 value={selectValue}
+                disabled={waitsForParent}
                 onChange={(e) => {
                   const val = e.target.value;
                   handleFieldChange(def.key, val);
                 }}
                 className="w-full bg-white border-2 border-slate-200 rounded-2xl py-3.5 px-4 font-bold text-sm text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-sm hover:border-slate-300"
               >
-                <option value="">-- Izberite ({def.label.toLowerCase()}) --</option>
-                {def.options.map((opt) => (
+                <option value="">{waitsForParent ? '-- Najprej izberite znamko --' : `-- Izberite (${def.label.toLowerCase()}) --`}</option>
+                {defOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}
                   </option>

@@ -5,7 +5,9 @@ let lastToastMsg = "";
 let lastToastTime = 0;
 
 const shouldShow = (msg: string | React.ReactNode) => {
-  const msgStr = typeof msg === 'string' ? msg : String(msg);
+  // JSX-Toasts nicht per String vergleichen, sonst werden mehere Benachrichtigungen unterdrueckt
+  if (typeof msg !== 'string') return true;
+  const msgStr = msg;
   const now = Date.now();
   if (msgStr === lastToastMsg && now - lastToastTime < 2500) {
     return false;

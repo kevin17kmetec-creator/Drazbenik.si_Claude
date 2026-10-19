@@ -1,13 +1,21 @@
+import { normalizeImageFile } from '../../lib/imageConvert';
+import { confirmDialog } from '../../lib/dialog';
+import { PayoutSetupView } from './PayoutSetupView';
+import { PreferredLanguageSelect } from '../ui/PreferredLanguageSelect';
+import { InvoicesView } from './InvoicesView';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2 } from 'lucide-react';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2, FileText } from 'lucide-react';
 import { toast } from 'sonner';
-import imageCompression from 'browser-image-compression';
+import { compressImage as imageCompression } from '../../lib/imageCompress';
 import { PhoneInput } from "@/src/components/ui/PhoneInput";
 import { checkStripeAccountStatusAction, deleteAccountAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
 import { signOut, GoogleAuthProvider, linkWithPopup, unlink } from "firebase/auth";
 import { friendlyError } from '../../lib/friendlyError';
 import { Portal } from '../ui/Portal';
+import { ConnectComponentsProvider, ConnectAccountManagement, ConnectPayouts, ConnectNotificationBanner } from '@stripe/react-connect-js';
+import { getStripeConnectInstance, resetStripeConnectInstance } from '../../lib/stripeConnect';
+import { LoadingButton } from '../ui/Common';
 
 const COUNTRIES = [
   { code: 'AT', name: 'Avstrija / Austria' },
@@ -100,38 +108,388 @@ const PayoutsList: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-8">
-        <div className="w-6 h-6 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
+      <div className="flex justify-center items-center py-6">
+        <div className="w-5 h-5 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin" />
       </div>
     );
   }
 
   if (payouts.length === 0) {
     return (
-      <div className="bg-slate-50 rounded-2xl p-6 text-center text-slate-400 font-bold text-sm border border-slate-100">
+      <div className="bg-slate-50 rounded-2xl p-4 text-center text-slate-400 font-bold text-xs border border-slate-100">
         Še nimate izvedenih izplačil.
       </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
       {payouts.map((p) => (
-        <div key={p.id} className="bg-white border-2 border-slate-100 rounded-3xl p-5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 transition-all hover:border-[#FEBA4F]/50">
+        <div key={p.id} className="bg-white border-2 border-slate-100 rounded-2xl p-3.5 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 transition-all hover:border-[#FEBA4F]/50">
           <div>
-            <h4 className="font-black text-[#0A1128] text-base uppercase tracking-tight">{p.title}</h4>
-            <p className="text-xs text-slate-400 font-bold mt-1">
+            <h4 className="font-black text-[#0A1128] text-sm uppercase tracking-tight">{p.title}</h4>
+            <p className="text-[11px] text-slate-400 font-bold mt-0.5">
               Prejeto: {p.held_since ? new Date(p.held_since).toLocaleDateString('sl-SI') : '/'}
             </p>
           </div>
-          <div className="flex sm:flex-col items-start sm:items-end gap-2 sm:gap-1 w-full sm:w-auto justify-between border-t sm:border-t-0 pt-3 sm:pt-0 border-slate-100">
-            <span className="font-black text-[#0A1128] text-lg">€{(p.seller_net_cents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</span>
-            <span className={`px-3 py-1 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${getStatusColorClass(p.payout_status)}`}>
+          <div className="flex sm:flex-col items-start sm:items-end gap-2 sm:gap-1 w-full sm:w-auto justify-between border-t sm:border-t-0 pt-2 sm:pt-0 border-slate-100">
+            <span className="font-black text-[#0A1128] text-base">€{(p.seller_net_cents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })}</span>
+            <span className={`px-2.5 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-wider border ${getStatusColorClass(p.payout_status)}`}>
               {getStatusLabel(p.payout_status)}
             </span>
           </div>
         </div>
       ))}
+    </div>
+  );
+};
+
+
+// Verkaeufer-Dashboard mit Stripe Connect Komponenten
+const SellerDashboard: React.FC = () => {
+  const [stripeError, setStripeError] = useState<{message: string; code: string} | null>(null);
+  const [stripeLoaded, setStripeLoaded] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  useEffect(() => {
+    const handleError = (e: any) => {
+      const { scope, code, message } = e.detail;
+      if (scope === 'manage') setStripeError({ message, code });
+    };
+    window.addEventListener('connect-fetch-error', handleError);
+    return () => window.removeEventListener('connect-fetch-error', handleError);
+  }, []);
+
+  const stripeConnectInstance = useMemo(() => {
+    return getStripeConnectInstance('manage');
+  }, [refreshKey]);
+
+  useEffect(() => {
+    if (stripeConnectInstance && !stripeLoaded && !stripeError) {
+      const timer = setTimeout(() => {
+        if (!stripeLoaded) {
+          setStripeError({ message: "Nalaganje obrazca je trajalo preveč časa. Poskusite znova.", code: "TIMEOUT" });
+        }
+      }, 15005);
+      return () => clearTimeout(timer);
+    }
+  }, [stripeLoaded, stripeError, stripeConnectInstance, refreshKey]);
+
+  if (!stripeConnectInstance) {
+    return (
+      <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200">
+        <p className="text-red-800 font-bold text-sm">Sistem za izplačila ni pravilno nastavljen. Kontaktirajte podporo.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-8 animate-in">
+      {stripeError && (
+        <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4 animate-in">
+          <AlertCircle className="mx-auto text-red-500 mb-2" size={36} />
+          <p className="text-red-800 font-bold text-sm mb-4">{stripeError.message}</p>
+          {/* Deutscher Kommentar: Wiederholungsversuch mit visuellem Ladezustand */}
+          <LoadingButton
+            onClick={async () => {
+              setStripeError(null);
+              setStripeLoaded(false);
+              await resetStripeConnectInstance('manage');
+              setRefreshKey(prev => prev + 1);
+            }}
+            loadingText="Nalagam..."
+            className="bg-slate-200 text-[#0A1128] px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-slate-300 transition-all"
+          >
+            Poskusi znova
+          </LoadingButton>
+        </div>
+      )}
+
+        <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
+          <div className="bg-white p-4 rounded-3xl border-2 border-slate-100 shadow-sm w-full">
+            <ConnectNotificationBanner 
+              onLoaderStart={() => setStripeLoaded(true)}
+              onLoadError={(err) => {
+                console.error("Banner load error:", err);
+                setStripeError({ message: "Napaka pri nalaganju obvestil.", code: "BANNER_ERROR" });
+              }}
+            />
+          </div>
+
+          {/* Zweispaltiges Layout fuer Kontoverwaltung und Auszahlungen auf grossen Bildschirmen */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6 items-start w-full">
+            <div className="bg-white p-4 rounded-3xl border-2 border-slate-100 shadow-sm">
+              <h3 className="text-base font-black text-[#0A1128] uppercase mb-3">Podatki in bančni račun</h3>
+              <ConnectAccountManagement 
+                onLoaderStart={() => setStripeLoaded(true)}
+                onLoadError={(err) => {
+                  console.error("Management load error:", err);
+                  setStripeError({ message: "Napaka pri nalaganju upravljanja računa.", code: "MANAGE_ERROR" });
+                }}
+              />
+            </div>
+
+            <div className="bg-white p-4 rounded-3xl border-2 border-slate-100 shadow-sm">
+              <h3 className="text-base font-black text-[#0A1128] uppercase mb-3">Izplačila</h3>
+              <ConnectPayouts 
+                onLoaderStart={() => setStripeLoaded(true)}
+                onLoadError={(err) => {
+                  console.error("Payouts load error:", err);
+                  setStripeError({ message: "Napaka pri nalaganju izplačil.", code: "PAYOUT_ERROR" });
+                }}
+              />
+            </div>
+          </div>
+        </ConnectComponentsProvider>
+    </div>
+  );
+};
+
+// Verkaeuferguthaben Komponente mit Stripe Saldo und Transaktionsguthaben
+const SellerBalance: React.FC = () => {
+  const [balance, setBalance] = useState<{
+    hasAccount: boolean;
+    availableCents?: number;
+    pendingCents?: number;
+    inTransitCents?: number;
+    escrowCents?: number;
+    releasableCents?: number;
+    paidOutCents?: number;
+    paidOutCount?: number;
+    stripeError?: boolean;
+    onboardingComplete?: boolean;
+  } | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [requestingPayout, setRequestingPayout] = useState(false);
+
+  const fetchBalance = async () => {
+    setLoading(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/seller/balance', {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success) {
+          setBalance(data);
+        }
+      }
+    } catch (err) {
+      console.error("Error fetching seller balance:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchBalance();
+  }, []);
+
+  const handleRequestPayout = async () => {
+    const releasable = balance?.releasableCents || 0;
+    const minCents = 1000;
+    if (releasable < minCents) {
+      toast.error("Najmanjši znesek za izplačilo je 10,00 €.");
+      return;
+    }
+
+    const formattedVal = (releasable / 100).toFixed(2);
+    const confirmed = await confirmDialog(`Izplačali boste ${formattedVal} € na vaš bančni račun. Izplačilo običajno traja 1–3 delovne dni.`, { title: 'Izplačilo', confirmLabel: 'Izplačaj' });
+    if (!confirmed) return;
+
+    setRequestingPayout(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/seller/request-payout', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Napaka pri zahtevku za izplačilo.');
+      }
+      toast.success(`Uspešno ste zahtevali izplačilo v višini ${(data.totalCents / 100).toFixed(2)} €!`);
+      await fetchBalance();
+    } catch (err: any) {
+      toast.error(err.message || 'Napaka pri zahtevku za izplačilo.');
+    } finally {
+      setRequestingPayout(false);
+    }
+  };
+
+  const formatEur = (cents: number = 0) => {
+    return new Intl.NumberFormat('sl-SI', { style: 'currency', currency: 'EUR' }).format(cents / 100);
+  };
+
+  if (loading) {
+    return (
+      <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-3">
+          <div className="h-5 bg-slate-200 rounded w-32 animate-pulse" />
+          <div className="h-7 bg-slate-200 rounded-xl w-16 animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div key={i} className="bg-white p-3.5 rounded-xl border border-slate-200/60 animate-pulse space-y-2">
+              <div className="h-2.5 bg-slate-200 rounded w-20" />
+              <div className="h-6 bg-slate-200 rounded w-16" />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  if (!balance || !balance.hasAccount) {
+    return (
+      <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-2.5">
+          <h4 className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+            <CreditCard size={16} className="text-[#FEBA4F]" /> Stanje sredstev
+          </h4>
+          <button
+            type="button"
+            onClick={fetchBalance}
+            className="text-[11px] font-bold text-slate-500 hover:text-[#0A1128] bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
+          >
+            Osveži
+          </button>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 text-slate-500 font-bold text-xs text-center">
+          Za prejemanje sredstev najprej uredite izplačila.
+        </div>
+      </div>
+    );
+  }
+
+  if (balance.stripeError) {
+    return (
+      <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+        <div className="flex items-center justify-between mb-2.5">
+          <h4 className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+            <CreditCard size={16} className="text-[#FEBA4F]" /> Stanje sredstev
+          </h4>
+          <button
+            type="button"
+            onClick={fetchBalance}
+            className="text-[11px] font-bold text-slate-500 hover:text-[#0A1128] bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
+          >
+            Osveži
+          </button>
+        </div>
+        <div className="bg-white p-4 rounded-xl border border-slate-200 text-amber-700 font-bold text-xs text-center">
+          Stanja trenutno ni mogoče naložiti.
+        </div>
+      </div>
+    );
+  }
+
+  const releasable = balance.releasableCents || 0;
+  const isBelowMin = releasable < 1000;
+
+  return (
+    <div className="mb-5 bg-slate-50 border-2 border-slate-100 rounded-2xl p-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-2">
+          <CreditCard size={16} className="text-[#FEBA4F]" /> Stanje sredstev
+        </h4>
+        <button
+          type="button"
+          onClick={fetchBalance}
+          className="text-[11px] font-bold text-slate-500 hover:text-[#0A1128] bg-white px-2.5 py-1 rounded-lg border border-slate-200 transition-colors"
+        >
+          Osveži
+        </button>
+      </div>
+
+      {/* Kompakte Karten fuer Guthaben in einer responsiven Zeile */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 mb-4">
+        <div className="bg-white p-3.5 rounded-xl border border-emerald-100 bg-emerald-50/30">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
+            Na voljo za izplačilo
+          </span>
+          <span className="block text-base font-black text-emerald-600">
+            {formatEur(releasable)}
+          </span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
+            V obdelavi pri plačilnem partnerju
+          </span>
+          <span className="block text-base font-black text-[#0A1128]">
+            {formatEur(balance.pendingCents)}
+          </span>
+        </div>
+
+        {/* Kontokarte fuer Auszahlungen im Transit zur Bank */}
+        <div className="bg-white p-3.5 rounded-xl border border-blue-100 bg-blue-50/30">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
+            Na poti do banke
+          </span>
+          <span className="block text-base font-black text-blue-600">
+            {formatEur(balance.inTransitCents)}
+          </span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-amber-100 bg-amber-50/30">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
+            Čaka na potrditev prejema
+          </span>
+          <span className="block text-base font-black text-amber-600">
+            {formatEur(balance.escrowCents)}
+          </span>
+        </div>
+
+        <div className="bg-white p-3.5 rounded-xl border border-slate-200">
+          <span className="block text-[9px] font-black uppercase tracking-wider text-slate-400 mb-0.5">
+            Skupaj izplačano
+          </span>
+          <span className="block text-base font-black text-[#0A1128]">
+            {formatEur(balance.paidOutCents)}
+          </span>
+          <span className="block text-[9px] font-bold text-slate-400 mt-0.5">
+            ({balance.paidOutCount || 0} izplačil)
+          </span>
+        </div>
+      </div>
+
+      {/* Button zum Auszahlen */}
+      <div className="mb-3">
+        <button
+          type="button"
+          disabled={isBelowMin || requestingPayout || !balance.onboardingComplete}
+          onClick={handleRequestPayout}
+          className={`w-full py-4 rounded-2xl font-black uppercase tracking-wider text-xs transition-all shadow-md flex items-center justify-center gap-2 ${
+            isBelowMin || !balance.onboardingComplete
+              ? 'bg-slate-200 text-slate-400 cursor-not-allowed'
+              : requestingPayout
+              ? 'bg-[#0A1128]/70 text-white cursor-wait'
+              : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
+          }`}
+        >
+          {requestingPayout ? (
+            <>
+              <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+              Izplačevanje v teku...
+            </>
+          ) : isBelowMin ? (
+            `Najmanj 10,00 € (Na voljo: ${formatEur(releasable)})`
+          ) : (
+            `Izplačaj na bančni račun (${formatEur(releasable)})`
+          )}
+        </button>
+      </div>
+
+      <p className="text-[11px] font-bold text-slate-500 leading-relaxed">
+        Sredstva se sprostijo, ko kupec potrdi prejem. Izplačate jih lahko kadar koli ali pa se samodejno izplačajo po 30 dneh. Stroške izplačil krijemo mi, prejmete celoten znesek.
+      </p>
     </div>
   );
 };
@@ -144,11 +502,13 @@ export const SettingsView: React.FC<{
   onSave: (data: any) => Promise<{ emailChangeSent: boolean } | void>; 
   onVerify: () => void; 
   onStripeVerified: () => void;
-  onNavigateToPayoutSetup?: () => void;
+  onOpenLegal?: (type: 'terms' | 'privacy' | 'how') => void;
+  onNavigateToCreateAuction?: () => void;
   onRefreshUser?: () => Promise<void>;
-  activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications';
-  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications') => void;
+  activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices';
+  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices') => void;
   onBack?: () => void;
+  onLanguageChange?: (l: string) => void;
 }> = ({ 
   t, 
   language, 
@@ -157,13 +517,15 @@ export const SettingsView: React.FC<{
   onSave, 
   onVerify, 
   onStripeVerified,
-  onNavigateToPayoutSetup,
+  onOpenLegal,
+  onNavigateToCreateAuction,
   onRefreshUser,
+  onLanguageChange,
   activeTab: propActiveTab,
   setActiveTab: propSetActiveTab,
   onBack
 }) => {
-  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications'>('profile');
+  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices'>('profile');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState<number | ''>('');
@@ -175,6 +537,17 @@ export const SettingsView: React.FC<{
   const [authProvidersRefresh, setAuthProvidersRefresh] = useState(0);
   const [isLinkingGoogle, setIsLinkingGoogle] = useState(false);
   const [isUnlinkingGoogle, setIsUnlinkingGoogle] = useState(false);
+  const [showPayoutSetup, setShowPayoutSetup] = useState(false);
+
+  // Automatische Scroll-Funktion zum Verifizierungsabschnitt, falls nötig
+  useEffect(() => {
+    if (activeTab === 'personal') {
+      const timer = setTimeout(() => {
+        document.getElementById('verification-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [activeTab]);
 
   const providerData = auth.currentUser?.providerData || [];
   const hasPasswordProvider = providerData.some(p => p.providerId === 'password');
@@ -186,7 +559,7 @@ export const SettingsView: React.FC<{
     const currentUser = auth.currentUser;
     if (!currentUser) return;
 
-    const proceed = window.confirm("Priporočamo Google račun z enakim e-poštnim naslovom kot ga uporabljate pri nas.");
+    const proceed = await confirmDialog("Priporočamo Google račun z enakim e-poštnim naslovom kot ga uporabljate pri nas.", { title: 'Povezava z Googlom', confirmLabel: 'Nadaljuj' });
     if (!proceed) return;
 
     setIsLinkingGoogle(true);
@@ -216,7 +589,7 @@ export const SettingsView: React.FC<{
     if (!currentUser) return;
     if ((currentUser.providerData?.length || 0) < 2) return;
 
-    const proceed = window.confirm("Ali res želite odvezati Google prijavo?");
+    const proceed = await confirmDialog("Ali res želite odvezati Google prijavo?", { title: 'Odvezava Googla', tone: 'danger', confirmLabel: 'Odveži' });
     if (!proceed) return;
 
     setIsUnlinkingGoogle(true);
@@ -389,7 +762,7 @@ export const SettingsView: React.FC<{
     if (file) {
       isFormDirtyRef.current = true;
       try {
-        const compressed = await imageCompression(file, {
+        const compressed = await imageCompression(await normalizeImageFile(file), {
           maxSizeMB: 0.1,
           maxWidthOrHeight: 500,
           useWebWorker: false,
@@ -462,7 +835,7 @@ export const SettingsView: React.FC<{
   };
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 py-12 animate-in">
+    <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-6 md:py-12 animate-in">
       {onBack && (
         <button
           type="button"
@@ -472,42 +845,48 @@ export const SettingsView: React.FC<{
           <ArrowLeft size={16} /> {t('back') || 'Nazaj'}
         </button>
       )}
-      <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-12">{t('settings')}</h2>
+      <h2 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 md:mb-12">{t('settings')}</h2>
       
-      <div className="flex flex-col lg:flex-row gap-8">
+      <div className="flex flex-col lg:flex-row gap-4 md:gap-8">
         {/* Left Sidebar Navigation */}
         <div className="w-full lg:w-80 flex-shrink-0">
-          <div className="bg-white rounded-[2rem] p-4 shadow-xl border border-slate-100 flex flex-col gap-2">
+          <div className="bg-white rounded-2xl md:rounded-[2rem] p-2 md:p-4 shadow-xl border border-slate-100 flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible">
             <button 
                 onClick={() => setActiveTab('profile')}
-                className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'profile' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+                className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'profile' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
                 <User size={18} /> {t('tabProfileSecurity')}
             </button>
             <button 
                 onClick={() => setActiveTab('personal')}
-                className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'personal' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+                className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'personal' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
                 <MapPin size={18} /> {t('tabPersonalData')}
             </button>
             <button 
                 onClick={() => setActiveTab('stripe')}
-                className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'stripe' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+                className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'stripe' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
                 <CreditCard size={18} /> {t('tabPaymentsPayouts')}
             </button>
             <button 
                 onClick={() => setActiveTab('notifications')}
-                className={`flex items-center gap-4 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all w-full text-left ${activeTab === 'notifications' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+                className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'notifications' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
             >
                 <Bell size={18} /> {t('tabNotifications')}
+            </button>
+            <button 
+                onClick={() => setActiveTab('invoices')}
+                className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'invoices' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+            >
+                <FileText size={18} /> Računi
             </button>
           </div>
         </div>
 
         {/* Right Content Area */}
         <div className="flex-1">
-          <form onSubmit={handleSave} className="bg-white rounded-[3rem] p-10 shadow-2xl border border-slate-100">
+          <form onSubmit={handleSave} className="bg-white rounded-3xl md:rounded-[3rem] p-4 md:p-10 shadow-xl md:shadow-2xl border border-slate-100">
             {errorMessage && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold flex items-center gap-3">
                 <AlertCircle size={20} className="shrink-0 text-red-500" />
@@ -621,7 +1000,7 @@ export const SettingsView: React.FC<{
                               </div>
                               <div>
                                 <p className={`text-xs font-black uppercase tracking-wider ${isStrikeGiven ? "text-red-700" : "text-slate-600"}`}>
-                                  {slot}. Opomin {slot === 3 ? "(Blokada)" : ""}
+                                  {slot === 3 ? `${slot}. Opomin (Blokada)` : `${slot}. Opomin`}
                                 </p>
                                 <p className="text-[11px] font-bold mt-0.5">
                                   {isStrikeGiven 
@@ -690,6 +1069,13 @@ export const SettingsView: React.FC<{
                     <h3 className="text-sm font-black uppercase tracking-widest text-[#0A1128] mb-6 flex items-center gap-2"><User size={16} className="text-[#FEBA4F]"/> {t('basicData')}</h3>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                       <div className="md:col-span-2">
+                        <PreferredLanguageSelect
+                          value={user?.preferred_language}
+                          currentLanguage={language}
+                          onLanguageChange={onLanguageChange}
+                        />
+                      </div>
+                      <div className="md:col-span-2">
                         <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('usernameLabel')}</label>
                         <input type="text" value={formData.username} onChange={e => setFormData({...formData, username: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" placeholder="" />
                       </div>
@@ -707,7 +1093,7 @@ export const SettingsView: React.FC<{
                 </div>
 
                 {/* Načini prijave (Povezani računi) */}
-                <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 mb-8">
+                <div className="p-4 md:p-8 bg-slate-50 rounded-3xl md:rounded-[2rem] border border-slate-100 mb-6 md:mb-8">
                   <h3 className="text-sm font-black uppercase tracking-widest text-[#0A1128] mb-6 flex items-center gap-2">
                     <Shield size={16} className="text-[#FEBA4F]"/> Načini prijave
                   </h3>
@@ -782,7 +1168,7 @@ export const SettingsView: React.FC<{
                   </div>
                 </div>
 
-                <div className="p-8 bg-slate-50 rounded-[2rem] border border-slate-100 mb-8">
+                <div className="p-4 md:p-8 bg-slate-50 rounded-3xl md:rounded-[2rem] border border-slate-100 mb-6 md:mb-8">
                   <h3 className="text-sm font-black uppercase tracking-widest text-[#0A1128] mb-6 flex items-center gap-2"><Key size={16} className="text-[#FEBA4F]"/> {t('changePassword')}</h3>
                   <div className="space-y-4">
                     <div>
@@ -857,7 +1243,7 @@ export const SettingsView: React.FC<{
                   </div>
                 </div>
 
-                <button type="submit" disabled={isSaving} className="w-full bg-[#0A1128] text-white py-5 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
+                <button type="submit" disabled={isSaving} className="w-full bg-[#0A1128] text-white py-4 md:py-5 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
                   {isSaving ? (
                     <>
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -900,7 +1286,7 @@ export const SettingsView: React.FC<{
             )}
 
             {activeTab === 'personal' && (
-              <div className="animate-in fade-in slide-in-from-right-4">
+              <div id="verification-section" className="animate-in fade-in slide-in-from-right-4">
                 {!isProfileCompleted ? (
                     <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
                         <div className="w-20 h-20 bg-red-100 rounded-full flex flex-col items-center justify-center mx-auto mb-6 text-red-500">
@@ -922,7 +1308,7 @@ export const SettingsView: React.FC<{
                             {userType === 'business' ? <Building size={16} className="text-[#FEBA4F]"/> : <User size={16} className="text-[#FEBA4F]"/>} 
                             {t('verificationData')} ({userType === 'business' ? t('business') : t('individual')})
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 bg-slate-50 p-8 rounded-[2rem] border border-slate-100">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-slate-50 p-4 md:p-8 rounded-3xl md:rounded-[2rem] border border-slate-100">
                             {userType === 'individual' ? (
                                 <>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('firstName')}</label><input type="text" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
@@ -1009,55 +1395,121 @@ export const SettingsView: React.FC<{
 
             {activeTab === 'stripe' && (
               <div className="animate-in fade-in slide-in-from-right-4">
-                <div className="mb-8">
-                  <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                    <CreditCard size={20} className="text-[#FEBA4F]"/> Moja izplačila
-                  </h3>
-                  <p className="text-slate-500 font-bold text-sm mb-6 leading-relaxed">
-                    Denar od kupca je že na vašem računu pri Stripe in ga mi ne hranimo. Na bančni račun se izplača po potrditvi prejema.
-                  </p>
-                  
-                  <PayoutsList />
-                </div>
-                
-                <div className="mb-6">
-                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 flex items-center gap-2">
-                        <CreditCard size={20} className="text-[#FEBA4F]"/> {t('stripeBankConnection')}
+                {user?.profile_completed !== true ? (
+                  <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-8 text-center">
+                    <div className="bg-amber-100 text-[#0A1128] border-2 border-[#FEBA4F]/30 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-6">
+                      <AlertCircle size={32} className="text-[#FEBA4F]" />
+                    </div>
+                    <h3 className="text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-2">
+                      Zahtevana je verifikacija profila
                     </h3>
-                    <p className="text-slate-400 font-bold text-sm mb-6">{t('stripeBankConnectionDesc')}</p>
-                </div>
+                    <p className="text-slate-500 font-bold text-sm mb-6 max-w-md mx-auto">
+                      Za urejanje izplačil morate najprej vnesti osebne podatke in opraviti verifikacijo profila.
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setActiveTab('personal');
+                        setTimeout(() => {
+                          document.getElementById('verification-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        }, 100);
+                      }}
+                      className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md inline-flex items-center gap-2"
+                    >
+                      Opravi verifikacijo
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Stanje sredstev Verkaeufer-Block */}
+                    <SellerBalance />
 
-                <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-6 mb-6">
-                  {user?.stripe_onboarding_complete ? (
-                    <div className="flex items-center gap-3 text-emerald-800 font-bold mb-4">
-                      <CheckCircle2 size={24} className="text-emerald-600 shrink-0" />
-                      <div>
-                        <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
-                        <div className="text-xs text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
-                      </div>
+                    <div className="mb-5">
+                      <h3 className="text-lg font-black uppercase tracking-tighter text-[#0A1128] mb-1.5 flex items-center gap-2">
+                        <CreditCard size={18} className="text-[#FEBA4F]"/> Moja izplačila
+                      </h3>
+                      <p className="text-slate-500 font-bold text-xs mb-3 leading-relaxed">
+                        Sredstva se sprostijo, ko kupec potrdi prejem, izplačate pa jih, ko želite.
+                      </p>
+                      
+                      <PayoutsList />
                     </div>
-                  ) : (
-                    <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
-                      <AlertCircle size={24} className="text-amber-600 shrink-0" />
-                      <div>
-                        <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
-                        <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
-                      </div>
+                    
+                    <div className="mb-4">
+                        {/* Kurzer Titel ohne Stripe gemaess Vorgabe DEL B Punkt 5 */}
+                        <h3 className="text-lg font-black uppercase tracking-tighter text-[#0A1128] mb-1 flex items-center gap-2">
+                            <CreditCard size={18} className="text-[#FEBA4F]"/> Račun za izplačila
+                        </h3>
                     </div>
-                  )}
 
-                  <button
-                    onClick={() => {
-                      if (onNavigateToPayoutSetup) onNavigateToPayoutSetup();
-                    }}
-                    className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
-                  >
-                    <CreditCard size={18} /> Uredi izplačila
-                  </button>
-                </div>
+                    <div className="bg-slate-50 border-2 border-slate-200 rounded-3xl p-4 sm:p-5 mb-5 w-full">
+                      {user?.stripe_onboarding_complete ? (
+                        <>
+                          <div className="flex items-center gap-3 text-emerald-800 font-bold mb-3">
+                            <CheckCircle2 size={22} className="text-emerald-600 shrink-0" />
+                            <div>
+                              <div className="font-black text-sm uppercase tracking-tight">Izplačila so urejena</div>
+                              <div className="text-[11px] text-slate-500 font-bold mt-0.5">Vaš račun je pripravljen za prejemanje izplačil.</div>
+                            </div>
+                          </div>
+
+                          <div className="w-full">
+                            {user?.stripe_onboarding_complete ? (
+                              <SellerDashboard />
+                            ) : (
+                              <p className="text-xs text-slate-400 font-bold">
+                                V nastavitvah urejate bančni račun, podatke o nakazilih in izpise.
+                              </p>
+                            )}
+                          </div>
+                        </>
+                      ) : (
+                        <>
+                          <div className="flex items-center gap-3 text-amber-800 font-bold mb-4">
+                            <AlertCircle size={24} className="text-amber-600 shrink-0" />
+                            <div>
+                              <div className="font-black text-base uppercase tracking-tight">Izplačila še niso urejena</div>
+                              <div className="text-xs text-slate-500 font-bold mt-0.5">Za prodajo na platformi morate urediti račun za izplačila.</div>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => setShowPayoutSetup(prev => !prev)}
+                            className="bg-[#0A1128] text-white px-6 py-3.5 rounded-2xl font-black uppercase tracking-wider text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-md flex items-center gap-2"
+                          >
+                            <CreditCard size={18} />
+                            <span>{showPayoutSetup ? "Skrij urejanje izplačil" : "Uredi izplačila"}</span>
+                          </button>
+
+                          {showPayoutSetup && (
+                            <div className="mt-6 border-t-2 border-slate-200 pt-6">
+                              /* Callbacks fuer Rechtliches und Auktionserstellung im Profil verknuepfen */
+                              <PayoutSetupView
+                                userData={user}
+                                onRefreshUserData={onRefreshUser}
+                                onNavigateToSettingsProfile={() => {
+                                  setActiveTab('personal');
+                                  setTimeout(() => {
+                                    document.getElementById('verification-section')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                  }, 100);
+                                }}
+                                onNavigateToCreateAuction={() => onNavigateToCreateAuction?.()}
+                                onOpenTermsModal={() => onOpenLegal?.('terms')}
+                                t={t}
+                                language={language}
+                              />
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
               </div>
             )}
 
+            {activeTab === 'invoices' && <InvoicesView />}
             {activeTab === 'notifications' && (
               <div className="animate-in fade-in slide-in-from-right-4">
                 <div className="mb-6">
@@ -1162,7 +1614,7 @@ export const SettingsView: React.FC<{
 
 
                     <div className="flex justify-end mt-8">
-                        <button type="submit" disabled={isSaving} className="bg-[#FEBA4F] text-[#0A1128] px-12 py-4 rounded-[2rem] font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-white transition-all shadow-xl flex items-center justify-center min-w-[250px]">
+                        <button type="submit" disabled={isSaving} className="bg-[#FEBA4F] text-[#0A1128] px-6 md:px-12 py-4 rounded-2xl md:rounded-[2rem] w-full sm:w-auto font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-white transition-all shadow-xl flex items-center justify-center min-w-[250px]">
                             {isSaving ? (
                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
@@ -1181,27 +1633,28 @@ export const SettingsView: React.FC<{
       {/* MODAL ZA POTRDITEV IZBRISA PROFILA */}
       {showDeleteModal && (
         <Portal>
-          <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in">
-            <div className="bg-white rounded-[2.5rem] max-w-lg w-full p-8 shadow-2xl border border-red-100 relative">
-              <div className="w-14 h-14 rounded-3xl bg-red-100 border-2 border-red-200 flex items-center justify-center text-red-600 mx-auto mb-6">
-                <AlertTriangle size={32} />
+          {/* Deutscher Kommentar: Responsives Modal fuer Kontoloeschung mit max-h und Touch-Zielen */}
+          <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
+            <div className="bg-white rounded-3xl sm:rounded-[2.5rem] max-w-lg w-full p-5 sm:p-8 shadow-2xl border border-red-100 relative max-h-[92dvh] overflow-y-auto">
+              <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl bg-red-100 border-2 border-red-200 flex items-center justify-center text-red-600 mx-auto mb-4 sm:mb-6">
+                <AlertTriangle size={26} />
               </div>
 
-              <h3 className="text-2xl font-black uppercase tracking-tight text-center text-[#0A1128] mb-2">
+              <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-center text-[#0A1128] mb-2">
                 Trajni izbris profila
               </h3>
               
-              <p className="text-sm font-bold text-slate-500 text-center mb-6 leading-relaxed">
+              <p className="text-xs sm:text-sm font-bold text-slate-500 text-center mb-4 sm:mb-6 leading-relaxed">
                 Dokončen izbris profila in podatkov.
               </p>
 
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 mb-6 text-xs text-slate-600 font-bold space-y-2">
+              <div className="bg-slate-50 border border-slate-200 rounded-xl sm:rounded-2xl p-3.5 sm:p-4 mb-4 sm:mb-6 text-[11px] sm:text-xs text-slate-600 font-bold space-y-2">
                 <p>• Kupci vaših predhodno zaključenih in prodanih dražb bodo še vedno videli podatke o zmagani dražbi.</p>
                 <p>• Namesto vašega imena bo prikazano »Uporabnik je bil izbrisan«.</p>
               </div>
 
-              <div className="mb-6">
-                <label className="block text-[11px] font-black uppercase tracking-widest text-slate-400 mb-2">
+              <div className="mb-4 sm:mb-6">
+                <label className="block text-[10px] sm:text-[11px] font-black uppercase tracking-widest text-slate-400 mb-2">
                   Za potrditev vpišite <strong className="text-red-600">IZBRIŠI</strong>:
                 </label>
                 <input
@@ -1209,7 +1662,7 @@ export const SettingsView: React.FC<{
                   value={deleteConfirmationInput}
                   onChange={(e) => setDeleteConfirmationInput(e.target.value)}
                   placeholder="IZBRIŠI"
-                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 font-black text-center tracking-widest text-red-600 outline-none focus:border-red-500"
+                  className="w-full bg-slate-50 border-2 border-slate-200 rounded-xl px-4 py-3 font-black text-center tracking-widest text-red-600 outline-none focus:border-red-500 text-base"
                 />
               </div>
 
@@ -1218,7 +1671,7 @@ export const SettingsView: React.FC<{
                   type="button"
                   onClick={() => setShowDeleteModal(false)}
                   disabled={isDeleting}
-                  className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-2xl font-black uppercase tracking-wider text-xs transition-colors"
+                  className="flex-1 py-3.5 sm:py-4 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-xl sm:rounded-2xl font-black uppercase tracking-wider text-xs transition-colors min-h-[44px] flex items-center justify-center"
                 >
                   Prekliči
                 </button>
@@ -1226,7 +1679,7 @@ export const SettingsView: React.FC<{
                   type="button"
                   onClick={handleDeleteAccount}
                   disabled={deleteConfirmationInput.trim().toUpperCase() !== 'IZBRIŠI' || isDeleting}
-                  className="flex-1 py-4 bg-red-600 hover:bg-red-700 text-white rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-2"
+                  className="flex-1 py-3.5 sm:py-4 bg-red-600 hover:bg-red-700 text-white rounded-xl sm:rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-40 disabled:cursor-not-allowed shadow-lg flex items-center justify-center gap-2 min-h-[44px]"
                 >
                   {isDeleting ? (
                     <>

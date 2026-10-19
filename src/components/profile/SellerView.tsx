@@ -1,3 +1,4 @@
+import { Portal } from '../ui/Portal';
 import React, { useState, useMemo, useEffect } from 'react';
 import { 
   Star, MapPin, Calendar, Building2, User, CheckCircle2, 
@@ -18,12 +19,46 @@ interface SellerViewProps {
   isLoggedIn: boolean;
   currentUserWinnings?: AuctionItem[];
   auctions: AuctionItem[];
+  currentUserId?: string;
+  initialTab?: 'active' | 'reviews';
 }
 
 const SellerView: React.FC<SellerViewProps> = ({ 
-  seller, onBack, onAuctionClick, t, language, isLoggedIn, currentUserWinnings = [], auctions
+  seller, onBack, onAuctionClick, t, language, isLoggedIn, currentUserWinnings = [], auctions, currentUserId, initialTab
 }) => {
-  const [activeTab, setActiveTab] = useState<'active' | 'past' | 'reviews'>('active');
+  // Deutscher Kommentar: Bewertung melden (nur der bewertete Verkaeufer)
+  const [disputeReview, setDisputeReview] = useState<Review | null>(null);
+  const [disputeReason, setDisputeReason] = useState('');
+  const [isSendingDispute, setIsSendingDispute] = useState(false);
+  const isOwnProfile = !!currentUserId && currentUserId === seller.id;
+
+  const submitDispute = async () => {
+    if (!disputeReview || disputeReason.trim().length < 10) {
+      toast.error('Navedite razlog prijave (vsaj 10 znakov).');
+      return;
+    }
+    setIsSendingDispute(true);
+    try {
+      const token = await auth.currentUser?.getIdToken();
+      const res = await fetch('/api/reviews/dispute', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ review_id: disputeReview.id, reason: disputeReason.trim() })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Prijava ni uspela.');
+      toast.success('Prijava ocene je bila poslana. Odgovorili vam bomo po e-pošti.');
+      setReviews(prev => prev.map(r => r.id === disputeReview.id ? { ...r, dispute_status: 'submitted' } : r));
+      setDisputeReview(null);
+      setDisputeReason('');
+    } catch (e: any) {
+      toast.error(e.message || 'Prijava ni uspela.');
+    } finally {
+      setIsSendingDispute(false);
+    }
+  };
+
+  const [activeTab, setActiveTab] = useState<'active' | 'past' | 'reviews'>(initialTab || 'active');
   const [newReview, setNewReview] = useState({ rating: 5, comment: '', wouldRecommend: true });
   const [reviews, setReviews] = useState<Review[]>([]);
   const [isLoadingReviews, setIsLoadingReviews] = useState(false);
@@ -115,6 +150,7 @@ const SellerView: React.FC<SellerViewProps> = ({
             auction_id: d.auction_id || d.auctionId,
             auction_title: d.auction_title || d.auctionTitle,
             auction_image: d.auction_image || d.auctionImage,
+            dispute_status: d.dispute_status,
           });
         });
 
@@ -135,6 +171,7 @@ const SellerView: React.FC<SellerViewProps> = ({
               auction_id: d.auction_id || d.auctionId,
               auction_title: d.auction_title || d.auctionTitle,
               auction_image: d.auction_image || d.auctionImage,
+              dispute_status: d.dispute_status,
             });
           });
         }
@@ -218,7 +255,7 @@ const SellerView: React.FC<SellerViewProps> = ({
   const isVerifiedSeller = Boolean((seller as any).identity_verified === true || (seller as any).verified_identity === true || (seller as any).identity_verification_status === 'verified');
 
   return (
-    <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
+    <div className="max-w-[1600px] mx-auto py-6 md:py-16 px-3 md:px-6 animate-in">
       {/* Back Button */}
       <button 
         onClick={onBack} 
@@ -228,10 +265,10 @@ const SellerView: React.FC<SellerViewProps> = ({
       </button>
 
       {/* Seller Header Card */}
-      <div className="bg-white rounded-[4rem] p-8 sm:p-12 shadow-2xl border border-slate-100 mb-12 relative overflow-hidden">
+      <div className="bg-white rounded-3xl md:rounded-[4rem] p-4 sm:p-12 shadow-xl md:shadow-2xl border border-slate-100 mb-6 md:mb-12 relative overflow-hidden">
         <div className="absolute top-0 right-0 w-64 h-64 bg-[#FEBA4F]/5 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
         
-        <div className="flex flex-col lg:flex-row gap-10 lg:gap-12 relative z-10">
+        <div className="flex flex-col lg:flex-row gap-6 lg:gap-12 relative z-10">
           {/* Profile Picture / Icon */}
           <div className="flex-shrink-0">
             <div className="w-32 h-32 lg:w-44 lg:h-44 rounded-[3rem] bg-slate-50 border-4 border-white shadow-xl flex items-center justify-center overflow-hidden relative group">
@@ -373,7 +410,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                           title={hasStrike ? `${slot}. opomin za neplačano dražbo` : `Prosta možnost (${slot}/3)`}
                         >
                           <span className={hasStrike ? "font-black text-red-600" : ""}>{hasStrike ? "X" : slot}</span>
-                          <span className="text-[9px] uppercase font-bold tracking-wider">{slot}. opomin</span>
+                          <span className="text-[9px] uppercase font-bold tracking-wider">{`${slot}. opomin`}</span>
                         </div>
                       );
                     })}
@@ -386,7 +423,7 @@ const SellerView: React.FC<SellerViewProps> = ({
       </div>
 
       {/* Tabs Navigation */}
-      <div className="flex items-center gap-8 mb-12 border-b border-slate-200">
+      <div className="flex items-center gap-4 md:gap-8 mb-6 md:mb-12 border-b border-slate-200 overflow-x-auto">
         <button 
           onClick={() => setActiveTab('active')}
           className={`pb-6 text-sm font-black uppercase tracking-widest transition-all relative ${activeTab === 'active' ? 'text-[#0A1128]' : 'text-slate-400 hover:text-[#0A1128]'}`}
@@ -413,7 +450,7 @@ const SellerView: React.FC<SellerViewProps> = ({
       {/* Tab Content */}
       <div className="animate-in">
         {activeTab === 'active' && (
-          <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
+          <div className="grid gap-4 md:gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 320px))' }}>
             {activeAuctions.length > 0 ? (
               activeAuctions.map(item => (
                 <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer">
@@ -434,7 +471,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                         </div>
                       )}
                     </div>
-                    <div className="p-8 flex flex-col flex-1">
+                    <div className="p-4 md:p-8 flex flex-col flex-1">
                       <h3 className="text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 mb-4">
                         {item.title?.[language] || item.title?.['SLO'] || 'Dražba'}
                       </h3>
@@ -466,7 +503,7 @@ const SellerView: React.FC<SellerViewProps> = ({
         )}
 
         {activeTab === 'past' && (
-          <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
+          <div className="grid gap-4 md:gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 320px), 320px))' }}>
             {pastAuctions.length > 0 ? (
               pastAuctions.map(item => (
                 <div key={item.id} onClick={() => onAuctionClick(item)} className="cursor-pointer opacity-85 hover:opacity-100 transition-all">
@@ -484,7 +521,7 @@ const SellerView: React.FC<SellerViewProps> = ({
                         </div>
                       </div>
                     </div>
-                    <div className="p-8 flex flex-col flex-1">
+                    <div className="p-4 md:p-8 flex flex-col flex-1">
                       <h3 className="text-lg font-black leading-tight text-[#0A1128] line-clamp-2 mb-4">
                         {item.title?.[language] || item.title?.['SLO'] || 'Dražba'}
                       </h3>
@@ -627,6 +664,22 @@ const SellerView: React.FC<SellerViewProps> = ({
                       </p>
                     )}
 
+                    {isOwnProfile && (
+                      <div className="mb-4">
+                        {review.dispute_status === 'submitted' ? (
+                          <span className="text-[10px] font-black uppercase tracking-widest text-slate-500 bg-slate-100 px-3 py-1.5 rounded-lg">Ocena je prijavljena – v obravnavi</span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setDisputeReview(review); setDisputeReason(''); }}
+                            className="text-[10px] font-black uppercase tracking-widest text-red-600 bg-red-50 border border-red-100 hover:bg-red-100 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5"
+                          >
+                            <ShieldAlert size={13} /> Prijavi oceno
+                          </button>
+                        )}
+                      </div>
+                    )}
+
                     <div className="flex items-center gap-2 text-[10px] font-black uppercase tracking-widest">
                       {review.wouldRecommend ? (
                         <span className="text-green-600 flex items-center gap-1.5 bg-green-50 px-3 py-1 rounded-lg border border-green-100">
@@ -654,6 +707,30 @@ const SellerView: React.FC<SellerViewProps> = ({
           </div>
         )}
       </div>
+      {disputeReview && (
+        <Portal>
+        <div className="fixed inset-0 z-[3000] bg-[#0A1128]/80 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto" onClick={() => !isSendingDispute && setDisputeReview(null)}>
+          <div className="bg-white rounded-3xl p-6 sm:p-8 w-full max-w-md shadow-2xl max-h-[92dvh] overflow-y-auto my-auto" onClick={(e) => e.stopPropagation()}>
+            <h3 className="text-xl font-black text-[#0A1128] uppercase tracking-tight mb-2">Prijava ocene</h3>
+            <p className="text-xs font-bold text-slate-500 mb-4 leading-relaxed">
+              Ocene ni mogoče spremeniti ali izbrisati s strani kupca. Če menite, da ocena krši pravila (npr. žaljivka, neresnična dejstva), nam sporočite razlog. Prijavo bomo obravnavali in vam odgovorili po e-pošti.
+            </p>
+            <textarea
+              value={disputeReason}
+              onChange={(e) => setDisputeReason(e.target.value)}
+              rows={4}
+              maxLength={2000}
+              placeholder="Razlog prijave (vsaj 10 znakov)..."
+              className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-3 text-sm font-bold text-[#0A1128] focus:outline-none focus:border-[#FEBA4F] resize-none"
+            />
+            <div className="flex gap-3 mt-4">
+              <button type="button" disabled={isSendingDispute} onClick={() => setDisputeReview(null)} className="flex-1 py-3 bg-slate-100 rounded-2xl font-black uppercase text-xs">Prekliči</button>
+              <button type="button" disabled={isSendingDispute} onClick={submitDispute} className="flex-1 py-3 bg-[#0A1128] text-white rounded-2xl font-black uppercase text-xs disabled:opacity-60">{isSendingDispute ? 'Pošiljam...' : 'Pošlji prijavo'}</button>
+            </div>
+          </div>
+        </div>
+        </Portal>
+      )}
     </div>
   );
 };

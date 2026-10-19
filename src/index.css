@@ -1,1 +1,79 @@
 @import "tailwindcss";
+
+/* Globale mobile Skalierung (unter 768px): Verkleinerung der Basis-Schriftgroesse und Schutz vor horizontalem Scrollen */
+@media (max-width: 767px) {
+  html {
+    font-size: 14px;
+    overflow-x: hidden;
+  }
+
+  body {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  /* Deutscher Kommentar: Nur max-width begrenzen; height:auto wuerde alle Tailwind-Hoehen (h-9, w/h von Icons) ueberschreiben, da ungeschichtetes CSS Vorrang hat */
+  img,
+  video {
+    max-width: 100%;
+  }
+
+  /* Automatische Verkleinerung ueberdimensionierter Innenabstaende auf mobilen Bildschirmen */
+  .p-10,
+  .p-12,
+  .p-14,
+  .p-16 {
+    padding: 1.25rem !important;
+  }
+
+  .px-10,
+  .px-12,
+  .px-14,
+  .px-16 {
+    padding-left: 1.25rem !important;
+    padding-right: 1.25rem !important;
+  }
+
+  .py-16,
+  .py-20 {
+    padding-top: 2rem !important;
+    padding-bottom: 2rem !important;
+  }
+
+  /* Abflachung extremer Radien auf Smartphone-Bildschirmen */
+  .rounded-\[4rem\],
+  .rounded-\[3rem\],
+  .rounded-\[2\.5rem\] {
+    border-radius: 1.5rem !important;
+  }
+
+  /* Skalierung sehr grosser Ueberschriften auf Mobilgeraeten */
+  .text-6xl,
+  .text-7xl {
+    font-size: 2.25rem !important;
+    line-height: 2.5rem !important;
+  }
+
+  .text-5xl {
+    font-size: 2rem !important;
+    line-height: 2.25rem !important;
+  }
+
+  .text-4xl {
+    font-size: 1.625rem !important;
+    line-height: 1.875rem !important;
+  }
+
+  /* Hilfsklassen fuer mobile Modalkarten und Sektionen */
+  .modal-card {
+    border-radius: 1.5rem !important;
+    padding: 1.25rem !important;
+    max-height: 92dvh !important;
+    width: 100% !important;
+  }
+
+  .page-section {
+    padding: 1.25rem !important;
+    border-radius: 1.5rem !important;
+  }
+}

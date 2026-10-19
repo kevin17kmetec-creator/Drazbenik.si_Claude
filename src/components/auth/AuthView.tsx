@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { User, CheckCircle2, AlertCircle, ShieldCheck, XCircle, ArrowLeft, Eye, EyeOff } from 'lucide-react';
+import { LoadingButton } from '../ui/Common';
 import { auth, db, safeSignOut, setRegisteringAuth } from "../../lib/firebase";
 import { doc, getDoc } from 'firebase/firestore';
 import { 
@@ -368,17 +369,24 @@ export const AuthView: React.FC<{
 
   if (isForgotPassword) {
       return (
-        <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
-          <div className="bg-white w-full max-w-xl rounded-[4rem] p-10 lg:p-16 shadow-2xl border border-slate-100">
+        <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-6 md:py-20 animate-in flex justify-center">
+          <div className="bg-white w-full max-w-xl rounded-3xl md:rounded-[4rem] p-5 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
             <button onClick={() => setIsForgotPassword(false)} className="flex items-center gap-2 text-slate-400 mb-8 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('backToLogin')}</button>
             <div className="text-center mb-10">
-                <div className="bg-[#FEBA4F] w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><ShieldCheck size={40} className="text-[#0A1128]" /></div>
-                <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{t('forgotPassword')}</h2>
+                <div className="bg-[#FEBA4F] w-16 h-16 md:w-20 md:h-20 rounded-3xl md:rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><ShieldCheck size={40} className="text-[#0A1128]" /></div>
+                <h2 className="text-2xl md:text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{t('forgotPassword')}</h2>
                 <p className="text-slate-400 font-bold text-sm">{t('forgotPasswordDesc')}</p>
             </div>
             <form onSubmit={handleForgotPassword} className="space-y-6">
               <input type="email" required className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold focus:ring-2 focus:ring-[#FEBA4F] outline-none" placeholder={t('email')} onChange={e => setEmail(e.target.value)} />
-              <button type="submit" disabled={loading} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl">{loading ? t('processing') : t('sendLink')}</button>
+              <LoadingButton
+                type="submit"
+                loading={loading}
+                loadingText={t('processing') || 'Obdelujem...'}
+                className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl"
+              >
+                {t('sendLink')}
+              </LoadingButton>
             </form>
           </div>
         </div>
@@ -386,11 +394,11 @@ export const AuthView: React.FC<{
   }
 
   return (
-    <div className="max-w-[1600px] mx-auto px-6 py-20 animate-in flex justify-center">
-      <div className="bg-white w-full max-w-xl rounded-[4rem] p-10 lg:p-16 shadow-2xl border border-slate-100">
+    <div className="max-w-[1600px] mx-auto px-3 md:px-6 py-6 md:py-20 animate-in flex justify-center">
+      <div className="bg-white w-full max-w-xl rounded-3xl md:rounded-[4rem] p-5 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
         <div className="text-center mb-10">
-            <div className="bg-[#FEBA4F] w-20 h-20 rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><User size={40} className="text-[#0A1128]" /></div>
-            <h2 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{isLogin ? t('login') : t('register')}</h2>
+            <div className="bg-[#FEBA4F] w-16 h-16 md:w-20 md:h-20 rounded-3xl md:rounded-[2rem] flex items-center justify-center mx-auto mb-6 shadow-lg"><User size={40} className="text-[#0A1128]" /></div>
+            <h2 className="text-2xl md:text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{isLogin ? t('login') : t('register')}</h2>
         </div>
         <form onSubmit={handleSubmit} className="space-y-6 mb-8">
           {error && (
@@ -403,14 +411,15 @@ export const AuthView: React.FC<{
           {unverifiedEmail && (
             <div className="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl text-xs font-bold space-y-2">
               <p>Čakate na potrditev e-poštnega naslova za <strong>{unverifiedEmail}</strong>. Pred prijavo potrdite svoj naslov preko prejete povezave.</p>
-              <button
+              <LoadingButton
                 type="button"
-                disabled={resendingVerification}
                 onClick={handleResendVerification}
-                className="text-[#0A1128] underline hover:text-[#FEBA4F] font-black uppercase tracking-wider transition-colors disabled:opacity-50"
+                loading={resendingVerification}
+                loadingText="Pošiljam..."
+                className="text-[#0A1128] underline hover:text-[#FEBA4F] font-black uppercase tracking-wider transition-colors"
               >
-                {resendingVerification ? "Pošiljam..." : "Pošlji potrditveno povezavo ponovno"}
-              </button>
+                Pošlji potrditveno povezavo ponovno
+              </LoadingButton>
             </div>
           )}
 
@@ -519,21 +528,20 @@ export const AuthView: React.FC<{
                 onChange={(e) => setAcceptTerms(e.target.checked)}
               />
               <label htmlFor="acceptTerms" className="text-xs font-bold text-slate-500 cursor-pointer">
-                Sprejemam <button type="button" onClick={() => onLegal?.('terms')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Pogoje uporabe</button> in <button type="button" onClick={() => onLegal?.('privacy')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Politiko zasebnosti</button>.
+                Strinjam se s <button type="button" onClick={() => onLegal?.('terms')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Pogoji uporabe</button> in <button type="button" onClick={() => onLegal?.('privacy')} className="text-[#0A1128] underline hover:text-[#FEBA4F]">Politiko zasebnosti</button>.
               </label>
             </div>
           )}
 
-          <button type="submit" disabled={loading || (!isLogin && !acceptTerms)} className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-3">
-            {loading ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                {t('processing')}
-              </>
-            ) : (
-              isLogin ? t('login') : t('createAccount')
-            )}
-          </button>
+          <LoadingButton
+            type="submit"
+            loading={loading}
+            loadingText={t('processing') || 'Obdelujem...'}
+            disabled={!isLogin && !acceptTerms}
+            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-xl"
+          >
+            {isLogin ? t('login') : t('createAccount')}
+          </LoadingButton>
           
           {isLogin && (
             <div className="relative flex items-center justify-center py-4">
@@ -543,11 +551,12 @@ export const AuthView: React.FC<{
           )}
 
           {isLogin && (
-            <button 
-              type="button" 
-              onClick={handleGoogleLogin} 
-              disabled={loading}
-              className="w-full bg-white border-2 border-slate-100 text-[#0A1128] py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-3 shadow-sm"
+            <LoadingButton
+              type="button"
+              onClick={handleGoogleLogin}
+              loading={loading}
+              loadingText="Prijavljam..."
+              className="w-full bg-white border-2 border-slate-100 text-[#0A1128] py-5 rounded-[2rem] font-black uppercase text-xs tracking-widest hover:border-[#FEBA4F] transition-all shadow-sm"
             >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
                 <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
@@ -556,7 +565,7 @@ export const AuthView: React.FC<{
                 <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
               </svg>
               {t('googleLogin')}
-            </button>
+            </LoadingButton>
           )}
 
           <button type="button" onClick={() => { setIsLogin(!isLogin); setPassword(''); setConfirmPassword(''); }} className="w-full text-xs font-black uppercase tracking-widest text-slate-400 hover:text-[#0A1128] mt-4">{isLogin ? t('noAccountRegister') : t('haveAccountLogin')}</button>

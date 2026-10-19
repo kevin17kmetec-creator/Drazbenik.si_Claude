@@ -17,7 +17,8 @@ import {
   limit
 } from "firebase/firestore";
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
-import imageCompression from "browser-image-compression";
+import { normalizeImageFile } from "../lib/imageConvert";
+import { compressImage as imageCompression } from '../lib/imageCompress';
 import { friendlyError } from "../lib/friendlyError";
 import { getAuthHeaders } from "../lib/authFetch";
 import { AuctionItem } from "../types";
@@ -109,6 +110,19 @@ export const ChatProvider: React.FC<{
   const [otherUserTyping, setOtherUserTyping] = useState(false);
   const usersCacheRef = useRef<Map<string, OtherUser>>(new Map());
   const lastMarkReadTimeRef = useRef<Record<string, number>>({});
+  const pendingMarkReadTimeoutRef = useRef<Record<string, NodeJS.Timeout>>({});
+  const [isVisible, setIsVisible] = useState<boolean>(typeof document !== 'undefined' ? document.visibilityState === 'visible' : true);
+
+  // Sichtbarkeitsstatus des Tabs ueberwachen fuer reaktive Ungelesen-Berechnung
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      setIsVisible(document.visibilityState === 'visible');
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, []);
 
   // Listen to auth changes so effectiveUserId is always in sync (only for verified accounts)
   useEffect(() => {
@@ -384,12 +398,14 @@ export const ChatProvider: React.FC<{
         return data.sender_id !== effectiveUserId && !data.is_read;
       });
 
-      // Throttle mark-read API calls to at most once per 3 seconds per conversation
-      if (hasUnread) {
+      // Nur als gelesen markieren, wenn das Dokument sichtbar ist
+      if (hasUnread && document.visibilityState === 'visible') {
         const now = Date.now();
         const lastTime = lastMarkReadTimeRef.current[activeConversationId] || 0;
-        if (now - lastTime > 3000) {
-          lastMarkReadTimeRef.current[activeConversationId] = now;
+        const timeSinceLast = now - lastTime;
+
+        const performMarkRead = () => {
+          lastMarkReadTimeRef.current[activeConversationId] = Date.now();
           getAuthHeaders().then(headers => {
             fetch("/api/messages/mark-read", {
               method: "POST",
@@ -397,6 +413,23 @@ export const ChatProvider: React.FC<{
               body: JSON.stringify({ conversation_id: activeConversationId })
             }).catch(e => console.warn("Failed to mark messages as read via server:", e));
           }).catch(e => console.warn("Could not get auth headers to mark messages as read:", e));
+        };
+
+        if (timeSinceLast >= 3000) {
+          if (pendingMarkReadTimeoutRef.current[activeConversationId]) {
+            clearTimeout(pendingMarkReadTimeoutRef.current[activeConversationId]);
+            delete pendingMarkReadTimeoutRef.current[activeConversationId];
+          }
+          performMarkRead();
+        } else if (!pendingMarkReadTimeoutRef.current[activeConversationId]) {
+          // Nachlaufender Aufruf (trailing timer) nach Verbleib der 3 Sekunden
+          const remainingTime = 3000 - timeSinceLast;
+          pendingMarkReadTimeoutRef.current[activeConversationId] = setTimeout(() => {
+            delete pendingMarkReadTimeoutRef.current[activeConversationId];
+            if (document.visibilityState === 'visible') {
+              performMarkRead();
+            }
+          }, remainingTime);
         }
       }
 
@@ -440,6 +473,10 @@ export const ChatProvider: React.FC<{
 
     return () => {
       isMounted = false;
+      if (pendingMarkReadTimeoutRef.current[activeConversationId]) {
+        clearTimeout(pendingMarkReadTimeoutRef.current[activeConversationId]);
+        delete pendingMarkReadTimeoutRef.current[activeConversationId];
+      }
       unsubscribe();
     };
   }, [activeConversationId, effectiveUserId]);
@@ -454,8 +491,19 @@ export const ChatProvider: React.FC<{
 
     const counts: Record<string, number> = {};
     let total = 0;
+    const isDocVisible = typeof document !== 'undefined' ? document.visibilityState === 'visible' : true;
 
     conversations.forEach((c) => {
+      // Wenn diese Konversation gerade geoeffnet und sichtbar ist, nicht als ungelesen zaehlen
+      const isCurrentlyActive = (
+        (activeConversationId && (c.id === activeConversationId || `conv_${c.auction?.id}` === activeConversationId)) ||
+        (activeChat && (c.auction?.id === activeChat || c.id === activeChat || `conv_${c.auction?.id}` === activeChat))
+      );
+
+      if (isCurrentlyActive && isDocVisible) {
+        return;
+      }
+
       const uCounts = c.unread_counts || {};
       const count = Number(uCounts[effectiveUserId] || 0);
       if (count > 0) {
@@ -466,7 +514,7 @@ export const ChatProvider: React.FC<{
 
     setUnreadCounts(counts);
     setUnreadMessageCount(total);
-  }, [conversations, effectiveUserId]);
+  }, [conversations, effectiveUserId, activeConversationId, activeChat, isVisible]);
 
   // Send message function with optimistic UI updates and instant delivery via server
   const sendMessage = async (content: string, imageUrl?: string) => {
@@ -565,6 +613,7 @@ export const ChatProvider: React.FC<{
       setIsSending(true);
       // Compress the image before uploading
       let fileToUpload = file;
+      try { fileToUpload = await normalizeImageFile(file); } catch { toast.error("Slike (HEIC) ni bilo mogoče pretvoriti."); setIsSending(false); return; }
       try {
         const options = {
           maxSizeMB: 0.1,
@@ -572,7 +621,7 @@ export const ChatProvider: React.FC<{
           useWebWorker: false,
           initialQuality: 0.7,
         };
-        fileToUpload = await imageCompression(file, options);
+        fileToUpload = await imageCompression(fileToUpload, options);
       } catch (compErr) {
         console.warn("Image compression failed, using original file:", compErr);
       }

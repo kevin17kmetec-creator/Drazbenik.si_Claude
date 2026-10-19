@@ -1,5 +1,5 @@
 import React from 'react';
-import { Resend } from 'resend';
+import { Resend } from './localizedResend';
 import { render } from '@react-email/render';
 import { AuctionEmailTemplate, AuctionEmailProps, EmailType } from '../emails/AuctionEmailTemplate';
 
@@ -218,3 +218,146 @@ export async function sendReviewReminderNotification(params: {
   });
 }
 
+/**
+ * Triggered when order is cancelled due to shipping deadline expiry
+ */
+export async function sendShippingCancelledNotifications(params: {
+  buyerEmail: string;
+  sellerEmail: string;
+  buyerName?: string;
+  sellerName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  totalAmount: number;
+}): Promise<{ buyerSuccess: boolean; sellerSuccess: boolean }> {
+  const baseUrl = getBaseAppUrl();
+  const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
+
+  const buyerRes = await sendAuctionEmail(params.buyerEmail, `Naročilo preklicano: ${params.auctionTitle}`, {
+    type: 'shipping_cancelled_buyer',
+    recipientName: params.buyerName || 'Kupec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.totalAmount,
+    auctionUrl,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+
+  const sellerRes = await sendAuctionEmail(params.sellerEmail, `Prodaja preklicana: ${params.auctionTitle}`, {
+    type: 'shipping_cancelled_seller',
+    recipientName: params.sellerName || 'Prodajalec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.totalAmount,
+    auctionUrl,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+
+  return {
+    buyerSuccess: buyerRes.success,
+    sellerSuccess: sellerRes.success,
+  };
+}
+
+
+
+/**
+ * Prodajalec je prejel novo oceno
+ */
+export async function sendReviewReceivedNotification(params: {
+  toEmail: string;
+  recipientName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  rating: number;
+  sellerId: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBaseAppUrl();
+  return sendAuctionEmail(params.toEmail, `Prejeli ste novo oceno (${params.rating}/5): ${params.auctionTitle}`, {
+    type: 'review_received_seller',
+    recipientName: params.recipientName || 'Prodajalec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: 0,
+    formattedAmount: `${params.rating} / 5 ★`,
+    auctionUrl: `${baseUrl}/?drazba=${params.auctionId}`,
+    paymentUrl: `${baseUrl}/?prodajalec=${params.sellerId}`,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+}
+
+/**
+ * Prodajalec mora odločiti, kaj bo z dražbo po neplačilu 1. zmagovalca
+ */
+export async function sendSellerDecisionNeededNotification(params: {
+  toEmail: string;
+  recipientName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  price: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBaseAppUrl();
+  return sendAuctionEmail(params.toEmail, `Dražba čaka na vašo odločitev: ${params.auctionTitle}`, {
+    type: 'seller_decision_needed',
+    recipientName: params.recipientName || 'Prodajalec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.price,
+    auctionUrl: `${baseUrl}/?drazba=${params.auctionId}`,
+    paymentUrl: `${baseUrl}/?tab=unsold`,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+}
+
+/**
+ * 2. ponudnik je prejel ponudbo prodajalca
+ */
+export async function sendSecondChanceOfferNotification(params: {
+  toEmail: string;
+  recipientName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  price: number;
+  paymentDeadlineFormatted: string;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBaseAppUrl();
+  return sendAuctionEmail(params.toEmail, `Prodajalec vam ponuja predmet: ${params.auctionTitle}`, {
+    type: 'second_chance_offer',
+    recipientName: params.recipientName || 'Uporabnik',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.price,
+    paymentDeadline: params.paymentDeadlineFormatted,
+    auctionUrl: `${baseUrl}/?drazba=${params.auctionId}`,
+    paymentUrl: `${baseUrl}/?tab=winnings&pay=${params.auctionId}`,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+}
+
+/**
+ * Tudi 2. ponudnik ni plačal: dražba je med neprodanimi
+ */
+export async function sendSecondChanceFailedSellerNotification(params: {
+  toEmail: string;
+  recipientName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  price: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBaseAppUrl();
+  return sendAuctionEmail(params.toEmail, `Dražba je med neprodanimi: ${params.auctionTitle}`, {
+    type: 'second_chance_failed_seller',
+    recipientName: params.recipientName || 'Prodajalec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.price,
+    auctionUrl: `${baseUrl}/?drazba=${params.auctionId}`,
+    paymentUrl: `${baseUrl}/?tab=unsold`,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+}

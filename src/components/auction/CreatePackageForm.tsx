@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { confirmDialog } from '../../lib/dialog';
 import { CreateAuctionForm } from "@/src/components/auction/CreateAuctionForm";
 import { Layers, Plus, Trash2, ArrowLeft, CheckCircle, Edit3 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -6,7 +7,7 @@ import { db, auth } from "@/src/lib/firebase";
 import { doc, setDoc, getDoc, deleteDoc, updateDoc } from "firebase/firestore";
 import { getUserAuctionCycle } from "../../lib/utils";
 
-export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings }) => {
+export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, language, onPublishPackage, onPublishItemDirectly, isLoggedIn, userData, auctions, onNavigateToSettings, navigateTo }) => {
   const [packageId, setPackageId] = useState(() => crypto.randomUUID());
   const [packageTitle, setPackageTitle] = useState("");
   const [showTitleError, setShowTitleError] = useState(false);
@@ -160,7 +161,7 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
   
   const handleClearDraft = async () => {
     const userId = userData?.id || auth?.currentUser?.uid || 'guest';
-    if (confirm("Ste prepričani, da želite izbrisati celoten osnutek večpredmetne dražbe?")) {
+    if (await confirmDialog("Ste prepričani, da želite izbrisati celoten osnutek večpredmetne dražbe?", { tone: 'danger', confirmLabel: 'Izbriši' })) {
       try {
         localStorage.removeItem(`drazbe_package_draft_${userId}`);
         localStorage.removeItem('drazbe_package_draft_latest');
@@ -352,8 +353,17 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
     );
   }
 
+  const cycleInfo = React.useMemo(() => getUserAuctionCycle(auctions || [], userData?.id, userData), [auctions, userData]);
+  const limitReached = !cycleInfo.isUnlimited && cycleInfo.count >= cycleInfo.userLimit;
+
   return (
     <div className="max-w-5xl mx-auto p-4 md:p-8 animate-in fade-in">
+      {limitReached && (
+        <div className="bg-red-50 border border-red-200 p-4 rounded-2xl mb-8 flex items-center justify-between shadow-sm">
+          <p className="text-red-800 font-bold text-xs sm:text-sm">Omejitev objav je dosežena.</p>
+          <button onClick={() => navigateTo?.('subscriptions')} className="bg-red-600 text-white px-4 py-2 rounded-xl font-black text-xs hover:bg-red-700 transition-all">Poglej naročnine</button>
+        </div>
+      )}
       <div className="flex items-center gap-4 mb-8">
         <button onClick={onBack} className="p-3 bg-white hover:bg-slate-100 rounded-2xl border border-slate-200 transition-colors shadow-sm text-[#0A1128]">
           <ArrowLeft size={20} />
@@ -375,7 +385,7 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
         </div>
       </div>
 
-      <div className="bg-white p-8 rounded-[2rem] shadow-xl border border-slate-100 mb-8 relative overflow-hidden">
+      <div className="bg-white p-4 md:p-8 rounded-3xl md:rounded-[2rem] shadow-xl border border-slate-100 mb-6 md:mb-8 relative overflow-hidden">
         <div className="absolute top-0 left-0 w-2 h-full bg-[#FEBA4F]"></div>
         <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] mb-3">Naslov zbirke</label>
         <input 
@@ -416,9 +426,9 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
         
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
           {items.map((item, idx) => (
-            <div key={idx} className={"bg-white text-[#0A1128] rounded-[2rem] p-5 flex gap-5 shadow-lg border-2 transition-all " + (item.is_published ? "border-green-400" : "border-slate-200 hover:border-[#FEBA4F]")}>
-               <img src={item.images[0]} className="w-24 h-24 object-cover rounded-2xl border border-slate-200" alt="Item" />
-               <div className="flex-1 flex flex-col justify-center">
+            <div key={idx} className={"bg-white text-[#0A1128] rounded-3xl md:rounded-[2rem] p-3 md:p-5 flex gap-3 md:gap-5 shadow-lg border-2 transition-all " + (item.is_published ? "border-green-400" : "border-slate-200 hover:border-[#FEBA4F]")}>
+               <img src={item.images[0]} className="w-20 h-20 md:w-24 md:h-24 shrink-0 object-cover rounded-2xl border border-slate-200" alt="Item" />
+               <div className="flex-1 min-w-0 flex flex-col justify-center">
                  <h3 className="font-black text-base line-clamp-1">{item.title.SLO}</h3>
                  <p className="text-[#0A1128] font-black text-lg mt-1">€{Number(item.startingPrice || 1).toLocaleString('sl-SI')}</p>
                  <div className="flex items-center gap-2 mt-2">
@@ -447,8 +457,9 @@ export const CreatePackageForm: React.FC<any> = ({ initialData,  onBack, t, lang
       <div className="flex justify-end pt-6 border-t border-slate-200">
         <button 
           onClick={handleSubmitPackage} 
-          disabled={items.length < 2 || !packageTitle || isPublishing} 
-          className="px-10 py-4 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl hover:shadow-2xl flex items-center justify-center min-w-[200px]"
+          disabled={items.length < 2 || !packageTitle || isPublishing || (limitReached && items.some(i => !i.is_published))} 
+          title={limitReached ? "Omejitev objav je dosežena" : ""}
+          className={`px-10 py-4 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] rounded-2xl font-black text-xs uppercase tracking-widest disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-xl hover:shadow-2xl flex items-center justify-center min-w-[200px] ${limitReached ? 'opacity-50 cursor-not-allowed' : ''}`}
         >
           {isPublishing ? (
             <div className="w-5 h-5 border-2 border-[#0A1128] border-t-transparent rounded-full animate-spin"></div>

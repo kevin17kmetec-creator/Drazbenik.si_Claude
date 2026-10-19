@@ -53,7 +53,7 @@ export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item:
   if (featuredItems.length === 0) return null;
 
   return (
-    <div className="relative w-full h-[600px] mb-8 overflow-hidden bg-[#0A1128] group">
+    <div className="relative w-full h-[400px] sm:h-[600px] mb-8 overflow-hidden bg-[#0A1128] group">
       <div className="absolute top-16 left-0 right-0 flex justify-center z-20 pointer-events-none">
         <div className="bg-[#FEBA4F] text-[#0A1128] px-6 py-2 rounded-full font-black uppercase text-[10px] tracking-widest animate-bounce shadow-lg">
           {t('trending')}
@@ -84,20 +84,21 @@ export const HeroCarousel: React.FC<{ items: AuctionItem[]; onSelectItem: (item:
             </div>
             <div className="absolute inset-0 bg-gradient-to-t from-[#0A1128] via-[#0A1128]/60 to-transparent"></div>
             
-            <div className="absolute inset-0 flex flex-col justify-end items-center text-center p-6 text-white max-w-4xl mx-auto z-10 pb-24">
-              <h2 className="text-5xl lg:text-7xl font-black mb-8 tracking-tighter uppercase italic">
+            <div className="absolute inset-0 flex flex-col justify-end items-center text-center p-4 sm:p-6 text-white max-w-4xl mx-auto z-10 pb-10 sm:pb-24">
+              {/* Titel-Skalierung fuer mobile Bildschirme */}
+              <h2 className="text-2xl sm:text-4xl md:text-5xl lg:text-7xl font-black mb-3 sm:mb-8 tracking-tighter uppercase italic line-clamp-2">
                 {item.title[language] || item.title['SLO']}
               </h2>
-              <div className="flex items-center gap-12 mb-12">
+              <div className="flex items-center gap-4 sm:gap-12 mb-4 sm:mb-12">
                 <div>
                   <p className="text-[10px] font-black uppercase text-slate-400 mb-1">{t('currentBid')}</p>
-                  <p className="text-5xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
+                  <p className="text-2xl sm:text-4xl md:text-5xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
                 </div>
                 <StaticTimer endTime={item.endTime} />
               </div>
               <button 
                 onClick={() => onSelectItem(item)} 
-                className="bg-white text-[#0A1128] px-16 py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-2xl"
+                className="bg-white text-[#0A1128] px-8 py-3.5 sm:px-16 sm:py-6 rounded-2xl sm:rounded-[2rem] text-xs sm:text-base font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all shadow-2xl"
               >
                 {t('openAuction')}
               </button>

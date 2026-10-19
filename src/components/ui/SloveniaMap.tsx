@@ -7,6 +7,9 @@ export interface SloveniaMapProps {
   regionsData?: Record<string, number>;
   onSelectRegion: (regionId: string) => void;
   selectedRegion?: string | null;
+  // Deutscher Kommentar: Mehrfachauswahl; Klick auf eine Region schaltet sie um, "" loescht alle
+  selectedRegions?: string[];
+  multi?: boolean;
   t?: (key: string) => string;
   showTitle?: boolean;
   compact?: boolean;
@@ -16,6 +19,8 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
   regionsData = {},
   onSelectRegion,
   selectedRegion,
+  selectedRegions,
+  multi = false,
   t,
   showTitle = true,
   compact = false
@@ -46,10 +51,10 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
 
   // Check if a region is currently selected
   const isRegionSelected = (regionName: string): boolean => {
-    if (!selectedRegion) return false;
     const rawKey = regionName.toLowerCase();
-    const selKey = selectedRegion.toLowerCase();
-    return rawKey === selKey;
+    if (selectedRegions) return selectedRegions.some(r => r.toLowerCase() === rawKey);
+    if (!selectedRegion) return false;
+    return rawKey === selectedRegion.toLowerCase();
   };
 
   const handleClearFilter = (e: React.MouseEvent) => {
@@ -73,7 +78,7 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
         targetRegion: regionName
       };
     });
-  }, [regionsData, selectedRegion]);
+  }, [regionsData, selectedRegion, selectedRegions]);
 
   return (
     <div className={`w-full bg-[#0A1128] rounded-[2rem] shadow-2xl relative select-none ${compact ? 'p-3' : 'p-4 sm:p-5'} border border-white/10`}>
@@ -89,12 +94,12 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
                 {t ? t('regionMap') || 'Zemljevid regij' : 'Zemljevid regij'}
               </h3>
               <p className="text-[10px] text-slate-400 font-bold">
-                Izberite regijo za filtriranje aktivnih dražb
+                {multi ? 'Izberite eno ali več regij za filtriranje aktivnih dražb' : 'Izberite regijo za filtriranje aktivnih dražb'}
               </p>
             </div>
           </div>
 
-          {selectedRegion && (
+          {(selectedRegion || (selectedRegions && selectedRegions.length > 0)) && (
             <button
               onClick={handleClearFilter}
               className="flex items-center gap-1.5 text-[11px] font-black uppercase tracking-wider bg-[#FEBA4F]/10 text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] px-3 py-1.5 rounded-xl transition-all border border-[#FEBA4F]/30 shadow-lg"
@@ -131,7 +136,7 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
                   key={reg.targetRegion}
                   d={reg.path}
                   className="cursor-pointer transition-all duration-200"
-                  onClick={() => onSelectRegion(reg.isSelected ? "" : reg.targetRegion)}
+                  onClick={() => onSelectRegion(!multi && reg.isSelected ? "" : reg.targetRegion)}
                   onMouseEnter={() => setHoveredRegion({ name: reg.displayName, count: reg.count })}
                   onMouseLeave={() => setHoveredRegion(null)}
                   fill={reg.isSelected ? '#FEBA4F' : isHovered ? '#FEBA4F' : '#0F1B3B'}
@@ -212,7 +217,7 @@ export const SloveniaMap: React.FC<SloveniaMapProps> = ({
           return (
             <button
               key={reg.targetRegion}
-              onClick={() => onSelectRegion(reg.isSelected ? "" : reg.targetRegion)}
+              onClick={() => onSelectRegion(!multi && reg.isSelected ? "" : reg.targetRegion)}
               onMouseEnter={() => setHoveredRegion({ name: reg.displayName, count: reg.count })}
               onMouseLeave={() => setHoveredRegion(null)}
               className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 ${

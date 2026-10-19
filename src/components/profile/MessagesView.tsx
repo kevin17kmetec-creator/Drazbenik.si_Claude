@@ -23,7 +23,9 @@ import {
 import { AuctionItem } from '../../types';
 import { useChat } from "../../context/ChatContext";
 import { auth } from "../../lib/firebase";
+import { LoadingButton } from '../ui/Common';
 import { toast } from 'sonner';
+import { canLeaveReview } from "../../lib/reviewEligibility";
 
 const AvatarImage: React.FC<{ src?: string; className: string; fallbackSize?: number }> = ({ src, className, fallbackSize = 20 }) => {
   const [error, setError] = useState(false);
@@ -80,8 +82,16 @@ export const MessagesView: React.FC<{
   const [pendingImages, setPendingImages] = useState<File[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const typingTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastActiveChatRef = useRef<string | null>(null);
+  const initialMessagesLoadedRef = useRef(false);
+
+  // Seite immer oben starten
+  useEffect(() => {
+    window.scrollTo(0, 0);
+  }, []);
 
   // Set active chat if initialAuctionId passed
   useEffect(() => {
@@ -89,6 +99,13 @@ export const MessagesView: React.FC<{
       setActiveChat(initialAuctionId);
     }
   }, [initialAuctionId, setActiveChat]);
+
+  // Chat beim Verlassen der Seite schliessen, sonst werden neue Nachrichten im Hintergrund als gelesen markiert
+  useEffect(() => {
+    return () => {
+      setActiveChat(null);
+    };
+  }, [setActiveChat]);
 
   const effectiveUserId = userId || auth.currentUser?.uid || '';
 
@@ -113,16 +130,40 @@ export const MessagesView: React.FC<{
        (currentChatConv.auction as any).seller_id === effectiveUserId)
     : false;
 
-  const scrollToBottom = useCallback(() => {
-    setTimeout(() => {
-      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-    }, 100);
+  // Nur den Nachrichtenbereich scrollen, nie die ganze Seite
+  const scrollToBottom = useCallback((smooth = false) => {
+    requestAnimationFrame(() => {
+      const el = messagesContainerRef.current;
+      if (!el) return;
+      el.scrollTo({ top: el.scrollHeight, behavior: smooth ? 'smooth' : 'auto' });
+    });
   }, []);
 
-  // Scroll on new messages
+  // Scrollregeln bei neuen Nachrichten oder Chat-Wechsel
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, scrollToBottom]);
+    const isNewConversation = lastActiveChatRef.current !== activeChat;
+    if (isNewConversation) {
+      lastActiveChatRef.current = activeChat;
+      initialMessagesLoadedRef.current = false;
+    }
+
+    if (messages.length === 0) return;
+
+    if (!initialMessagesLoadedRef.current || isNewConversation) {
+      initialMessagesLoadedRef.current = true;
+      scrollToBottom(false);
+      return;
+    }
+
+    const el = messagesContainerRef.current;
+    const lastMsg = messages[messages.length - 1];
+    const isLastMe = lastMsg && (lastMsg.sender_id === effectiveUserId || (auth.currentUser && lastMsg.sender_id === auth.currentUser.uid));
+    const isNearBottom = el ? (el.scrollHeight - el.scrollTop - el.clientHeight < 120) : true;
+
+    if (isLastMe || isNearBottom) {
+      scrollToBottom(true);
+    }
+  }, [messages, activeChat, effectiveUserId, scrollToBottom]);
 
   const handleTyping = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     if (!isAuctionPaid) return;
@@ -149,7 +190,7 @@ export const MessagesView: React.FC<{
         await sendMessage(msg);
         setNewMessage('');
     }
-    scrollToBottom();
+    textareaRef.current?.focus({ preventScroll: true });
   };
 
   const handleUploadImage = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -166,7 +207,7 @@ export const MessagesView: React.FC<{
   const sendQuickReply = (text: string) => {
     if (!isAuctionPaid) return;
     sendMessage(text).then(() => {
-      scrollToBottom();
+      textareaRef.current?.focus({ preventScroll: true });
     });
   };
 
@@ -206,10 +247,10 @@ export const MessagesView: React.FC<{
         <ArrowLeft size={16} /> Nazaj na dražbe
       </button>
 
-      <div className="bg-white rounded-[2.5rem] flex flex-col md:flex-row shadow-2xl border border-slate-100 min-h-[750px] max-h-[85vh] h-[800px] overflow-hidden relative">
+      <div className="bg-white rounded-3xl md:rounded-[2.5rem] flex flex-col md:flex-row shadow-xl md:shadow-2xl border border-slate-100 h-[calc(100dvh-220px)] min-h-[480px] max-h-[85vh] overflow-hidden relative">
         {/* LEFT SIDEBAR (CONVERSATIONS) */}
-        <div className="w-full md:w-1/3 min-w-[300px] max-w-[400px] border-r border-slate-100 flex flex-col bg-slate-50/50">
-          <div className="p-6 border-b border-slate-100">
+        <div className={`w-full md:w-1/3 md:min-w-[300px] md:max-w-[400px] border-r border-slate-100 flex-col bg-slate-50/50 ${activeChat && currentChatConv ? "hidden md:flex" : "flex"}`}>
+          <div className="p-4 md:p-6 border-b border-slate-100">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-3">
                 <div className="bg-[#FEBA4F] p-2.5 rounded-2xl shadow-sm">
@@ -269,7 +310,8 @@ export const MessagesView: React.FC<{
                 const isActive = activeChat === c.auction.id || activeChat === c.id || activeChat === `conv_${c.auction.id}`;
                 const isOnline = onlineUsers.has(c.otherUserId);
                 const title = c.auction.title[language as keyof typeof c.auction.title] || c.auction.title.SLO;
-                const count = c.id ? (unreadCounts[c.id] || 0) : 0;
+                // Fuer geoeffneten Chat kein Badge anzeigen
+                const count = isActive ? 0 : (c.id ? (unreadCounts[c.id] || 0) : 0);
                 const convPaid = c.auction.payment_status === 'paid' || (c.auction as any).post_auction_status === 'paid';
 
                 return (
@@ -285,7 +327,7 @@ export const MessagesView: React.FC<{
                     <div className="relative flex-shrink-0">
                       <AvatarImage
                         src={c.user?.profile_picture_url || c.user?.profilePicture}
-                        className="w-12 h-12 rounded-2xl object-cover shadow-sm"
+                        className="w-10 h-10 md:w-12 md:h-12 rounded-2xl object-cover shadow-sm"
                         fallbackSize={20}
                       />
                       {isOnline && (
@@ -339,12 +381,20 @@ export const MessagesView: React.FC<{
         </div>
 
         {/* RIGHT SIDE (CHAT ROOM) */}
-        <div className="flex-1 flex flex-col bg-white overflow-hidden">
+        <div className={`flex-1 flex-col bg-white overflow-hidden min-h-0 ${activeChat && currentChatConv ? "flex" : "hidden md:flex"}`}>
           {activeChat && currentChatConv ? (
             <>
               {/* CHAT HEADER */}
-              <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between shadow-sm z-10 bg-white/95 backdrop-blur-md">
-                <div className="flex items-center gap-4 min-w-0">
+              <div className="px-3 md:px-6 py-3 md:py-4 border-b border-slate-100 flex items-center justify-between shadow-sm z-10 bg-white/95 backdrop-blur-md">
+                <div className="flex items-center gap-2 md:gap-4 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setActiveChat(null)}
+                    className="md:hidden shrink-0 w-10 h-10 flex items-center justify-center rounded-xl bg-slate-100 text-[#0A1128]"
+                    aria-label="Nazaj na pogovore"
+                  >
+                    <ArrowLeft size={18} />
+                  </button>
                   <div className="relative flex-shrink-0">
                     <AvatarImage
                       src={currentChatConv.user?.profile_picture_url || currentChatConv.user?.profilePicture}
@@ -397,14 +447,25 @@ export const MessagesView: React.FC<{
                         <Star size={13} className="text-[#FEBA4F] fill-[#FEBA4F]" /> Ocenjeno ({(currentChatConv.auction as any).review_rating || 5}★)
                       </button>
                     ) : onLeaveReview ? (
-                      <button
-                        onClick={() => onLeaveReview(currentChatConv.auction)}
-                        className="flex items-center gap-1.5 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md font-sans"
-                        title="Oddajte oceno za prodajalca"
-                      >
-                        <Star size={14} className="fill-current" />
-                        <span>Oceni prodajalca</span>
-                      </button>
+                      canLeaveReview(currentChatConv.auction) ? (
+                        <button
+                          onClick={() => onLeaveReview(currentChatConv.auction)}
+                          className="flex items-center gap-1.5 bg-[#FEBA4F] text-[#0A1128] hover:bg-[#0A1128] hover:text-[#FEBA4F] border-2 border-[#FEBA4F] px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider transition-all shadow-md font-sans"
+                          title="Oddajte oceno za prodajalca"
+                        >
+                          <Star size={14} className="fill-current" />
+                          <span>Oceni prodajalca</span>
+                        </button>
+                      ) : (
+                        <button
+                          disabled
+                          className="flex items-center gap-1.5 bg-slate-100 text-slate-400 border border-slate-200 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider cursor-not-allowed opacity-60 font-sans"
+                          title="Oceno lahko oddate po potrditvi prejema."
+                        >
+                          <Star size={14} className="text-slate-400" />
+                          <span>Oceni prodajalca</span>
+                        </button>
+                      )
                     ) : null
                   )}
 
@@ -462,7 +523,7 @@ export const MessagesView: React.FC<{
               )}
 
               {/* MESSAGES SCROLL AREA */}
-              <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-slate-50/40">
+              <div ref={messagesContainerRef} className="flex-1 overflow-y-auto p-3 md:p-6 space-y-4 bg-slate-50/40">
                 {loadingMessages ? (
                   <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                     <Loader2 className="animate-spin text-[#FEBA4F] mb-3" size={32} />
@@ -559,7 +620,6 @@ export const MessagesView: React.FC<{
                     );
                   })
                 )}
-                <div ref={messagesEndRef} />
               </div>
 
               {/* INPUT BAR (LOCKED VS UNLOCKED) */}
@@ -622,6 +682,7 @@ export const MessagesView: React.FC<{
                       </button>
 
                       <textarea
+                        ref={textareaRef}
                         value={newMessage}
                         onChange={handleTyping}
                         onKeyDown={(e) => {
@@ -635,14 +696,16 @@ export const MessagesView: React.FC<{
                         rows={1}
                       />
 
-                      <button
+                      <LoadingButton
                         onClick={handleSend}
-                        disabled={(!newMessage.trim() && pendingImages.length === 0) || isSending}
-                        className="flex-shrink-0 w-10 h-10 rounded-xl bg-[#0A1128] text-white flex items-center justify-center hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none shadow-sm"
+                        loading={isSending}
+                        loadingText="Pošiljam..."
+                        disabled={(!newMessage.trim() && pendingImages.length === 0)}
+                        className="flex-shrink-0 min-w-[48px] md:min-w-[100px] rounded-xl bg-[#0A1128] text-white flex items-center justify-center gap-2 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none shadow-sm"
                         title="Pošlji sporočilo"
                       >
-                        {isSending ? <Loader2 size={16} className="animate-spin" /> : <SendHorizontal size={18} />}
-                      </button>
+                        <SendHorizontal size={18} />
+                      </LoadingButton>
                     </div>
                   </div>
                 )}

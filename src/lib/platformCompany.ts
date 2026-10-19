@@ -4,5 +4,5 @@ export const PLATFORM_COMPANY = {
   vatId: 'SI57008060',
   registrationNumber: '9093494000',
   iban: '',
-  email: ''
+  email: 'info@drazbenik.si'
 };

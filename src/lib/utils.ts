@@ -1,13 +1,7 @@
 import { Region } from '../types';
 import { getAuthHeaders } from './authFetch';
 
-export const getIncrement = (amount: number) => {
-  if (amount < 10) return 1;
-  if (amount < 50) return 2;
-  if (amount < 200) return 5;
-  if (amount < 500) return 10;
-  return 20;
-};
+export { getIncrement } from './bidIncrement';
 
 export const formatSeconds = (totalSeconds: number) => {
   if (totalSeconds <= 0) return "00:00";
@@ -180,6 +174,15 @@ export const normalizeRegionName = (reg: any): Region => {
   }
 
   return Region.Osrednjeslovenska;
+};
+
+// Hilfsfunktion zum Abgleichen von Regionen
+export const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: string | null): boolean => {
+  if (!selected) return true;
+  if (!itemRegion) return false;
+  const normalizedItem = normalizeRegionName(itemRegion).toLowerCase();
+  const normalizedSelected = normalizeRegionName(selected).toLowerCase();
+  return normalizedItem === normalizedSelected || normalizedItem.includes(normalizedSelected) || normalizedSelected.includes(normalizedItem);
 };
 
 const finalizedAuctionIds = new Set<string>();

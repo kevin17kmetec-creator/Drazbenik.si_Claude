@@ -84,7 +84,7 @@ export const AuctionGrid: React.FC<AuctionGridProps> = ({
       )}
 
       {/* Standalone auctions grid */}
-      <div className="grid gap-8 justify-center" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}>
+      <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-8 justify-center">
         {standaloneAuctions.map(item => (
           <AuctionCard 
             key={item.id} 

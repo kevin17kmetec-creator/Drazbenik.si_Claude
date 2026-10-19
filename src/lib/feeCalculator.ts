@@ -6,6 +6,7 @@ const EU_COUNTRIES = new Set([
   'PL', 'PT', 'RO', 'SK', 'SI', 'ES', 'SE'
 ]);
 
+// Deutscher Kommentar: Ermittelt die effektive Stufe des Benutzers unter Beruecksichtigung der Gueltigkeit
 export function getEffectiveTier(userData: any, nowMs = Date.now()): Tier {
   if (!userData) return 'FREE';
   const raw = userData.subscription_tier || userData.subscription;
@@ -26,50 +27,50 @@ export function getEffectiveTier(userData: any, nowMs = Date.now()): Tier {
   return tier;
 }
 
+export const MIN_PLATFORM_FEE_CENTS = 100;
+
+// Deutscher Kommentar: Berechnet die Plattformgebuehr in Cents (Prozentsatz nach Stufen, mindestens 100 Cents)
 export function calculatePlatformFeeCents(itemPriceCents: number, tier: Tier): number {
   if (!itemPriceCents || itemPriceCents <= 0) return 0;
-  let b1Bp = 800; // 8%
-  let b2Bp = 500; // 5%
-  let b3Bp = 400; // 4%
+  let b1Bp = 1000; // 10%
+  let b2Bp = 600;  // 6%
+  let b3Bp = 450;  // 4.5%
 
   if (tier === 'PRO') {
-    b1Bp = 300; // 3%
-    b2Bp = 250; // 2.5%
-    b3Bp = 200; // 2%
-  } else if (tier === 'BASIC') {
-    b1Bp = 650; // 6.5%
+    b1Bp = 500; // 5%
     b2Bp = 400; // 4%
     b3Bp = 320; // 3.2%
+  } else if (tier === 'BASIC') {
+    b1Bp = 700; // 7%
+    b2Bp = 500; // 5%
+    b3Bp = 400; // 4%
   }
 
   let totalFeeCents = 0;
   let remaining = itemPriceCents;
 
-  // Bracket 1: up to 100,000 cents (1000 EUR)
+  // Deutscher Kommentar: Stufe 1 - bis 1.000 EUR (100.000 Cents)
   const inB1 = Math.min(remaining, 100000);
-  totalFeeCents += inB1 * b1Bp / 10000;
+  totalFeeCents += (inB1 * b1Bp) / 10000;
   remaining -= inB1;
 
-  // Bracket 2: next 400,000 cents (4000 EUR, up to 500,000 cents)
+  // Deutscher Kommentar: Stufe 2 - von 1.000 EUR bis 5.000 EUR (weitere 400.000 Cents)
   if (remaining > 0) {
     const inB2 = Math.min(remaining, 400000);
-    totalFeeCents += inB2 * b2Bp / 10000;
+    totalFeeCents += (inB2 * b2Bp) / 10000;
     remaining -= inB2;
   }
 
-  // Bracket 3: above 500,000 cents
+  // Deutscher Kommentar: Stufe 3 - ueber 5.000 EUR
   if (remaining > 0) {
-    totalFeeCents += remaining * b3Bp / 10000;
+    totalFeeCents += (remaining * b3Bp) / 10000;
   }
 
-  let feeCents = Math.round(totalFeeCents);
-  const minFeeCents = Math.round(itemPriceCents * 0.02);
-  if (feeCents < minFeeCents) {
-    feeCents = minFeeCents;
-  }
-  return feeCents;
+  // Deutscher Kommentar: Prozentualer Anteil gerundet, mindestens 1,00 EUR
+  return Math.max(Math.round(totalFeeCents), MIN_PLATFORM_FEE_CENTS);
 }
 
+// Deutscher Kommentar: Ermittelt den MwSt-Satz und die Umkehrung der Steuerschuldnerschaft
 export function getCommissionVat(countryCode: string, isBusiness: boolean, hasValidVatId: boolean): { vatRate: number; isReverseCharge: boolean } {
   const cc = (countryCode || 'SI').trim().toUpperCase();
   const isEu = EU_COUNTRIES.has(cc);
@@ -82,7 +83,6 @@ export function getCommissionVat(countryCode: string, isBusiness: boolean, hasVa
     return { vatRate: 22, isReverseCharge: false };
   }
 
-  // Other EU
   if (isBusiness && hasValidVatId) {
     return { vatRate: 0, isReverseCharge: true };
   }
@@ -90,18 +90,7 @@ export function getCommissionVat(countryCode: string, isBusiness: boolean, hasVa
   return { vatRate: 22, isReverseCharge: false };
 }
 
-export const STRIPE_CARD_BPS = 190;
-export const STRIPE_CARD_FIXED_CENTS = 25;
-export const CONNECT_PAYOUT_BPS = 25;
-export const CONNECT_PAYOUT_FIXED_CENTS = 10;
-export const COST_SAFETY_MARGIN_CENTS = 20;
-
-export function calculateMinimumFeeCents(itemPriceCents: number, vatRate: number): number {
-  const costs = itemPriceCents * (STRIPE_CARD_BPS + CONNECT_PAYOUT_BPS) / 10000 + STRIPE_CARD_FIXED_CENTS + CONNECT_PAYOUT_FIXED_CENTS + COST_SAFETY_MARGIN_CENTS;
-  const denominator = 1 - (STRIPE_CARD_BPS / 10000) * (1 + vatRate / 100);
-  return Math.ceil(costs / denominator);
-}
-
+// Deutscher Kommentar: Berechnet Gesamtsummen inklusive Gebuehren und MwSt
 export function calculateTotals(params: {
   itemPriceCents: number;
   tier: Tier;
@@ -110,19 +99,17 @@ export function calculateTotals(params: {
   hasValidVatId: boolean;
 }) {
   const { itemPriceCents, tier, countryCode, isBusiness, hasValidVatId } = params;
-  const bracketFee = calculatePlatformFeeCents(itemPriceCents, tier);
+  const feeCents = calculatePlatformFeeCents(itemPriceCents, tier);
   const { vatRate, isReverseCharge } = getCommissionVat(countryCode, isBusiness, hasValidVatId);
-  
-  const minFee = calculateMinimumFeeCents(itemPriceCents, vatRate);
-  const feeCents = Math.max(bracketFee, minFee);
   
   const vatCents = Math.round((feeCents * vatRate) / 100);
   const totalCents = itemPriceCents + feeCents + vatCents;
   const feePercent = itemPriceCents > 0 ? Math.round((feeCents / itemPriceCents) * 10000) / 100 : 0;
-  const feeIsMinimum = minFee > bracketFee;
+  const feeIsMinimum = feeCents <= MIN_PLATFORM_FEE_CENTS;
 
   return {
     itemPriceCents,
+    bracketFeeCents: feeCents,
     feeCents,
     vatRate,
     vatCents,

@@ -1,6 +1,6 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { getAuth, signOut } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
 import { getDatabase } from 'firebase/database';
 import { getStorage } from 'firebase/storage';
 
@@ -18,7 +18,18 @@ const app = !getApps().length ? initializeApp(firebaseConfig) : getApp();
 
 export const auth = getAuth(app);
 // Fixed default production database mapping
-export const db = getFirestore(app);
+// Deutscher Kommentar: Lokaler IndexedDB-Cache, damit Profil und Daten beim wiederholten Oeffnen sofort aus dem Browser kommen
+const createDb = () => {
+  try {
+    return initializeFirestore(app, {
+      localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() })
+    });
+  } catch (e) {
+    // Deutscher Kommentar: Bereits initialisiert (z.B. HMR) oder IndexedDB nicht verfuegbar
+    return getFirestore(app);
+  }
+};
+export const db = createDb();
 export const rtdb = getDatabase(app);
 export const storage = getStorage(app);
 

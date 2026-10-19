@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Star, Award, CheckCircle2, ShieldCheck, Image as ImageIcon } from 'lucide-react';
 import { AuctionItem } from '../../types';
 import { Portal } from '../ui/Portal';
+import { LoadingButton } from '../ui/Common';
 
 export interface ReviewModalProps {
   isOpen: boolean;
@@ -40,7 +41,9 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
   if (!isOpen || !auction) return null;
 
-  const currentActiveRating = hoverRating !== null ? hoverRating : rating;
+  // Deutscher Kommentar: Eine bereits abgegebene Bewertung ist endgueltig (nur Ansicht)
+  const isLocked = !!((auction as any).review_submitted || (auction as any).review_id);
+  const currentActiveRating = !isLocked && hoverRating !== null ? hoverRating : rating;
 
   const ratingLabels: Record<number, string> = {
     1: 'Zelo slabo',
@@ -65,6 +68,7 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isLocked) return;
     if (rating < 1 || rating > 5) return;
     setIsSubmitting(true);
     try {
@@ -79,16 +83,18 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
 
   return (
     <Portal>
-      <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-md z-[2000] flex items-center justify-center p-4 sm:p-6 animate-in fade-in duration-200">
+      {/* Deutscher Kommentar: Responsives Bewertung-Modal mit max-h und Touch-Zielen */}
+      <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-md z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
         <div 
-          className="bg-white w-full max-w-lg rounded-[3rem] p-6 sm:p-10 shadow-2xl relative border border-slate-100 overflow-hidden max-h-[90vh] flex flex-col"
+          className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative border border-slate-100 overflow-hidden max-h-[92dvh] flex flex-col"
           onClick={(e) => e.stopPropagation()}
         >
         {/* Close Button */}
         <button
           onClick={onClose}
           disabled={isSubmitting}
-          className="absolute top-6 right-6 p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-[#0A1128] transition-colors disabled:opacity-50"
+          className="absolute top-4 right-4 sm:top-6 sm:right-6 p-2.5 rounded-2xl bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-[#0A1128] transition-colors disabled:opacity-50 min-w-[40px] min-h-[40px] flex items-center justify-center"
+          aria-label="Zapri"
         >
           <X size={20} />
         </button>
@@ -99,10 +105,10 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             <Award size={32} className="text-[#FEBA4F]" />
           </div>
           <h2 className="text-2xl sm:text-3xl font-black text-[#0A1128] uppercase tracking-tighter">
-            Oceni prodajalca
+            {isLocked ? 'Vaša ocena' : 'Oceni prodajalca'}
           </h2>
           <p className="text-xs sm:text-sm font-bold text-slate-400 mt-1">
-            Vaša ocena in mnenje pomagata soustvarjati varno skupnost
+            {isLocked ? 'Ocena je bila oddana in je dokončna.' : 'Vaša ocena in mnenje pomagata soustvarjati varno skupnost'}
           </p>
         </div>
 
@@ -136,6 +142,12 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             </div>
           </div>
 
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-3.5 text-xs font-bold text-amber-900 leading-relaxed">
+            {isLocked
+              ? 'Oddane ocene ni mogoče spremeniti ali izbrisati.'
+              : 'Pozor: oddane ocene kasneje ni mogoče spremeniti ali izbrisati. Prodajalec bo o oceni obveščen po e-pošti in na spletni strani.'}
+          </div>
+
           {/* Interactive Star Rating */}
           <div className="bg-slate-50 rounded-3xl p-5 border border-slate-100 text-center">
             <label className="block text-xs font-black text-[#0A1128] uppercase tracking-widest mb-3">
@@ -146,8 +158,9 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
                 <button
                   key={star}
                   type="button"
-                  onClick={() => setRating(star)}
-                  onMouseEnter={() => setHoverRating(star)}
+                  onClick={() => { if (!isLocked) setRating(star); }}
+                  disabled={isLocked}
+                  onMouseEnter={() => { if (!isLocked) setHoverRating(star); }}
                   onMouseLeave={() => setHoverRating(null)}
                   className="p-1.5 transition-transform hover:scale-125 focus:outline-none cursor-pointer"
                 >
@@ -180,14 +193,17 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
+              readOnly={isLocked}
               placeholder="Opišite vašo izkušnjo s prodajalcem, hitrostjo pošiljanja ali prevzemom predmeta (po želji)..."
               rows={3}
               maxLength={1000}
               className="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl p-4 font-bold text-sm text-[#0A1128] placeholder-slate-400 focus:outline-none focus:border-[#FEBA4F] transition-colors resize-none leading-relaxed"
             />
-            <p className="text-[11px] text-slate-400 font-semibold mt-1">
-              Oceno lahko oddate z ali brez komentarja.
-            </p>
+            {!isLocked && (
+              <p className="text-[11px] text-slate-400 font-semibold mt-1">
+                Oceno lahko oddate z ali brez komentarja.
+              </p>
+            )}
           </div>
 
           {/* Action buttons */}
@@ -198,25 +214,19 @@ export const ReviewModal: React.FC<ReviewModalProps> = ({
               disabled={isSubmitting}
               className="flex-1 py-4 bg-slate-100 hover:bg-slate-200 text-[#0A1128] rounded-2xl font-black uppercase tracking-wider text-xs transition-colors"
             >
-              Prekliči
+              {isLocked ? 'Zapri' : 'Prekliči'}
             </button>
-            <button
-              type="submit"
-              disabled={isSubmitting || rating < 1}
-              className="flex-1 py-4 bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-white rounded-2xl font-black uppercase tracking-wider text-xs transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  <span>Shranjevanje...</span>
-                </>
-              ) : (
-                <>
-                  <Star size={16} className="fill-current" />
-                  <span>Oddaj oceno</span>
-                </>
-              )}
-            </button>
+            {!isLocked && (
+              <LoadingButton
+                type="submit"
+                loading={isSubmitting}
+                loadingText="Pošiljam..."
+                disabled={rating < 1}
+                className="flex-1 py-4 bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-white rounded-2xl font-black uppercase tracking-wider text-xs transition-all shadow-xl"
+              >
+                Oddaj končno oceno
+              </LoadingButton>
+            )}
           </div>
         </form>
       </div>

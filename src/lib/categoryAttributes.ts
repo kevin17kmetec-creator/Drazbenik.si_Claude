@@ -1,4 +1,5 @@
 import { Category } from '../types';
+import { PHONE_MODELS, ELECTRONICS_MODELS, COMPUTER_MODELS, CAR_MODELS, flattenModels } from './modelCatalog';
 
 export interface AttributeFieldDef {
   key: string;
@@ -6,7 +7,17 @@ export interface AttributeFieldDef {
   placeholder?: string;
   options: string[];
   dependsOn?: { key: string; value: string };
+  // Deutscher Kommentar: Optionen haengen vom gewaehlten Wert eines anderen Feldes ab (z. B. Marke -> Modelle)
+  optionsByParent?: { parentKey: string; map: Record<string, string[]> };
 }
+
+const modelField = (label: string, map: Record<string, string[]>, placeholder?: string): AttributeFieldDef => ({
+  key: 'model',
+  label,
+  placeholder,
+  options: flattenModels(map),
+  optionsByParent: { parentKey: 'brand', map }
+});
 
 export const CATEGORY_ATTRIBUTE_DEFINITIONS: Partial<Record<Category, AttributeFieldDef[]>> = {
   [Category.Oblacila]: [
@@ -124,7 +135,6 @@ export const CATEGORY_ATTRIBUTE_DEFINITIONS: Partial<Record<Category, AttributeF
       key: 'device_type',
       label: 'Vrsta naprave',
       options: [
-        'Pametni telefon',
         'Tablični računalnik',
         'Pametna ura / Zapestnica',
         'Brezžične slušalke',
@@ -162,27 +172,7 @@ export const CATEGORY_ATTRIBUTE_DEFINITIONS: Partial<Record<Category, AttributeF
         'Drugo'
       ]
     },
-    {
-      key: 'model',
-      label: 'Model telefona / naprave',
-      placeholder: 'Npr. iPhone 15 Pro, Galaxy S24 Ultra, Pixel 8...',
-      options: [
-        'iPhone 16 / 16 Pro / Pro Max',
-        'iPhone 15 / 15 Pro / Pro Max',
-        'iPhone 14 / 14 Pro',
-        'iPhone 13 / 13 Pro / Mini',
-        'iPhone 12 / 11 / SE',
-        'Samsung Galaxy S24 / Ultra',
-        'Samsung Galaxy S23 / S22',
-        'Samsung Galaxy Z Flip / Fold',
-        'Samsung Galaxy A serija',
-        'Xiaomi 14 / 13 / Redmi Note',
-        'Google Pixel 8 / 7 / 6',
-        'Sony PlayStation 5',
-        'Nintendo Switch / OLED',
-        'Drugo'
-      ]
-    },
+    modelField('Model naprave', ELECTRONICS_MODELS, 'Npr. PlayStation 5, Galaxy Watch 7, Alpha A7...'),
     {
       key: 'storage',
       label: 'Velikost pomnilnika (Shramba)',
@@ -200,6 +190,63 @@ export const CATEGORY_ATTRIBUTE_DEFINITIONS: Partial<Record<Category, AttributeF
     {
       key: 'charger_type',
       label: 'Vrsta / Velikost polnilnika in priključek',
+      options: [
+        'USB-C (Hitri polnilec)',
+        'USB-C (Brez adapterja, samo kabel)',
+        'Apple Lightning (Kabel + adapter)',
+        'Apple Lightning (Samo kabel)',
+        'Apple MagSafe / Brezžično polnjenje',
+        'Micro-USB',
+        'Originalni napajalnik priložen',
+        'Brez polnilnika',
+        'Drugo'
+      ]
+    }
+  ],
+
+  [Category.Telefoni]: [
+    {
+      key: 'phone_type',
+      label: 'Vrsta naprave',
+      options: [
+        'Pametni telefon',
+        'Zložljiv telefon',
+        'Klasični / tipkovni telefon',
+        'Telefon za starejše',
+        'Robustni (outdoor) telefon',
+        'Dodatki za telefone (ovitki, polnilci, zaščite)',
+        'Drugo'
+      ]
+    },
+    {
+      key: 'brand',
+      label: 'Znamka',
+      options: Object.keys(PHONE_MODELS)
+    },
+    modelField('Model telefona', PHONE_MODELS, 'Npr. iPhone 15 Pro, Galaxy S24 Ultra, Pixel 8...'),
+    {
+      key: 'storage',
+      label: 'Velikost pomnilnika (Shramba)',
+      options: ['16 GB', '32 GB', '64 GB', '128 GB', '256 GB', '512 GB', '1 TB', '2 TB', 'Drugo']
+    },
+    {
+      key: 'ram',
+      label: 'Delovni pomnilnik (RAM)',
+      options: ['2 GB', '3 GB', '4 GB', '6 GB', '8 GB', '12 GB', '16 GB', '24 GB', 'Drugo']
+    },
+    {
+      key: 'battery_health',
+      label: 'Zdravje baterije',
+      options: ['100 %', '95-99 %', '90-94 %', '85-89 %', '80-84 %', 'Pod 80 %', 'Nova baterija (zamenjana)', 'Neznano']
+    },
+    {
+      key: 'sim_lock',
+      label: 'SIM zaklenjenost',
+      options: ['Odklenjen (brez operaterja)', 'Zaklenjen na operaterja', 'Dual SIM / eSIM', 'Neznano']
+    },
+    {
+      key: 'charger_type',
+      label: 'Polnilnik in priključek',
       options: [
         'USB-C (Hitri polnilec)',
         'USB-C (Brez adapterja, samo kabel)',
@@ -247,6 +294,7 @@ export const CATEGORY_ATTRIBUTE_DEFINITIONS: Partial<Record<Category, AttributeF
         'Drugo'
       ]
     },
+    modelField('Model / serija', COMPUTER_MODELS, 'Npr. ThinkPad T14, MacBook Air M2...'),
     {
       key: 'processor',
       label: 'Procesor (CPU)',
@@ -356,6 +404,7 @@ export const CATEGORY_ATTRIBUTE_DEFINITIONS: Partial<Record<Category, AttributeF
         'Drugo'
       ]
     },
+    modelField('Model vozila', CAR_MODELS, 'Npr. Golf, Clio, Octavia...'),
     {
       key: 'fuel_type',
       label: 'Vrsta goriva / pogona',
@@ -1152,6 +1201,17 @@ export const GENERIC_ATTRIBUTE_DEFINITIONS: AttributeFieldDef[] = [
   }
 ];
 
+// Deutscher Kommentar: Liefert die aktuell gueltigen Optionen eines Feldes abhaengig von bereits gewaehlten Werten
+export const getFieldOptions = (def: AttributeFieldDef, specs: Record<string, string | string[] | undefined> = {}): string[] => {
+  if (!def.optionsByParent) return def.options;
+  const raw = specs[def.optionsByParent.parentKey];
+  const parents = Array.isArray(raw) ? raw : raw ? [raw] : [];
+  // Eigene (frei eingegebene) Marke ohne Katalog -> nur freie Modelleingabe
+  const lists = parents.map((pv) => def.optionsByParent!.map[pv] || ['Drugo']);
+  if (lists.length === 0) return [];
+  return Array.from(new Set(lists.flat()));
+};
+
 export const getAttributeDefinitionsForCategory = (category?: Category | string): AttributeFieldDef[] => {
   if (!category) return GENERIC_ATTRIBUTE_DEFINITIONS;
   const match = Object.entries(CATEGORY_ATTRIBUTE_DEFINITIONS).find(([cat]) => cat === category);
@@ -1167,6 +1227,9 @@ export const formatAttributeLabel = (key: string): string => {
     material: 'Material',
     device_type: 'Vrsta naprave',
     model: 'Model',
+    phone_type: 'Vrsta naprave',
+    battery_health: 'Zdravje baterije',
+    sim_lock: 'SIM zaklenjenost',
     storage: 'Shramba / Pomnilnik',
     charger_type: 'Polnilnik in priključek',
     computer_type: 'Vrsta računalnika',

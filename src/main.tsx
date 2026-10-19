@@ -4,6 +4,31 @@ import ReactDOM from 'react-dom/client';
 import App from './App.tsx';
 import { ConfirmEmailPage } from './components/auth/ConfirmEmailPage';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
+import { installTermsInterceptor } from './lib/termsInterceptor';
+
+// Deutscher Kommentar: Synchrones Erfassen der QR-Abholparameter vor jeder Routen-Bereinigung
+try {
+  if (typeof window !== 'undefined' && window.location && window.location.search) {
+    const urlParams = new URLSearchParams(window.location.search);
+    const prevzemParam = urlParams.get('prevzem');
+    const tokenParam = urlParams.get('t');
+    if (prevzemParam && tokenParam) {
+      sessionStorage.setItem('pending_prevzem_qr', JSON.stringify({
+        auctionId: prevzemParam,
+        token: tokenParam
+      }));
+      urlParams.delete('prevzem');
+      urlParams.delete('t');
+      const cleanSearch = urlParams.toString() ? `?${urlParams.toString()}` : '';
+      const cleanUrl = window.location.pathname + cleanSearch + window.location.hash;
+      window.history.replaceState(null, '', cleanUrl);
+    }
+  }
+} catch (e) {
+  // Ignorieren bei blockiertem Speicherzugriff
+}
+
+installTermsInterceptor();
 
 // =========================================================================
 // GLOBAL ERROR HANDLERS & SENTRY NOISE REDUCTION

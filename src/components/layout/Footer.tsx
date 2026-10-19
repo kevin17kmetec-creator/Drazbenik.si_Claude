@@ -1,14 +1,13 @@
 import React, { useState } from 'react';
+import { Portal } from '../ui/Portal';
 import { 
     Mail, 
-    Phone, 
     MapPin, 
     CreditCard as CardIcon, 
     ShieldCheck, 
     Lock, 
     Zap, 
     CheckCircle2, 
-    FlaskConical,
     HelpCircle,
     FileText,
     ExternalLink,
@@ -18,19 +17,16 @@ import {
     Sparkles
 } from 'lucide-react';
 import { ViewState } from '../../types';
-import { Portal } from '../ui/Portal';
 
 interface FooterProps {
     t: any;
-    onLegal: (type: 'terms' | 'privacy' | 'how') => void;
-    onTestSandbox?: () => void;
+    onLegal: (type: 'terms' | 'privacy' | 'how' | 'cookies' | 'imprint') => void;
     onNavigate?: (view: ViewState) => void;
 }
 
 export const Footer: React.FC<FooterProps> = ({ 
     t, 
     onLegal, 
-    onTestSandbox,
     onNavigate 
 }) => {
     const [showIllegalContentModal, setShowIllegalContentModal] = useState(false);
@@ -48,7 +44,7 @@ export const Footer: React.FC<FooterProps> = ({
                             <img 
                                 src="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png" 
                                 alt="Drazbenik.si" 
-                                className="h-35 md:h-42 object-contain group-hover:scale-105 transition-transform" 
+                                className="h-20 md:h-32 object-contain group-hover:scale-105 transition-transform" 
                             />
                         </div>
                         <p className="text-slate-400 text-xs md:text-sm font-semibold leading-relaxed max-w-sm">
@@ -184,29 +180,35 @@ export const Footer: React.FC<FooterProps> = ({
                             </li>
                             <li>
                                 <button 
+                                    onClick={() => onLegal('cookies')} 
+                                    className="hover:text-white transition-colors text-left"
+                                >
+                                    Politika piškotkov
+                                </button>
+                            </li>
+                            <li>
+                                <button 
+                                    onClick={() => onLegal('imprint')} 
+                                    className="hover:text-white transition-colors text-left"
+                                >
+                                    Podatki o ponudniku
+                                </button>
+                            </li>
+                            <li>
+                                <button 
                                     onClick={() => setShowIllegalContentModal(true)} 
                                     className="hover:text-white transition-colors text-left"
                                 >
                                     Obvestila o nezakonitih vsebinah
                                 </button>
                             </li>
-                            {onTestSandbox && (
-                                <li>
-                                    <button 
-                                        onClick={onTestSandbox} 
-                                        className="text-[#FEBA4F] hover:text-white transition-colors flex items-center gap-1.5 font-bold pt-0.5"
-                                    >
-                                        <FlaskConical size={14} /> Testni kotiček (Sandbox)
-                                    </button>
-                                </li>
-                            )}
                         </ul>
                     </div>
 
                     {/* Contact & Support */}
                     <div>
                         <h4 className="font-black uppercase tracking-widest text-xs mb-4 text-[#FEBA4F] flex items-center gap-2">
-                            <Phone size={14} /> Kontakt
+                            <Mail size={14} /> Kontakt
                         </h4>
                         <ul className="space-y-2.5 text-xs md:text-sm font-semibold text-slate-400">
                             <li>
@@ -218,21 +220,12 @@ export const Footer: React.FC<FooterProps> = ({
                                     <span>info@drazbenik.si</span>
                                 </a>
                             </li>
-                            <li>
-                                <a 
-                                    href="tel:+38612345678" 
-                                    className="flex items-center gap-2 hover:text-white transition-colors"
-                                >
-                                    <Phone size={14} className="text-[#FEBA4F] shrink-0" />
-                                    <span>+386 1 234 5678</span>
-                                </a>
-                            </li>
                             <li className="flex items-start gap-2">
                                 <MapPin size={14} className="text-[#FEBA4F] shrink-0 mt-0.5" />
-                                <span>Slovenska cesta 1, Ljubljana</span>
+                                <span>Dizain d.o.o., Karantanska ulica 28, 2000 Maribor</span>
                             </li>
                             <li className="text-[11px] text-slate-500 font-medium pt-0.5">
-                                Podpora: Pon – Pet 08:00 – 18:00
+                                Podpora po e-pošti
                             </li>
                         </ul>
                     </div>
@@ -268,7 +261,7 @@ export const Footer: React.FC<FooterProps> = ({
                                 <CardIcon size={14} />
                             </div>
                             <div className="min-w-0">
-                                <div className="text-[11px] font-bold uppercase tracking-wider text-white truncate">Stripe & Kartice</div>
+                                <div className="text-[11px] font-bold uppercase tracking-wider text-white truncate">Plačila & Kartice</div>
                                 <div className="text-[10px] font-medium text-slate-400 truncate">Visa, Mastercard, Maestro</div>
                             </div>
                         </div>
@@ -309,23 +302,20 @@ export const Footer: React.FC<FooterProps> = ({
                     </div>
                 </div>
             </div>
-                    {showIllegalContentModal && (
-                <Portal>
-                    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-4" onClick={() => setShowIllegalContentModal(false)}>
-                        <div className="bg-white text-[#0A1128] rounded-[2rem] p-8 max-w-lg w-full shadow-2xl" onClick={(e) => e.stopPropagation()}>
-                            <h3 className="font-black uppercase tracking-tight text-lg mb-4">Obvestila o nezakonitih vsebinah</h3>
-                            <p className="text-sm font-semibold leading-relaxed text-slate-600">
-                                Nezakonito vsebino ali sumljiv oglas lahko prijavite na naslov [VSTAVITE E-NASLOV PODPORE]. Prijavo obravnavamo čim prej in vas obvestimo o odločitvi.
-                            </p>
-                            <button
-                                onClick={() => setShowIllegalContentModal(false)}
-                                className="mt-6 w-full bg-[#0A1128] text-white py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors"
-                            >
-                                Zapri
-                            </button>
-                        </div>
-                    </div>
-                </Portal>
+
+            {showIllegalContentModal && (
+              <Portal>
+                {/* Deutscher Kommentar: Responsives Modal fuer Meldung unzulaessiger Inhalte */}
+                <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/60 p-3 sm:p-4" onClick={() => setShowIllegalContentModal(false)}>
+                  <div className="bg-white text-[#0A1128] rounded-3xl sm:rounded-[2rem] p-5 sm:p-8 max-w-lg w-full shadow-2xl max-h-[92dvh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+                    <h3 className="font-black uppercase tracking-tight text-base sm:text-lg mb-3 sm:mb-4">Obvestila o nezakonitih vsebinah</h3>
+                    <p className="text-xs sm:text-sm font-semibold leading-relaxed text-slate-600">
+                      Nezakonito vsebino ali sumljiv oglas lahko prijavite na naslov info@drazbenik.si. Prijavo obravnavamo čim prej in vas obvestimo o odločitvi.
+                    </p>
+                    <button onClick={() => setShowIllegalContentModal(false)} className="mt-5 sm:mt-6 w-full bg-[#0A1128] text-white py-3.5 sm:py-3 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs min-h-[44px] flex items-center justify-center">Zapri</button>
+                  </div>
+                </div>
+              </Portal>
             )}
         </footer>
     );

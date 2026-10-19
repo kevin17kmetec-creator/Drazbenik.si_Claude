@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { ShieldCheck, ArrowLeft, CheckCircle2 } from 'lucide-react';
+import { LoadingButton } from '../ui/Common';
 import { toast } from 'sonner';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { TERMS_VERSION } from '../../lib/termsVersion';
@@ -70,20 +71,14 @@ export const TermsUpdateView: React.FC<{
             </p>
           </div>
 
-          <button 
+          <LoadingButton 
             onClick={handleAccept} 
-            disabled={loading}
-            className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3"
+            loading={loading}
+            loadingText="Obdelujem..."
+            className="w-full bg-[#0A1128] text-white py-6 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
           >
-            {loading ? (
-              <>
-                <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                Obdelujem...
-              </>
-            ) : (
-              'Sprejemam pogoje in želim nadaljevati'
-            )}
-          </button>
+            Sprejemam pogoje in želim nadaljevati
+          </LoadingButton>
         </div>
       </div>
     </div>

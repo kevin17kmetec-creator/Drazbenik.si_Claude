@@ -3,6 +3,7 @@ import { getAuthHeaders } from './authFetch';
 
 export interface FeePreviewData {
   itemPriceCents: number;
+  bracketFeeCents: number;
   feeCents: number;
   feePercent: number;
   vatRate: number;

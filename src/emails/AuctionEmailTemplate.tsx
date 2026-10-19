@@ -16,7 +16,7 @@ import {
   Preview,
 } from '@react-email/components';
 
-export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller';
+export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller' | 'shipping_cancelled_buyer' | 'shipping_cancelled_seller' | 'review_received_seller' | 'seller_decision_needed' | 'second_chance_offer' | 'second_chance_failed_seller' | 'shipping_dispute_seller' | 'shipping_reminder_seller';
 
 export interface AuctionEmailProps {
   type: EmailType;
@@ -143,7 +143,32 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       ctaText = 'Status naročila';
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Prejeti znesek:';
-      highlightNote = `Rok za odpremo: ${paymentDeadline || '7 dni'}.`;
+      highlightNote = `Rok za odpremo: ${paymentDeadline || '7 dni'}.${Number(currentPrice) > 20 ? ' Ker je znesek nad 20 €, pošljite predmet s sledenjem (paket ali priporočena pošiljka), še preden ga odnesete na pošto, in shranite potrdilo o oddaji. Sledilno številko vpišete pri označbi pošiljke.' : ' Pošiljka brez sledenja je dovoljena samo do 20 €; tveganje izgube nosite sami. Shranite potrdilo o oddaji.'}`;
+      break;
+
+    case 'shipping_reminder_seller':
+      previewText = `Opomnik: predmet "${auctionTitle}" še ni poslan.`;
+      badgeText = 'OPOMNIK ZA ODPREMO';
+      badgeBg = '#F59E0B';
+      badgeColor = '#FFFFFF';
+      headline = 'Predmet še ni označen kot poslan';
+      subheadline = `Kupec je za predmet "${auctionTitle}" že plačal. Pošljite ga in v razdelku Prodane dražbe označite odpremo. ${paymentDeadline ? `Rok za odpremo: ${paymentDeadline}.` : ''} Če predmet ne bo poslan v roku, se naročilo prekliče, kupcu se vrne celoten znesek, prodajalec pa prejme opomin.`;
+      ctaText = 'Označi kot poslano';
+      ctaUrl = auctionUrl || 'https://drazbe.eu';
+      priceLabel = 'Znesek:';
+      highlightNote = `${Number(currentPrice) > 20 ? 'Znesek je nad 20 €: pošljite s sledenjem in vnesite sledilno številko. ' : ''}Opomnik prejemate vsak dan, dokler odprema ni označena.`;
+      break;
+
+    case 'shipping_dispute_seller':
+      previewText = `Spor glede naročila "${auctionTitle}".`;
+      badgeText = 'SPOR GLEDE NAROČILA';
+      badgeBg = '#EF4444';
+      badgeColor = '#FFFFFF';
+      headline = 'Kupec je prijavil, da pošiljka ni prispela';
+      subheadline = `Kupec je za predmet "${auctionTitle}" prijavil, da pošiljka ni prispela. Izplačilo je zadržano. V 48 urah v razdelku Prodane dražbe oddajte dokaz o oddaji pošiljke (potrdilo o oddaji, sledenje). Če dokaza ne oddate, sledi vračilo kupcu (pri pošiljki s sledenjem tudi opomin). Če dokaz oddate, o sporu odloči upravljavec.`;
+      ctaText = 'Odpri naročilo';
+      priceLabel = 'Predmet:';
+      highlightNote = 'Hranite potrdilo o oddaji pošiljke.';
       break;
 
     case 'item_shipped_buyer':
@@ -152,7 +177,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       badgeBg = '#3B82F6'; // Blue
       badgeColor = '#FFFFFF';
       headline = 'Vaš predmet je na poti!';
-      subheadline = `Prodajalec je označil, da je predmet "${auctionTitle}" oddan na pošto. ${carrierName ? `Prevoznik: ${carrierName}.` : ''} ${trackingNumber ? `Sledilna številka: ${trackingNumber}.` : ''}`;
+      subheadline = `Prodajalec je označil, da je predmet "${auctionTitle}" oddan na pošto. ${carrierName ? `Prevoznik: ${carrierName}.` : ''} ${trackingNumber ? `Sledilna številka: ${trackingNumber}.` : 'Pošiljka je poslana brez sledenja.'}`;
       ctaText = 'Status naročila';
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Artikel:';
@@ -178,7 +203,8 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       badgeBg = '#10B981';
       badgeColor = '#FFFFFF';
       headline = 'Kupec je potrdil prejem!';
-      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Izplačilo na vaš Stripe račun bo sproženo samodejno čez 2 dni, če ne bo vloženih pritožb.`;
+      // Freigabe des Guthabens fuer den Verkaeufer
+      subheadline = `Kupec je potrdil prejem predmeta "${auctionTitle}". Sredstva so sproščena in na voljo za izplačilo v nastavitvah (Plačila in izplačila).`;
       ctaText = 'Status naročila';
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Znesek izplačila:';
@@ -196,6 +222,79 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       ctaUrl = paymentUrl || `${auctionUrl}?tab=winnings`;
       priceLabel = 'Kupljen artikel:';
       highlightNote = 'Oddaja ocene vzame manj kot minuto (1–5 zvezdic ter po želji kratek komentar).';
+      break;
+
+    case 'shipping_cancelled_buyer':
+      previewText = `Naročilo za "${auctionTitle}" je bilo preklicano.`;
+      badgeText = 'NAROČILO PREKLICANO';
+      badgeBg = '#EF4444';
+      badgeColor = '#FFFFFF';
+      headline = 'Naročilo preklicano';
+      subheadline = `Naročilo je bilo preklicano, ker prodajalec predmeta ni poslal v roku. Znesek vam vrnemo v celoti, vključno s provizijo.`;
+      ctaText = 'Ogled drazbe';
+      priceLabel = 'Vrnjeni znesek:';
+      highlightNote = 'Sredstva bodo vrnjena na vaš plačilni račun.';
+      break;
+
+    case 'review_received_seller':
+      previewText = `Prejeli ste novo oceno za "${auctionTitle}".`;
+      badgeText = 'NOVA OCENA';
+      badgeBg = '#FEBA4F';
+      badgeColor = '#0A1128';
+      headline = 'Prejeli ste novo oceno';
+      subheadline = `Kupec je oddal oceno za predmet "${auctionTitle}". Ocena je dokončna in je kupec po oddaji ne more več spremeniti. Če menite, da ocena krši pravila (npr. žaljivost, neresnične trditve), jo lahko prijavite na svojem profilu.`;
+      ctaText = 'Ogled ocen';
+      priceLabel = 'Predmet:';
+      highlightNote = 'Prijava ocene: na profilu odprite zavihek Ocene in izberite "Prijavi oceno".';
+      break;
+
+    case 'seller_decision_needed':
+      previewText = `Zmagovalec dražbe "${auctionTitle}" ni plačal. Čaka na vašo odločitev.`;
+      badgeText = 'ČAKA NA VAŠO ODLOČITEV';
+      badgeBg = '#EF4444';
+      badgeColor = '#FFFFFF';
+      headline = 'Zmagovalec ni plačal';
+      subheadline = `Zmagovalec dražbe "${auctionTitle}" ni plačal v roku in je prejel opomin. Dražba čaka na vašo odločitev: predmet lahko ponudite 2. najvišjemu ponudniku (po njegovi ponudbi), dražbo izbrišete ali jo ponovno objavite. Dokler ne odločite, se z dražbo ne zgodi nič.`;
+      ctaText = 'Odločite o dražbi';
+      priceLabel = 'Končna cena:';
+      highlightNote = 'Odločitev sprejmete v razdelku "Neprodane dražbe".';
+      break;
+
+    case 'second_chance_offer':
+      previewText = `Prodajalec vam ponuja predmet "${auctionTitle}".`;
+      badgeText = 'PONUDBA ZA VAS';
+      badgeBg = '#10B981';
+      badgeColor = '#FFFFFF';
+      headline = 'Predmet vam je ponujen';
+      subheadline = `Prvi zmagovalec dražbe "${auctionTitle}" ni plačal, zato vam prodajalec ponuja predmet po vaši najvišji ponudbi. Ponudbe niste dolžni sprejeti. Ponudbo sprejmite ali zavrnite v 24 urah. Ko jo sprejmete, imate za plačilo še 24 ur; če po sprejemu ne plačate, prejmete opomin.`;
+      ctaText = 'Ogled ponudbe in plačilo';
+      ctaUrl = paymentUrl || auctionUrl;
+      priceLabel = 'Vaša cena:';
+      highlightNote = 'Ponudbo lahko tudi zavrnete, brez posledic.';
+      break;
+
+    case 'second_chance_failed_seller':
+      previewText = `Dražba "${auctionTitle}" je bila premaknjena med neprodane.`;
+      badgeText = 'DRAŽBA NEPRODANA';
+      badgeBg = '#64748B';
+      badgeColor = '#FFFFFF';
+      headline = 'Dražba je premaknjena med neprodane';
+      subheadline = `Tudi 2. ponudnik dražbe "${auctionTitle}" ni plačal oz. ponudbe ni sprejel. Dražba je zdaj med neprodanimi, kjer jo lahko ponovno objavite ali izbrišete.`;
+      ctaText = 'Neprodane dražbe';
+      priceLabel = 'Predmet:';
+      highlightNote = 'Predmet lahko ponovno objavite z nekaj kliki.';
+      break;
+
+    case 'shipping_cancelled_seller':
+      previewText = `Vaša prodaja za "${auctionTitle}" je bila preklicana.`;
+      badgeText = 'PRODAJA PREKLICANA';
+      badgeBg = '#EF4444';
+      badgeColor = '#FFFFFF';
+      headline = 'Prodaja preklicana';
+      subheadline = `Naročilo za "${auctionTitle}" je bilo preklicano, ker predmeta niste odposlali v predvidenem roku. Zaradi kršitve pogojev uporabe vam je bil dodeljen opomin (strike).`;
+      ctaText = 'Pravila poslovanja';
+      priceLabel = 'Artikel:';
+      highlightNote = 'Prosimo, da v prihodnje predmete odpošljete pravočasno.';
       break;
   }
 
@@ -271,7 +370,7 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
                   )}
                   {paymentDeadline && (
                     <Column align="right">
-                      <Text style={priceLabelStyle}>Rok za plačilo:</Text>
+                      <Text style={priceLabelStyle}>{type === 'payment_received_seller' ? 'Rok za predajo:' : 'Rok za plačilo:'}</Text>
                       <Text style={deadlineValueStyle}>{paymentDeadline}</Text>
                     </Column>
                   )}

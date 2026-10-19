@@ -1,17 +1,24 @@
-import React, { useState } from 'react';
-import { Category } from '../../types';
-import { getAttributeDefinitionsForCategory } from '../../lib/categoryAttributes';
+import React, { useState, useMemo } from 'react';
+import { Category, Region, AuctionItem } from '../../types';
+import { getAttributeDefinitionsForCategory, getFieldOptions } from '../../lib/categoryAttributes';
+import { getCategoryTranslation } from '../../lib/translations';
+import { matchesSelectedRegion } from '../../lib/utils';
 import { Filter, X, Truck, MapPin, Check, ChevronDown, Sparkles, Search } from 'lucide-react';
 import { Portal } from '../ui/Portal';
 
+// Filterzustand mit Arrays für Mehrfachauswahl
 export interface FilterState {
-  delivery_option?: string;
-  condition?: string;
-  specifications: Record<string, string>;
+  delivery_options: string[];
+  conditions: string[];
+  specifications: Record<string, string[]>;
 }
 
 interface CategoryFilterBarProps {
   category: Category | null;
+  selectedCategories?: Category[];
+  selectedRegions?: Region[];
+  onCategoriesChange?: (cats: Category[]) => void;
+  onRegionsChange?: (regs: Region[]) => void;
   filters: FilterState;
   onFilterChange: (newFilters: FilterState) => void;
   onResetFilters: () => void;
@@ -19,21 +26,29 @@ interface CategoryFilterBarProps {
   showDesktopPanel?: boolean;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
+  auctions?: AuctionItem[];
 }
 
 export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
   category,
+  selectedCategories = [],
+  selectedRegions = [],
+  onCategoriesChange,
+  onRegionsChange,
   filters,
   onFilterChange,
   onResetFilters,
   totalResultsCount,
   showDesktopPanel = true,
   isMobileOpen = false,
-  onCloseMobile
+  onCloseMobile,
+  auctions = []
 }) => {
-  const definitions = category ? getAttributeDefinitionsForCategory(category) : [];
+  // Spezifikationen nur anzeigen, wenn genau eine Kategorie ausgewählt ist
+  const activeSingleCategory = selectedCategories.length === 1 ? selectedCategories[0] : (category ?? null);
+  const definitions = activeSingleCategory ? getAttributeDefinitionsForCategory(activeSingleCategory) : [];
 
-  // Collapsible section state: open by default unless explicitly closed
+  // Einklappbare Abschnitte für den Filter-Panel
   const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   const [searchQueries, setSearchQueries] = useState<Record<string, string>>({});
 
@@ -46,26 +61,84 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
 
   const isSectionOpen = (id: string) => !collapsedSections[id];
 
-  const handleDeliveryChange = (val: string) => {
+  // Berechnung der Anzahl der Auktionsartikel pro Kategorie/Region
+  const categoryCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!auctions) return counts;
+    auctions.forEach(a => {
+      if (a.status === 'active') {
+        counts[a.category] = (counts[a.category] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [auctions]);
+
+  const regionCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    if (!auctions) return counts;
+    const allRegions = Object.values(Region);
+    allRegions.forEach(r => {
+      counts[r] = auctions.filter(a => a.status === 'active' && matchesSelectedRegion(a.region, r)).length;
+    });
+    return counts;
+  }, [auctions]);
+
+  // Handler für Kategorie-Checkboxen
+  const handleCategoryToggle = (cat: Category) => {
+    if (!onCategoriesChange) return;
+    if (selectedCategories.includes(cat)) {
+      onCategoriesChange(selectedCategories.filter(c => c !== cat));
+    } else {
+      onCategoriesChange([...selectedCategories, cat]);
+    }
+  };
+
+  // Handler für Regionen-Checkboxen
+  const handleRegionToggle = (reg: Region) => {
+    if (!onRegionsChange) return;
+    if (selectedRegions.includes(reg)) {
+      onRegionsChange(selectedRegions.filter(r => r !== reg));
+    } else {
+      onRegionsChange([...selectedRegions, reg]);
+    }
+  };
+
+  // Handler für Lieferoptionen-Mehrfachauswahl
+  const handleDeliveryToggle = (val: string) => {
+    const current = filters.delivery_options || [];
+    const updated = current.includes(val)
+      ? current.filter(v => v !== val)
+      : [...current, val];
     onFilterChange({
       ...filters,
-      delivery_option: filters.delivery_option === val ? undefined : val
+      delivery_options: updated
     });
   };
 
-  const handleConditionChange = (val: string) => {
+  // Handler für Zustands-Mehrfachauswahl
+  const handleConditionToggle = (val: string) => {
+    const current = filters.conditions || [];
+    const updated = current.includes(val)
+      ? current.filter(v => v !== val)
+      : [...current, val];
     onFilterChange({
       ...filters,
-      condition: filters.condition === val ? undefined : val
+      conditions: updated
     });
   };
 
-  const handleSpecChange = (key: string, val: string) => {
+  // Handler für Spezifikations-Mehrfachauswahl
+  const handleSpecToggle = (key: string, val: string) => {
+    const current = filters.specifications[key] || [];
+    const updated = current.includes(val)
+      ? current.filter(v => v !== val)
+      : [...current, val];
+    
     const newSpecs = { ...filters.specifications };
-    if (newSpecs[key] === val || !val) {
+    if (updated.length === 0) {
       delete newSpecs[key];
     } else {
-      newSpecs[key] = val;
+      newSpecs[key] = updated;
     }
     onFilterChange({
       ...filters,
@@ -73,10 +146,16 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
     });
   };
 
+  // Gesamtzahl aller aktiven Filter
   const activeFilterCount = 
-    (filters.delivery_option ? 1 : 0) +
-    (filters.condition ? 1 : 0) +
-    Object.keys(filters.specifications).filter(k => !!filters.specifications[k]).length;
+    selectedCategories.length +
+    selectedRegions.length +
+    (filters.delivery_options?.length || 0) +
+    (filters.conditions?.length || 0) +
+    Object.values(filters.specifications || {}).reduce((acc, vals) => acc + (vals?.length || 0), 0);
+
+  const allCategories = Object.values(Category);
+  const allRegions = Object.values(Region);
 
   const renderFilterSections = () => (
     <div className="space-y-4">
@@ -87,7 +166,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
             <Filter size={14} />
           </div>
           <span className="text-xs font-black uppercase tracking-wider text-[#0A1128]">
-            Filtri {category ? `• ${category}` : ''}
+            Filtri {selectedCategories.length > 0 ? `(${selectedCategories.length})` : ''}
           </span>
         </div>
         {activeFilterCount > 0 && (
@@ -97,12 +176,106 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
             className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-red-50 text-red-600 hover:bg-red-100 font-bold text-[11px] transition-all"
           >
             <X size={12} />
-            <span>Počisti vse filtre ({activeFilterCount})</span>
+            <span>Počisti vse ({activeFilterCount})</span>
           </button>
         )}
       </div>
 
-      {/* 1. Generic Delivery Options */}
+      {/* 1. Kategorije Checkbox-Gruppe */}
+      <div className="border-b border-slate-100 pb-3">
+        <button
+          type="button"
+          onClick={() => toggleSection('categories')}
+          className="flex items-center justify-between w-full py-2 text-left font-black text-xs uppercase tracking-wider text-[#0A1128] hover:text-[#FEBA4F] transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span>Kategorije</span>
+            {selectedCategories.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-[#FEBA4F] text-[#0A1128] text-[10px] font-bold">
+                {selectedCategories.length}
+              </span>
+            )}
+          </div>
+          <ChevronDown
+            size={16}
+            className={`text-slate-400 transition-transform duration-200 ${
+              isSectionOpen('categories') ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+        {isSectionOpen('categories') && (
+          <div className="pt-2 space-y-1.5 max-h-60 overflow-y-auto pr-1 animate-in fade-in duration-150">
+            {allCategories.map((cat) => {
+              const isChecked = selectedCategories.includes(cat);
+              const count = categoryCounts[cat] ?? 0;
+              return (
+                <label
+                  key={cat}
+                  className="flex items-center gap-2.5 text-xs font-bold text-slate-700 hover:text-[#0A1128] cursor-pointer py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleCategoryToggle(cat)}
+                    className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
+                  />
+                  <span className="flex-1 truncate">{getCategoryTranslation(cat, ((k: string) => k) as any)}</span>
+                  <span className="text-[11px] text-slate-400 font-semibold">({count})</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 2. Regije Checkbox-Gruppe */}
+      <div className="border-b border-slate-100 pb-3">
+        <button
+          type="button"
+          onClick={() => toggleSection('regions')}
+          className="flex items-center justify-between w-full py-2 text-left font-black text-xs uppercase tracking-wider text-[#0A1128] hover:text-[#FEBA4F] transition-colors"
+        >
+          <div className="flex items-center gap-2">
+            <span>Regije</span>
+            {selectedRegions.length > 0 && (
+              <span className="px-1.5 py-0.5 rounded-full bg-[#FEBA4F] text-[#0A1128] text-[10px] font-bold">
+                {selectedRegions.length}
+              </span>
+            )}
+          </div>
+          <ChevronDown
+            size={16}
+            className={`text-slate-400 transition-transform duration-200 ${
+              isSectionOpen('regions') ? 'rotate-180' : ''
+            }`}
+          />
+        </button>
+        {isSectionOpen('regions') && (
+          <div className="pt-2 space-y-1.5 max-h-60 overflow-y-auto pr-1 animate-in fade-in duration-150">
+            {allRegions.map((reg) => {
+              const isChecked = selectedRegions.includes(reg);
+              const count = regionCounts[reg] ?? 0;
+              return (
+                <label
+                  key={reg}
+                  className="flex items-center gap-2.5 text-xs font-bold text-slate-700 hover:text-[#0A1128] cursor-pointer py-1 px-1 rounded-lg hover:bg-slate-50 transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleRegionToggle(reg)}
+                    className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
+                  />
+                  <span className="flex-1 truncate">{reg}</span>
+                  <span className="text-[11px] text-slate-400 font-semibold">({count})</span>
+                </label>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
+      {/* 3. Delivery Options */}
       <div className="border-b border-slate-100 pb-3">
         <button
           type="button"
@@ -111,7 +284,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
         >
           <div className="flex items-center gap-2">
             <span>Dostava</span>
-            {filters.delivery_option && (
+            {(filters.delivery_options?.length || 0) > 0 && (
               <span className="w-2 h-2 rounded-full bg-[#FEBA4F]" />
             )}
           </div>
@@ -124,37 +297,36 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
         </button>
         {isSectionOpen('delivery') && (
           <div className="pt-2 flex flex-wrap gap-2 animate-in fade-in duration-150">
-            <button
-              type="button"
-              onClick={() => handleDeliveryChange('shipping')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                filters.delivery_option === 'shipping'
-                  ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-[#0A1128]'
-              }`}
-            >
-              <Truck size={13} className={filters.delivery_option === 'shipping' ? 'text-[#FEBA4F]' : ''} />
-              <span>Pošiljanje po pošti</span>
-              {filters.delivery_option === 'shipping' && <Check size={12} className="text-[#FEBA4F]" />}
-            </button>
-            <button
-              type="button"
-              onClick={() => handleDeliveryChange('pickup')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                filters.delivery_option === 'pickup'
-                  ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
-                  : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-[#0A1128]'
-              }`}
-            >
-              <MapPin size={13} className={filters.delivery_option === 'pickup' ? 'text-[#FEBA4F]' : ''} />
-              <span>Osebni prevzem</span>
-              {filters.delivery_option === 'pickup' && <Check size={12} className="text-[#FEBA4F]" />}
-            </button>
+            {[
+              { id: 'shipping', label: 'Pošiljanje po pošti', icon: Truck },
+              { id: 'pickup', label: 'Osebni prevzem', icon: MapPin }
+            ].map(({ id, label, icon: Icon }) => {
+              const isChecked = (filters.delivery_options || []).includes(id);
+              return (
+                <label
+                  key={id}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                    isChecked
+                      ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-[#0A1128]'
+                  }`}
+                >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleDeliveryToggle(id)}
+                    className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
+                  />
+                  <Icon size={13} className={isChecked ? 'text-[#FEBA4F]' : ''} />
+                  <span>{label}</span>
+                </label>
+              );
+            })}
           </div>
         )}
       </div>
 
-      {/* 2. Generic Item Condition */}
+      {/* 4. Item Condition */}
       <div className="border-b border-slate-100 pb-3">
         <button
           type="button"
@@ -163,7 +335,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
         >
           <div className="flex items-center gap-2">
             <span>Stanje predmeta</span>
-            {filters.condition && (
+            {(filters.conditions?.length || 0) > 0 && (
               <span className="w-2 h-2 rounded-full bg-[#FEBA4F]" />
             )}
           </div>
@@ -177,43 +349,49 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
         {isSectionOpen('condition') && (
           <div className="pt-2 flex flex-wrap gap-2 animate-in fade-in duration-150">
             {['Novo', 'Kot novo', 'Rabljeno'].map((c) => {
-              const isSelected = filters.condition === c;
+              const isChecked = (filters.conditions || []).includes(c);
               return (
-                <button
+                <label
                   key={c}
-                  type="button"
-                  onClick={() => handleConditionChange(c)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                    isSelected
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                    isChecked
                       ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-[#0A1128]'
                   }`}
                 >
+                  <input
+                    type="checkbox"
+                    checked={isChecked}
+                    onChange={() => handleConditionToggle(c)}
+                    className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
+                  />
                   <span>{c}</span>
-                  {isSelected && <Check size={12} className="text-[#FEBA4F]" />}
-                </button>
+                </label>
               );
             })}
           </div>
         )}
       </div>
 
-      {/* 3. Hint when NO category is selected */}
-      {!category && (
+      {/* 5. Hint when NOT exactly 1 category is selected */}
+      {selectedCategories.length !== 1 && (
         <div className="p-3 bg-amber-50/80 rounded-2xl border border-amber-200/60 text-[11px] font-bold text-amber-900 flex items-start gap-2">
           <Sparkles size={14} className="text-amber-600 flex-shrink-0 mt-0.5" />
-          <span>Izberite kategorijo za dodatne filtre (velikost, znamka ...)</span>
+          <span>Izberite natanko eno kategorijo za dodatne filtre (velikost, znamka ...)</span>
         </div>
       )}
 
-      {/* 4. Category-Specific Specifications */}
-      {category && definitions.map((def) => {
-        const selectedVal = filters.specifications[def.key] || '';
-        const isLongList = def.options.length > 12;
+      {/* 6. Category-Specific Specifications (only if exactly 1 category is selected) */}
+      {selectedCategories.length === 1 && definitions.map((def) => {
+        const selectedVals = filters.specifications[def.key] || [];
+        // Deutscher Kommentar: Abhaengige Felder (Modell) zeigen nur Optionen der gewaehlten Marken; ohne Marke wird das Feld ausgeblendet
+        const fieldOptions = def.optionsByParent ? getFieldOptions(def, filters.specifications as any) : def.options;
+        if (def.optionsByParent && fieldOptions.length === 0) return null;
+        const isLongList = fieldOptions.length > 12;
         const searchQuery = (searchQueries[def.key] || '').toLowerCase().trim();
         const visibleOptions = isLongList
-          ? def.options.filter(opt => !searchQuery || opt.toLowerCase().includes(searchQuery))
-          : def.options;
+          ? fieldOptions.filter(opt => !searchQuery || opt.toLowerCase().includes(searchQuery))
+          : fieldOptions;
 
         return (
           <div key={def.key} className="border-b border-slate-100 pb-3">
@@ -224,8 +402,10 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
             >
               <div className="flex items-center gap-2">
                 <span>{def.label}</span>
-                {selectedVal && (
-                  <span className="w-2 h-2 rounded-full bg-[#FEBA4F]" />
+                {selectedVals.length > 0 && (
+                  <span className="px-1.5 py-0.5 rounded-full bg-[#FEBA4F] text-[#0A1128] text-[10px] font-bold">
+                    {selectedVals.length}
+                  </span>
                 )}
               </div>
               <ChevronDown
@@ -251,60 +431,50 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
                   </div>
                 )}
 
-                {isLongList ? (
-                  <div className="max-h-48 overflow-y-auto pr-1 space-y-1">
-                    {visibleOptions.map((opt) => {
-                      const isSelected = selectedVal === opt;
-                      return (
-                        <button
-                          key={opt}
-                          type="button"
-                          onClick={() => handleSpecChange(def.key, opt)}
-                          className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center justify-between ${
-                            isSelected
-                              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
-                              : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <span className="truncate">{opt}</span>
-                          {isSelected && <Check size={12} className="text-[#FEBA4F] flex-shrink-0" />}
-                        </button>
-                      );
-                    })}
-                    {visibleOptions.length === 0 && (
-                      <p className="text-[11px] text-slate-400 italic py-1 text-center">Ni zadetkov</p>
-                    )}
-                  </div>
-                ) : (
-                  <div className="flex flex-wrap gap-1.5">
-                    {visibleOptions.map((opt) => {
-                      const isSelected = selectedVal === opt;
-                      return (
-                        <button
-                          key={opt}
-                          type="button"
-                          onClick={() => handleSpecChange(def.key, opt)}
-                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                            isSelected
-                              ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
-                              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-[#0A1128]'
-                          }`}
-                        >
-                          <span>{opt}</span>
-                          {isSelected && <Check size={12} className="text-[#FEBA4F]" />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                )}
+                <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                  {visibleOptions.map((opt) => {
+                    const isChecked = selectedVals.includes(opt);
+                    return (
+                      <label
+                        key={opt}
+                        className={`w-full text-left px-2.5 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-2 cursor-pointer ${
+                          isChecked
+                            ? 'bg-[#0A1128] text-[#FEBA4F] shadow-sm'
+                            : 'bg-slate-50 text-slate-700 hover:bg-slate-100'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={isChecked}
+                          onChange={() => handleSpecToggle(def.key, opt)}
+                          className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
+                        />
+                        <span className="truncate flex-1">{opt}</span>
+                      </label>
+                    );
+                  })}
+                  {visibleOptions.length === 0 && (
+                    <p className="text-[11px] text-slate-400 italic py-1 text-center">Ni zadetkov</p>
+                  )}
+                </div>
               </div>
             )}
           </div>
         );
       })}
 
-      {/* Bottom Result Count */}
-      <div className="pt-3 border-t border-slate-100 text-center">
+      {/* Button Počisti vse filtre at bottom of panel */}
+      <div className="pt-3 border-t border-slate-100 flex flex-col items-center gap-2">
+        {activeFilterCount > 0 && (
+          <button
+            type="button"
+            onClick={onResetFilters}
+            className="w-full py-2.5 px-4 rounded-xl bg-red-50 text-red-600 hover:bg-red-100 font-bold text-xs transition-all flex items-center justify-center gap-2"
+          >
+            <X size={14} />
+            <span>Počisti vse filtre ({activeFilterCount})</span>
+          </button>
+        )}
         <span className="text-xs font-black text-slate-400">
           {totalResultsCount} rezultatov
         </span>
@@ -342,9 +512,9 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
                     <h3 className="text-sm font-black uppercase tracking-wider text-[#0A1128]">
                       Filtri
                     </h3>
-                    {category && (
+                    {activeSingleCategory && (
                       <span className="text-[11px] font-bold text-[#FEBA4F] block">
-                        {category}
+                        {activeSingleCategory}
                       </span>
                     )}
                   </div>

@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
-import { loadConnectAndInitialize } from '@stripe/connect-js';
+import React, { useState, useMemo, useEffect } from 'react';
 import { ConnectComponentsProvider, ConnectAccountOnboarding } from '@stripe/react-connect-js';
 import { CheckCircle2, AlertCircle, AlertTriangle, ShieldCheck, Building2, Info } from 'lucide-react';
 import { TERMS_VERSION } from '../../lib/termsVersion';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from 'sonner';
+import { getStripeConnectInstance, resetStripeConnectInstance } from '../../lib/stripeConnect';
+import { LoadingButton } from '../ui/Common';
 
 interface PayoutSetupViewProps {
   userData: any;
@@ -26,7 +27,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
   language
 }) => {
   const [stripeLoaded, setStripeLoaded] = useState(false);
-  const [stripeError, setStripeError] = useState(false);
+  const [stripeError, setStripeError] = useState<any>(false);
 
   // Seller declaration state
   const [acceptedDsa, setAcceptedDsa] = useState(Boolean(userData?.seller_self_certified));
@@ -39,40 +40,54 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
   const [regNumberInput, setRegNumberInput] = useState(userData?.registration_number || userData?.regNumber || '');
   const [isSavingRegNum, setIsSavingRegNum] = useState(false);
 
+  // Key state to force recreation of Stripe instance
+  const [stripeRefreshKey, setStripeRefreshKey] = useState(0);
+
+  const isProfileComplete = userData?.profile_completed === true;
+  const isTermsAccepted = Boolean(userData?.seller_terms_accepted_at);
+  const requiresRegNumber = isBusiness && !hasRegNumber;
   const publishableKey = import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY || '';
 
-  // Stripe connect instance initialized once
-  const [stripeConnectInstance] = useState(() => {
-    return loadConnectAndInitialize({
-      publishableKey: publishableKey,
-      fetchClientSecret: async () => {
-        const headers = await getAuthHeaders();
-        const res = await fetch('/api/stripe-account-session', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...headers
-          }
-        });
-        if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          throw new Error(errData.error || 'Napaka pri pridobivanju ključa seje');
-        }
-        const data = await res.json();
-        return data.client_secret;
-      },
-      locale: 'sl-SI',
-      appearance: {
-        variables: {
-          fontFamily: "'Plus Jakarta Sans', system-ui, sans-serif",
-          colorPrimary: '#0A1128',
-          buttonPrimaryColorBackground: '#0A1128',
-          buttonPrimaryColorText: '#FFFFFF',
-          borderRadius: '16px'
-        }
+  // Kommentar auf Deutsch: Event-Listener für Stripe-Verbindungsfehler
+  useEffect(() => {
+    const handleError = (e: any) => {
+      const { scope, code, message } = e.detail;
+      if (scope === 'onboarding') {
+        setStripeError({ message, code });
       }
-    });
-  });
+    };
+    window.addEventListener('connect-fetch-error', handleError);
+    return () => window.removeEventListener('connect-fetch-error', handleError);
+  }, []);
+
+  // Protokollieren, wenn der Key fehlt
+  useEffect(() => {
+    if (!publishableKey || !publishableKey.startsWith('pk_')) {
+      console.error("Stripe-Fehler: VITE_STRIPE_PUBLISHABLE_KEY ist leer oder ungueltig.");
+    }
+  }, [publishableKey]);
+
+  // Stripe connect instance initialized only when all preconditions are met
+  const stripeConnectInstance = useMemo(() => {
+    if (!isProfileComplete || !isTermsAccepted || requiresRegNumber) {
+      return null;
+    }
+    
+    return getStripeConnectInstance('onboarding');
+  }, [isProfileComplete, isTermsAccepted, requiresRegNumber, stripeRefreshKey]);
+
+  // Sicherheits-Timer: Wenn Stripe Connect nicht innerhalb von 15 Sekunden geladen wird
+  useEffect(() => {
+    if (isTermsAccepted && !requiresRegNumber && isProfileComplete && !stripeLoaded && !stripeError && stripeConnectInstance) {
+      const timer = setTimeout(() => {
+        setStripeError({
+          message: "Nalaganje obrazca je trajalo preveč časa. Poskusite znova.",
+          code: "TIMEOUT"
+        });
+      }, 15005);
+      return () => clearTimeout(timer);
+    }
+  }, [isTermsAccepted, requiresRegNumber, isProfileComplete, stripeLoaded, stripeError, stripeConnectInstance, stripeRefreshKey]);
 
   const handleAcceptTerms = async () => {
     if (!acceptedDsa || !acceptedTerms) {
@@ -169,9 +184,6 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
     }
   };
 
-  const isProfileComplete = userData?.profile_completed === true;
-  const isTermsAccepted = Boolean(userData?.seller_terms_accepted_at);
-  const requiresRegNumber = isBusiness && !hasRegNumber;
   const hasRequirements = Array.isArray(userData?.stripe_requirements_due) && userData.stripe_requirements_due.length > 0;
 
   return (
@@ -193,7 +205,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
             <div>
               <div className="font-black text-base uppercase tracking-tight">Izplačila so urejena</div>
               <div className="text-xs text-emerald-700 font-bold mt-0.5">
-                Vaš račun pri Stripe je pripravljen za sprejemanje izplačil.
+                Vaš račun za prejemanje izplačil je pripravljen.
               </div>
             </div>
           </div>
@@ -214,7 +226,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
 
       {/* Profile incomplete block */}
       {!isProfileComplete ? (
-        <div className="p-8 bg-slate-50 border-2 border-slate-200 rounded-3xl text-center my-6">
+        <div className="p-4 md:p-8 bg-slate-50 border-2 border-slate-200 rounded-3xl text-center my-6">
           <AlertTriangle className="mx-auto text-amber-500 mb-3" size={44} />
           <h2 className="text-xl font-black text-[#0A1128] uppercase mb-2">Profil še ni dopolnjen</h2>
           <p className="text-slate-600 text-sm font-bold mb-6 max-w-md mx-auto">
@@ -293,7 +305,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
                 <h3 className="font-black uppercase tracking-wider text-sm">Matična številka podjetja</h3>
               </div>
               <p className="text-xs font-bold text-slate-600">
-                Za registracijo poslovnega računa pri Stripe vnesite matično številko vašega podjetja.
+                Za registracijo poslovnega računa vnesite matično številko vašega podjetja.
               </p>
               <div className="flex gap-3">
                 <input
@@ -316,37 +328,79 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
 
           {/* Stripe Embedded Onboarding Component */}
           {isTermsAccepted && !requiresRegNumber && (
-            <div className="bg-white p-6 rounded-3xl border-2 border-slate-100 shadow-sm relative min-h-[420px]">
-              {!stripeLoaded && !stripeError && (
-                <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-10 rounded-3xl">
-                  <div className="w-8 h-8 border-4 border-[#0A1128] border-t-transparent rounded-full animate-spin mb-3" />
-                  <p className="text-slate-500 font-black text-xs uppercase tracking-widest">
-                    Nalaganje obrazca za izplačila...
+            <div className="bg-white p-3 md:p-6 rounded-3xl border-2 border-slate-100 shadow-sm relative min-h-[320px] md:min-h-[420px] overflow-x-auto">
+              {(!publishableKey || !publishableKey.startsWith('pk_')) ? (
+                <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4 animate-in">
+                  <AlertCircle className="mx-auto text-red-500 mb-2" size={36} />
+                  <p className="text-red-800 font-bold text-sm">
+                    Sistem za izplačila ni pravilno nastavljen. Kontaktirajte podporo.
                   </p>
                 </div>
-              )}
-
-              {stripeError ? (
-                <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4">
+              ) : stripeError ? (
+                <div className="p-8 text-center bg-red-50 rounded-2xl border border-red-200 my-4 animate-in">
                   <AlertCircle className="mx-auto text-red-500 mb-2" size={36} />
                   <p className="text-red-800 font-bold text-sm mb-4">
-                    Povezave s sistemom za izplačila ni bilo mogoče vzpostaviti. Osvežite stran.
+                    {typeof stripeError === 'object' ? stripeError.message : "Povezave s sistemom za izplačila ni bilo mogoče vzpostaviti. Osvežite stran."}
                   </p>
-                  <button
-                    onClick={() => { setStripeError(false); setStripeLoaded(false); }}
-                    className="bg-[#0A1128] text-white px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
-                  >
-                    Osveži
-                  </button>
+                  <div className="flex justify-center gap-3">
+                    {typeof stripeError === 'object' && stripeError.code === 'PROFILE_INCOMPLETE' && (
+                      <button
+                        type="button"
+                        onClick={onNavigateToSettingsProfile}
+                        className="bg-[#0A1128] text-white px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
+                      >
+                        Opravi verifikacijo
+                      </button>
+                    )}
+                    {typeof stripeError === 'object' && stripeError.code === 'TERMS_REQUIRED' && (
+                      <button
+                        type="button"
+                        onClick={onOpenTermsModal}
+                        className="bg-[#0A1128] text-white px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
+                      >
+                        Preberi pogoje
+                      </button>
+                    )}
+                    {/* Deutscher Kommentar: Wiederholungsversuch mit Rueckmeldung und Schutz vor Doppelaufruf */}
+                    <LoadingButton
+                      type="button"
+                      loadingText="Nalagam..."
+                      onClick={async () => {
+                        setStripeError(false);
+                        setStripeLoaded(false);
+                        await resetStripeConnectInstance('onboarding');
+                        setStripeRefreshKey(prev => prev + 1);
+                      }}
+                      className="bg-slate-200 text-[#0A1128] px-6 py-3 rounded-2xl text-xs font-black uppercase hover:bg-slate-300 transition-all"
+                    >
+                      Poskusi znova
+                    </LoadingButton>
+                  </div>
                 </div>
               ) : (
-                <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
-                  <ConnectAccountOnboarding
-                    onExit={handleExit}
-                    onLoaderStart={() => setStripeLoaded(true)}
-                    onLoadError={() => setStripeError(true)}
-                  />
-                </ConnectComponentsProvider>
+                <>
+                  {!stripeLoaded && (
+                    <div className="absolute inset-0 flex flex-col items-center justify-center bg-white/90 z-10 rounded-3xl animate-in">
+                      <div className="w-8 h-8 border-4 border-[#0A1128] border-t-transparent rounded-full animate-spin mb-3" />
+                      <p className="text-slate-500 font-black text-xs uppercase tracking-widest">
+                        Nalaganje obrazca za izplačila...
+                      </p>
+                    </div>
+                  )}
+                  {stripeConnectInstance && (
+                    <ConnectComponentsProvider connectInstance={stripeConnectInstance}>
+                      {/* Onboarding-Beendigung behandeln, um Status zu pruefen */}
+                      <ConnectAccountOnboarding
+                        onExit={handleExit}
+                        onLoaderStart={() => setStripeLoaded(true)}
+                        onLoadError={(err) => {
+                          console.error("Connect component load error:", err);
+                          setStripeError("Prišlo je do napake pri nalaganju obrazca. Prosimo, osvežite stran.");
+                        }}
+                      />
+                    </ConnectComponentsProvider>
+                  )}
+                </>
               )}
             </div>
           )}
@@ -361,7 +415,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
         <ul className="space-y-2 text-xs font-bold text-slate-600">
           <li className="flex items-start gap-2">
             <span className="text-[#FEBA4F] font-black">•</span>
-            <span>Denar od kupca gre neposredno na vaš račun pri Stripe, mi ga ne hranimo.</span>
+            <span>Denar od kupca gre neposredno na vaš račun pri našem plačilnem partnerju, mi ga ne hranimo.</span>
           </li>
           <li className="flex items-start gap-2">
             <span className="text-[#FEBA4F] font-black">•</span>
@@ -369,7 +423,7 @@ export const PayoutSetupView: React.FC<PayoutSetupViewProps> = ({
           </li>
           <li className="flex items-start gap-2">
             <span className="text-[#FEBA4F] font-black">•</span>
-            <span>Podatke za preverjanje identitete obdeluje Stripe, ne mi.</span>
+            <span>Podatke za preverjanje identitete obdeluje naš plačilni partner, ne mi.</span>
           </li>
         </ul>
       </div>

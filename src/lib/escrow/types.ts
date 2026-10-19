@@ -18,6 +18,7 @@ export interface Order {
   amount: number;
   delivery_method: DeliveryMethod;
   status: OrderStatus;
+  // Veraltet: PIN liegt in transaction_secrets
   pickup_pin?: string;
   tracking_number?: string;
   carrier_name?: string;

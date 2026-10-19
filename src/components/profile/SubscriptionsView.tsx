@@ -1,9 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { alertDialog } from '../../lib/dialog';
 import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from 'lucide-react';
 import { SubscriptionTier } from "../../types";
 import { auth } from "../../lib/firebase";
 import { getAuthHeaders } from "../../lib/authFetch";
 import { getSubscriptionInvoicesAction } from "../../actions";
+import { LoadingButton } from '../ui/Common';
 
 export const SubscriptionsView: React.FC<{ 
     t: any; 
@@ -22,6 +24,9 @@ export const SubscriptionsView: React.FC<{
   const [invoices, setInvoices] = useState<any[]>([]);
   const [loadingInvoices, setLoadingInvoices] = useState(false);
   const [downloadingNo, setDownloadingNo] = useState<string | null>(null);
+  const [loadingAction, setLoadingAction] = useState<SubscriptionTier | null>(null);
+  // Deutscher Kommentar: Ausdrueckliche Zustimmung zu Preis, automatischer Verlaengerung und sofortigem Leistungsbeginn vor kostenpflichtigem Abo
+  const [subConsent, setSubConsent] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -54,15 +59,20 @@ export const SubscriptionsView: React.FC<{
       if (!response.ok) {
         throw new Error('Napaka pri prenosu računa');
       }
-      const data = await response.json();
-      if (data.url) {
-        window.open(data.url, '_blank');
-      } else {
-        throw new Error('Povezava ni na voljo');
-      }
+
+      // PDF-Blob empfangen und echten Download ueber ein Link-Element anstossen (DEL A)
+      const blob = await response.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `racun_${invoiceNo}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
     } catch (err: any) {
       console.error("Napaka pri prenosu PDF računa:", err);
-      alert("Napaka pri prenosu računa. Poskusite ponovno.");
+      void alertDialog("Napaka pri prenosu računa. Poskusite ponovno.", { tone: 'danger' });
     } finally {
       setDownloadingNo(null);
     }
@@ -87,17 +97,18 @@ export const SubscriptionsView: React.FC<{
           </button>
         ) : <div />}
         {onSyncSubscription && (
-          <button
+          <LoadingButton
             type="button"
             onClick={onSyncSubscription}
-            disabled={isSyncing}
-            className="text-[11px] font-black uppercase tracking-wider text-slate-500 hover:text-[#0A1128] transition-colors flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl disabled:opacity-50"
+            loading={isSyncing}
+            loadingText="Preverjanje..."
+            className="text-[11px] font-black uppercase tracking-wider text-slate-500 hover:text-[#0A1128] transition-colors flex items-center gap-1.5 bg-slate-100 hover:bg-slate-200 px-4 py-2 rounded-xl"
           >
-            {isSyncing ? 'Preverjanje...' : 'Osveži status naročnine'}
-          </button>
+            Osveži status naročnine
+          </LoadingButton>
         )}
       </div>
-      <h2 className="text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-12">{t('subscriptions')}</h2>
+      <h2 className="text-2xl md:text-4xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 md:mb-12">{t('subscriptions')}</h2>
       
       {isCanceled && currentPlan !== SubscriptionTier.FREE && (
           <div className="bg-amber-50 border-2 border-amber-200 text-amber-800 p-6 rounded-3xl mb-12 flex items-center gap-4">
@@ -122,9 +133,9 @@ export const SubscriptionsView: React.FC<{
           </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
         {plans.map(plan => (
-          <div key={plan.tier} className={`rounded-[3rem] p-10 flex flex-col ${plan.color} ${currentPlan === plan.tier ? 'ring-4 ring-offset-4 ring-[#FEBA4F]' : ''}`}>
+          <div key={plan.tier} className={`rounded-3xl md:rounded-[3rem] p-5 md:p-10 flex flex-col ${plan.color} ${currentPlan === plan.tier ? 'ring-4 ring-offset-4 ring-[#FEBA4F]' : ''}`}>
             {currentPlan === plan.tier && (
               <div className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-80 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -132,7 +143,7 @@ export const SubscriptionsView: React.FC<{
               </div>
             )}
             <h3 className="text-3xl font-black uppercase tracking-tighter mb-2">{plan.name}</h3>
-            <div className="text-5xl font-black mb-6">€{plan.price}<span className="text-lg opacity-60">/mo</span></div>
+            <div className="text-4xl md:text-5xl font-black mb-4 md:mb-6">€{plan.price}<span className="text-lg opacity-60">/mesec</span>{plan.tier !== SubscriptionTier.FREE && <span className="block text-xs font-bold opacity-60 mt-1">z DDV</span>}</div>
             <p className="font-bold opacity-80 mb-6 flex-1">{plan.desc}</p>
             
             {currentPlan === plan.tier && plan.tier !== SubscriptionTier.FREE && (
@@ -150,9 +161,15 @@ export const SubscriptionsView: React.FC<{
                 </div>
             )}
             
-            <button 
-              onClick={() => onSubscribe(plan.tier)}
-              disabled={currentPlan === plan.tier || (!isVerified && plan.tier !== SubscriptionTier.FREE)}
+            <LoadingButton 
+              onClick={async () => {
+                setLoadingAction(plan.tier);
+                await onSubscribe(plan.tier);
+                setLoadingAction(null);
+              }}
+              loading={loadingAction === plan.tier}
+              loadingText="Odpiram plačilo..."
+              disabled={currentPlan === plan.tier || (!isVerified && plan.tier !== SubscriptionTier.FREE) || (plan.tier !== SubscriptionTier.FREE && !subConsent)}
               className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${currentPlan === plan.tier ? 'bg-black/10 opacity-50 cursor-not-allowed' : (!isVerified && plan.tier !== SubscriptionTier.FREE ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-white text-[#0A1128] hover:scale-105 shadow-xl')}`}
             >
               {!isVerified && plan.tier !== SubscriptionTier.FREE ? (
@@ -162,30 +179,37 @@ export const SubscriptionsView: React.FC<{
                   ? (plan.tier === SubscriptionTier.FREE ? t('currentPlan') : (t('subscribed') || 'Naročen')) 
                   : t('subscribe')
               )}
-            </button>
+            </LoadingButton>
           </div>
         ))}
       </div>
+      <label className="flex items-start gap-3 max-w-3xl mx-auto mt-8 p-4 bg-slate-50 rounded-2xl text-xs font-bold text-slate-600 cursor-pointer">
+        <input type="checkbox" checked={subConsent} onChange={(e) => setSubConsent(e.target.checked)} className="mt-0.5 w-4 h-4 shrink-0" />
+        <span>
+          Za plačljive pakete: seznanjen/a sem, da se naročnina plačuje vnaprej in se vsak mesec samodejno obnovi z bremenitvijo plačilnega sredstva, dokler je ne prekličem (Basic 20 €, Pro 50 € na mesec, z DDV). Zahtevam, da se izvajanje storitve začne takoj. Potrošnik ima pravico do odstopa od pogodbe v 14 dneh pod pogoji iz točke 6.6 Pogojev uporabe.
+        </span>
+      </label>
       <div className="text-center mt-6">
         <p className="text-xs font-bold text-slate-500">
-          Minimalna provizija: od 0,59 € na plačilo (pokriva stroške plačilnega sistema). Velja za vse pakete.
+          Minimalna provizija: 1,00 € na plačilo, brez DDV (pokriva stroške plačilnega sistema). Velja za vse pakete.
         </p>
       </div>
 
       {currentPlan !== SubscriptionTier.FREE && !isCanceled && (
           <div className="mt-12 text-center">
-              <button 
+              <LoadingButton 
                   onClick={onCancelSubscription} 
+                  loadingText="Preklicujem..."
                   className="bg-red-50 text-red-600 px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-red-100 transition-colors"
               >
                   Prekliči naročnino
-              </button>
+              </LoadingButton>
               <p className="text-slate-400 font-bold text-xs mt-4">Preklic bo zaustavil samodejno obnovitev. Ugodnosti boste obdržali do izteka trenutnega obdobja.</p>
           </div>
       )}
 
       {/* RAČUNI ZA NAROČNINE */}
-      <div className="mt-16 bg-white border border-slate-200 rounded-[3rem] p-8 sm:p-10 shadow-sm">
+      <div className="mt-8 md:mt-16 bg-white border border-slate-200 rounded-3xl md:rounded-[3rem] p-4 sm:p-10 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-[#FEBA4F]">
@@ -230,18 +254,15 @@ export const SubscriptionsView: React.FC<{
                       </p>
                     </div>
                   </div>
-                  <button
+                  <LoadingButton
                     type="button"
                     onClick={() => handleDownloadInvoice(inv.invoice_no)}
-                    disabled={isDownloading}
-                    className="flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-[#FEBA4F] text-[#0A1128] rounded-xl text-xs font-black uppercase tracking-wider transition-all disabled:opacity-50"
+                    loading={isDownloading}
+                    loadingText="Prenašanje..."
+                    className="flex items-center justify-center gap-1.5 px-4 py-2 bg-slate-100 hover:bg-[#FEBA4F] text-[#0A1128] rounded-xl text-xs font-black uppercase tracking-wider transition-all"
                   >
-                    {isDownloading ? (
-                      <><Loader2 size={14} className="animate-spin" /> Prenašanje...</>
-                    ) : (
-                      <><Download size={14} /> Prenesi PDF</>
-                    )}
-                  </button>
+                    <Download size={14} /> Prenesi PDF
+                  </LoadingButton>
                 </div>
               );
             })}

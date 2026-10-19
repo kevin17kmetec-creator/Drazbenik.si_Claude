@@ -4,20 +4,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <title>Dražbenik.si | Prva slovenska digitalna dražba</title>
-    <meta name="description" content="Prva slovenska digitalna dražba - Dražbenik.si. Licitirajte za stroje, vozila, umetnine, opremo in nepremičnine. Najbolj zanesljiva platforma v Sloveniji.">
-    <meta property="og:title" content="Dražbenik.si | Prva slovenska digitalna dražba">
-    <meta property="og:description" content="Kupujte ali prodajajte predmete prek najbolj zanesljive platforme za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.">
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com" crossorigin>
+    <link rel="preload" as="image" href="https://drazbenik.si/brand/logo.png">
+    <title>Dražbenik.si | Spletne dražbe v Sloveniji</title>
+    <meta name="description" content="Dražbenik.si: spletne dražbe v Sloveniji. Vozila, stroji, oprema, umetnine in več. Varno plačilo z zadržanjem sredstev do prejema predmeta.">
+    <meta name="theme-color" content="#0A1128">
+    <meta name="robots" content="index,follow,max-image-preview:large">
+    <meta property="og:title" content="Dražbenik.si | Spletne dražbe v Sloveniji">
+    <meta property="og:description" content="Kupujte in prodajajte na spletnih dražbah. Pregledno, varno plačilo z zadržanjem sredstev do prejema predmeta.">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="Dražbenik.si">
-    <link rel="icon" href="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbenik.si-justLogo.png">
-    <link rel="apple-touch-icon" href="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com/drazbeniksi-removebg-preview%281%29.png">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
+    <meta property="og:locale" content="sl_SI">
+    <meta property="og:image" content="https://drazbenik.si/brand/logo.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Dražbenik.si | Spletne dražbe v Sloveniji">
+    <meta name="twitter:description" content="Kupujte in prodajajte na spletnih dražbah. Varno plačilo z zadržanjem sredstev do prejema predmeta.">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Dražbenik.si","description":"Spletna platforma za dražbe v Sloveniji.","logo":"https://drazbenik.si/brand/logo.png","areaServed":"SI"}</script>
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
     <style>
         body {
-            font-family: 'Inter', sans-serif;
+            /* Deutscher Kommentar: Systemschriften statt Google Fonts (keine Datenuebertragung an Dritte ohne Einwilligung) */
+            font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
             background-color: #f8fafc;
             color: #0A1128;
         }
@@ -44,6 +57,7 @@
 <link rel="stylesheet" href="/index.css">
 </head>
 <body class="text-slate-900 overflow-x-hidden">
+    <noscript><h1>Dražbenik.si – spletne dražbe v Sloveniji</h1><p>Za uporabo dražbe potrebujete brskalnik z omogočenim JavaScriptom. Vozila, stroji, oprema, umetnine in več, varno plačilo z zadržanjem sredstev do prejema predmeta.</p></noscript>
     <div id="root"></div>
 <script type="module" src="/src/main.tsx"></script>
 </body>

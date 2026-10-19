@@ -5,6 +5,10 @@ import React, {
   useCallback,
   useRef,
 } from "react";
+import { DialogHost } from './components/ui/DialogHost';
+import { setDomLanguage } from "./lib/domTranslator";
+import { translateText } from "./lib/translateUi";
+import { setStripeConnectLanguage } from "./lib/stripeConnect";
 import AuctionView from "@/src/components/auction/AuctionView";
 import SellerView from "@/src/components/profile/SellerView";
 import { SubscriptionsView } from "@/src/components/profile/SubscriptionsView";
@@ -15,26 +19,35 @@ import { PackageCard } from "@/src/components/auction/PackageCard";
 import { PackageView } from "@/src/components/auction/PackageView";
 import { AuthView } from "@/src/components/auth/AuthView";
 import { LegalModal } from "@/src/components/modals/LegalModal";
+import { LoadingButton, Spinner } from "@/src/components/ui/Common";
 import { VerificationBanner } from "@/src/components/layout/VerificationBanner";
 import { StaticTimer } from "@/src/components/ui/StaticTimer";
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import { HeroCarousel } from "@/src/components/auction/HeroCarousel";
 import { Header } from "@/src/components/layout/Header";
 import { Footer } from "@/src/components/layout/Footer";
+import { CookieNotice } from "@/src/components/layout/CookieNotice";
 import { CheckoutModal } from "@/src/components/modals/CheckoutModal";
 import { SettingsView } from "@/src/components/profile/SettingsView";
+import { AccountingView } from "@/src/components/admin/AccountingView";
 import { ConfirmBidModal } from "@/src/components/modals/ConfirmBidModal";
 import { MessagesView } from "@/src/components/profile/MessagesView";
 import { MissingInvoiceDataModal } from "@/src/components/modals/MissingInvoiceDataModal";
 import { CategoryFilterBar, FilterState } from "@/src/components/auction/CategoryFilterBar";
+import { useNotifications } from "@/src/hooks/useNotifications";
 import { Portal } from "@/src/components/ui/Portal";
 import { TermsUpdateView } from "@/src/components/auth/TermsUpdateView";
 import { MarkShippedModal } from "@/src/components/modals/MarkShippedModal";
 import { PaymentTimeline } from "@/src/components/orders/PaymentTimeline";
 import { TERMS_VERSION } from "./lib/termsVersion";
+import { getSellerSetupStep } from "./lib/sellerSetup";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
+import { cancelBankTransferPayment } from "./lib/bankTransfer";
 import { friendlyError } from "./lib/friendlyError";
+import { sendEmailVerificationAction } from "@/src/actions/auth-emails";
+import { canLeaveReview } from "./lib/reviewEligibility";
+import { WinnerActions } from "./components/auction/WinnerActions";
 import { 
   createAuctionAction, 
   confirmCheckoutSessionAction, 
@@ -89,9 +102,11 @@ import {
   Info,
   Table,
   Truck,
+  Copy,
   Zap,
   Download,
   CreditCard,
+  ExternalLink,
   AlertOctagon,
   Trash2,
   Filter,
@@ -102,6 +117,8 @@ import {
   HelpCircle,
   Languages,
   FileUp,
+  Key,
+  QrCode,
 } from "lucide-react";
 
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
@@ -123,9 +140,11 @@ import { Toaster } from "sonner";
 import { toast } from "@/src/lib/toast";
 
 import { ChatProvider } from "./context/ChatContext";
-import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where } from "firebase/firestore";
+import { CATEGORY_URL_MAP } from "./lib/urlMaps";
+import { collection, onSnapshot, setDoc, doc, getDocs, getDoc, updateDoc, addDoc, deleteDoc, query, where, orderBy, limit } from "firebase/firestore";
 import { db, auth, storage, safeSignOut, cleanupAllListeners, registerSnapshotListener, isRegisteringAuth } from "./lib/firebase";
 import { onAuthStateChanged, updatePassword } from "firebase/auth";
+import { logoutStripeConnect } from "./lib/stripeConnect";
 
 
 // --- CONFIGURATION ---
@@ -135,7 +154,10 @@ import {
   getIncrement,
   formatSeconds,
   normalizeRegionName,
+  getUserAuctionCycle,
 } from "./lib/utils";
+import { openCenteredPopup } from "./lib/popup";
+import { watchBankTransferPopup } from "./lib/bankTransferWatcher";
 import { useFeePreview } from "./lib/useFeePreview";
 
 const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: string | null): boolean => {
@@ -147,11 +169,7 @@ const matchesSelectedRegion = (itemRegion: string | undefined | null, selected: 
 
 import { InvoiceModal } from "@/src/components/modals/InvoiceModal";
 import { ReviewModal } from "@/src/components/modals/ReviewModal";
-import { TestSandboxView } from "@/src/components/flow/TestSandboxView";
-import { 
-  mockSandboxPackageId, 
-  mockSandboxPackageItems 
-} from "./data/mockSandboxData";
+import { QrScannerModal } from "@/src/components/modals/QrScannerModal";
 
 // SignedImg component for fetching Supabase signed URLs
 const SignedImg = ({
@@ -188,7 +206,7 @@ const SignedImg = ({
 
 import { Timer } from "lucide-react";
 
-const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
+const PaymentTimer: React.FC<{ endTime: string | Date; deadlineAt?: string | Date | null }> = ({ endTime, deadlineAt }) => {
   const [timeLeft, setTimeLeft] = useState<{
     hours: number;
     minutes: number;
@@ -196,7 +214,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
   } | null>(null);
 
   useEffect(() => {
-    const deadline = new Date(endTime).getTime() + 48 * 60 * 60 * 1000;
+    const deadline = deadlineAt ? new Date(deadlineAt).getTime() : new Date(endTime).getTime() + 48 * 60 * 60 * 1000;
 
     const updateTimer = () => {
       const now = new Date().getTime();
@@ -217,7 +235,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
     updateTimer();
     const interval = setInterval(updateTimer, 1000);
     return () => clearInterval(interval);
-  }, [endTime]);
+  }, [endTime, deadlineAt]);
 
   if (!timeLeft) return null;
 
@@ -246,29 +264,7 @@ const PaymentTimer: React.FC<{ endTime: string | Date }> = ({ endTime }) => {
 // -------------------------------------------------------------
 // MULTILINGUAL SLUG MAPPINGS FOR CATEGORIES, REGIONS, & SETTINGS
 // -------------------------------------------------------------
-const CATEGORY_URL_MAP: Record<Category, Record<string, string>> = {
-  [Category.Oblacila]: { SLO: "oblacila", EN: "clothing", DE: "kleidung" },
-  [Category.Racunalniki]: { SLO: "racunalniki", EN: "computers", DE: "computer" },
-  [Category.ProstiCasInSport]: { SLO: "prosti-cas-in-sport", EN: "leisure-and-sport", DE: "freizeit-und-sport" },
-  [Category.DomInVrt]: { SLO: "dom-in-vrt", EN: "home-and-garden", DE: "haus-und-garten" },
-  [Category.Avtomobilizem]: { SLO: "avtomobilizem", EN: "automotive", DE: "automobil" },
-  [Category.Nepremicnine]: { SLO: "nepremicnine", EN: "real-estate", DE: "immobilien" },
-  [Category.LepotaInZdravje]: { SLO: "lepota-in-zdravje", EN: "health-and-beauty", DE: "gesundheit-und-schonheit" },
-  [Category.OtroškaOprema]: { SLO: "otroska-oprema", EN: "kids-equipment", DE: "kinderausstattung" },
-  [Category.Kmetijstvo]: { SLO: "kmetijstvo", EN: "agriculture", DE: "landwirtschaft" },
-  [Category.Umetnine]: { SLO: "umetnine", EN: "art", DE: "kunst" },
-  [Category.Glasbila]: { SLO: "glasbila", EN: "musical-instruments", DE: "musikinstrumente" },
-  [Category.Zbirateljstvo]: { SLO: "zbirateljstvo", EN: "collecting", DE: "sammeln" },
-  [Category.Orodja]: { SLO: "orodja-in-stroji", EN: "tools-and-machinery", DE: "werkzeuge-und-maschinen" },
-  [Category.Elektronika]: { SLO: "zabavna-elektronika", EN: "consumer-electronics", DE: "unterhaltungselektronik" },
-  [Category.Knjige]: { SLO: "knjige-in-revije", EN: "books-and-magazines", DE: "buecher-und-zeitschriften" },
-  [Category.Zivali]: { SLO: "zivali-in-oprema", EN: "animals-and-pet-supplies", DE: "tiere-und-tierbedarf" },
-  [Category.Navtika]: { SLO: "navtika", EN: "nautical", DE: "nautik" },
-  [Category.Gostinstvo]: { SLO: "gostinska-oprema", EN: "catering-equipment", DE: "gastronomiebedarf" },
-  [Category.Gradbenistvo]: { SLO: "gradbenistvo", EN: "construction", DE: "bauwesen" },
-  [Category.Starine]: { SLO: "starine-in-umetnine", EN: "antiques-and-art", DE: "antiquitaeten-und-kunst" },
-  [Category.Ostalo]: { SLO: "ostalo", EN: "other", DE: "sonstiges" }
-};
+// Kategorie-URL-Zuordnung liegt in src/lib/urlMaps.ts
 
 const REGION_URL_MAP: Record<Region, Record<string, string>> = {
   [Region.Pomurska]: { SLO: "pomurska", EN: "pomurska", DE: "pomurska" },
@@ -335,6 +331,58 @@ function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
   }
 }
 
+// Hilfsfunktion zur Pruefung, ob eine Auktion geoeffnet werden darf (DEL E)
+export function canViewAuction(auction: any, currentUser: any, currentUserData?: any): boolean {
+  if (!auction) return false;
+
+  // Pruefen, ob die Auktion beendet bzw. abgeschlossen ist
+  const status = auction.status ? String(auction.status).toLowerCase() : '';
+  const isStatusEnded = ['completed', 'cancelled', 'paid', 'sold', 'unsold'].includes(status);
+
+  const endTimeMs = auction.endTime
+    ? new Date(auction.endTime).getTime()
+    : (auction.end_time ? new Date(auction.end_time).getTime() : 0);
+  const isTimeEnded = endTimeMs > 0 && Date.now() > endTimeMs;
+
+  const isAuctionClosed = isStatusEnded || isTimeEnded;
+
+  // Aktive Auktionen duerfen von allen Nutzern (auch Gaesten) geoeffnet werden
+  if (!isAuctionClosed) {
+    return true;
+  }
+
+  // Bei geschlossenen Auktionen duerfen nur Verkaeufer, Gewinner oder Administratoren die Detailansicht oeffnen
+  if (!currentUser && !currentUserData) {
+    return false;
+  }
+
+  const userId = currentUser?.uid || currentUser?.id || currentUserData?.id;
+  if (!userId) {
+    return false;
+  }
+
+  // Verkaeufer-Pruefung
+  const sellerId = auction.sellerId || auction.seller_id || (typeof auction.seller === 'string' ? auction.seller : null);
+  if (sellerId && sellerId === userId) {
+    return true;
+  }
+
+  // Gewinner-Pruefung
+  const winnerId = auction.winner_id || auction.winnerId || auction.highestBidder;
+  if (winnerId && winnerId === userId) {
+    return true;
+  }
+
+  // Administrator-Pruefung (VITE_ADMIN_UIDS oder Rollen-Attribut)
+  const envAdminUids = ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).filter(Boolean);
+  const isAdmin = envAdminUids.includes(userId) || currentUserData?.role === 'admin' || currentUserData?.isAdmin === true || currentUser?.role === 'admin';
+  if (isAdmin) {
+    return true;
+  }
+
+  return false;
+}
+
 const WonAuctionItem: React.FC<{
   wonItem: any;
   language: string;
@@ -354,6 +402,7 @@ const WonAuctionItem: React.FC<{
   openReviewModal: (item: any) => void;
   setTimelineModalAuctionId: (id: string | null) => void;
   user: any;
+  setDeliveryMethodModal?: (data: any) => void;
 }> = ({
   wonItem,
   language,
@@ -372,9 +421,62 @@ const WonAuctionItem: React.FC<{
   setReceiptConfirmModal,
   openReviewModal,
   setTimelineModalAuctionId,
-  user
+  user,
+  setDeliveryMethodModal
 }) => {
   const isPaid = wonItem.payment_status === "paid";
+  const [pickupPin, setPickupPin] = useState<string | null>(null);
+  const [pinLoading, setPinLoading] = useState(false);
+  const [openingInstructions, setOpeningInstructions] = useState(false);
+  const [cancellingBt, setCancellingBt] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  // Deutscher Kommentar: Bricht die anstehende Bankueberweisung ueber die gemeinsame Hilfsfunktion ab
+  const handleCancelBankTransfer = async () => {
+    if (!user || !wonItem?.id) return;
+    setCancellingBt(true);
+    try {
+      const res = await cancelBankTransferPayment({ auctionId: wonItem.id, user });
+      if (res.success) {
+        setShowCancelConfirm(false);
+        toast.success("Nakazilo je preklicano. Dražbo lahko zdaj plačate s kartico.");
+        fetchAuctions();
+        if (userData?.id) refreshUserData(userData.id);
+      } else {
+        toast.error(res.error || "Napaka pri preklicu nakazila.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri preklicu.");
+    } finally {
+      setCancellingBt(false);
+    }
+  };
+
+  // Deutscher Kommentar: Ruft die Zahlungsanweisungen fuer die Bankueberweisung des gewonnenen Artikels ab
+  const handleOpenBankTransferInstructions = async () => {
+    if (!user || !wonItem?.id) return;
+    setOpeningInstructions(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch(`/api/checkout/bank-transfer-instructions?auction_id=${encodeURIComponent(wonItem.id)}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`
+        }
+      });
+      const data = await res.json();
+      if (res.ok && data?.url) {
+        const instrPopup = openCenteredPopup(data.url, '_blank', 560, 820);
+        watchBankTransferPopup(instrPopup, wonItem.id, () => { fetchAuctions(); });
+      } else {
+        toast.error(data?.error || "Navodila za nakazilo trenutno niso na voljo.");
+      }
+    } catch (err: any) {
+      toast.error(err.message || "Napaka pri odpiranju navodil.");
+    } finally {
+      setOpeningInstructions(false);
+    }
+  };
+
   const { data: preview, loading: previewLoading, error: previewError } = useFeePreview({
     auctionId: wonItem.id,
     enabled: !isPaid
@@ -383,13 +485,68 @@ const WonAuctionItem: React.FC<{
   const rawItemPrice = Number(wonItem.currentBid || wonItem.current_price || wonItem.starting_price || 0);
   const totalAmountToPay = preview?.totalCents ? preview.totalCents / 100 : 0;
 
-  const paymentDeadlineMs = new Date((wonItem as any).payment_deadline || wonItem.endTime || (wonItem as any).end_time).getTime() + ((wonItem as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000);
+  // Deutscher Kommentar: Rolle des Nutzers - 2. Bieter mit aktivem Verkaeuferangebot hat eine eigene Frist
+  const myId = (userData as any)?.id || user?.uid;
+  const isSecondOffer = (wonItem as any).post_auction_status === 'offered_2nd' && (wonItem as any).second_winner_id === myId;
+  const secondDeadline = (wonItem as any).second_chance_deadline as string | undefined;
+  const paymentDeadlineMs = isSecondOffer && secondDeadline
+    ? new Date(secondDeadline).getTime()
+    : new Date((wonItem as any).payment_deadline || wonItem.endTime || (wonItem as any).end_time).getTime() + ((wonItem as any).payment_deadline ? 0 : 48 * 60 * 60 * 1000);
   const isOverdue = !isPaid && (
-    wonItem.post_auction_status === "failed_1st" || 
-    wonItem.post_auction_status === "unpaid" || 
-    wonItem.post_auction_status === "unsold" ||
-    Date.now() > paymentDeadlineMs
+    isSecondOffer
+      ? Date.now() > paymentDeadlineMs
+      : (
+        wonItem.post_auction_status === "failed_1st" ||
+        wonItem.post_auction_status === "failed_2nd" ||
+        wonItem.post_auction_status === "unpaid" ||
+        wonItem.post_auction_status === "unsold" ||
+        Date.now() > paymentDeadlineMs
+      )
   );
+  const strikeApplied = (wonItem as any).second_unpaid_strike_applied === true || (wonItem as any).unpaid_strike_applied === true;
+  const [respondingOffer, setRespondingOffer] = useState(false);
+
+  const handleAcceptOffer = async () => {
+    if (!user) return;
+    setRespondingOffer(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/auctions/second-chance-respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ auction_id: wonItem.id, action: 'accept' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Napaka pri sprejemu ponudbe.');
+      toast.success(data.message || 'Ponudbo ste sprejeli. Imate 24 ur za plačilo.');
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error(e.message || 'Napaka pri sprejemu ponudbe.');
+    } finally {
+      setRespondingOffer(false);
+    }
+  };
+
+  const handleRejectOffer = async () => {
+    if (!user) return;
+    setRespondingOffer(true);
+    try {
+      const token = await user.getIdToken();
+      const res = await fetch('/api/auctions/second-chance-respond', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ auction_id: wonItem.id, action: 'reject' })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Napaka pri zavrnitvi ponudbe.');
+      toast.success('Ponudbo ste zavrnili. Opomin ne bo izdan.');
+      fetchAuctions();
+    } catch (e: any) {
+      toast.error(e.message || 'Napaka pri zavrnitvi ponudbe.');
+    } finally {
+      setRespondingOffer(false);
+    }
+  };
 
   const userStrikesCount = Math.max(1, Number((userData as any)?.unpaidStrikes ?? (userData as any)?.unpaid_strikes ?? 1));
   const strikeOrdinal = userStrikesCount === 1 ? "1. opomin (Strike 1/3)" : userStrikesCount === 2 ? "2. opomin (Strike 2/3)" : `${userStrikesCount}. zadnji opomin (Strike 3/3)`;
@@ -397,14 +554,14 @@ const WonAuctionItem: React.FC<{
   return (
     <div
       key={wonItem.id}
-      className={`flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 transition-colors group ${
+      className={`flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 transition-colors group ${
         isOverdue 
           ? "border-red-500 bg-red-50/20 shadow-sm" 
           : "border-slate-100 hover:border-[#FEBA4F]"
       }`}
     >
       <div
-        className={`w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md transition-transform ${
+        className={`w-24 h-24 md:w-32 md:h-32 shrink-0 bg-slate-100 rounded-2xl md:rounded-3xl overflow-hidden shadow-md transition-transform ${
           isOverdue ? "cursor-not-allowed opacity-80" : "cursor-pointer group-hover:scale-105"
         }`}
         onClick={() => {
@@ -426,7 +583,7 @@ const WonAuctionItem: React.FC<{
       </div>
       <div className="flex-1 text-center md:text-left">
         <h3
-          className={`text-2xl font-black uppercase tracking-tighter mb-2 transition-colors ${
+          className={`text-xl md:text-2xl font-black uppercase tracking-tighter mb-2 transition-colors ${
             isOverdue 
               ? "text-slate-700 cursor-not-allowed" 
               : "text-[#0A1128] cursor-pointer hover:text-[#FEBA4F]"
@@ -442,7 +599,7 @@ const WonAuctionItem: React.FC<{
         </h3>
         
         {isPaid ? (
-          <div className="flex items-center justify-center md:justify-start gap-4 text-sm font-bold text-slate-400 mt-2">
+          <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 md:gap-4 text-sm font-bold text-slate-400 mt-2">
             <span className="flex items-center gap-1.5 bg-slate-100 px-3 py-1.5 rounded-xl border border-slate-200">
               <Gavel size={16} /> Plačani znesek:{" "}
               <span className="text-[#0A1128] font-black">
@@ -459,14 +616,14 @@ const WonAuctionItem: React.FC<{
               </span>
             </div>
             <div className="flex justify-between">
-              <span>Provizija platforme ({preview ? `${preview.feePercent} %` : "..."}):</span>
+              <span>{preview?.feeIsMinimum ? "Provizija platforme (minimalna)" : `Provizija platforme (${preview ? `${preview.feePercent} %` : "..."}):`}</span>
               <span className="text-[#0A1128]">
                 {preview ? `€${(preview.feeCents / 100).toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : "..."}
               </span>
             </div>
             {preview?.feeIsMinimum && (
-              <p className="text-[10px] text-slate-400 font-bold -mt-1">
-                Uporabljena je minimalna provizija, ki pokriva stroške plačilnega sistema.
+              <p className="text-[10px] text-slate-400 -mt-1">
+                Uporabljena je minimalna provizija 1,00 €.
               </p>
             )}
             <div className="flex justify-between">
@@ -490,7 +647,13 @@ const WonAuctionItem: React.FC<{
 
         {!isPaid && (
           <div className="mt-2 flex items-center justify-center md:justify-start">
-            <PaymentTimer endTime={wonItem.endTime} />
+            <PaymentTimer endTime={wonItem.endTime} deadlineAt={isSecondOffer ? secondDeadline : ((wonItem as any).post_auction_status === 'awaiting_payment_2nd' ? (wonItem as any).payment_deadline : undefined)} />
+          </div>
+        )}
+
+        {isSecondOffer && !isOverdue && (
+          <div className="mt-3 p-3.5 bg-amber-50 border border-amber-200 rounded-2xl text-xs font-bold text-amber-900 leading-relaxed">
+            Prodajalec vam ponuja ta predmet po vaši ponudbi <strong>€{rawItemPrice.toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong>. Ponudbo morate sprejeti v roku 24 ur (glejte odštevanje). Ko jo sprejmete, imate za plačilo še 24 ur. Če ponudbe ne želite, jo zavrnite ali ne storite ničesar – opomin ne bo izdan; opomin prejmete le, če ponudbo sprejmete in ne plačate.
           </div>
         )}
 
@@ -499,7 +662,11 @@ const WonAuctionItem: React.FC<{
           <div className="mt-3 p-3.5 bg-red-100/70 border border-red-200 rounded-2xl text-xs font-bold text-red-700 flex items-start sm:items-center gap-2.5">
             <AlertTriangle size={18} className="text-red-600 shrink-0 mt-0.5 sm:mt-0" />
             <span>
-              Zaradi neplačila v roku 48 ur ste prejeli <strong className="font-black text-red-800">{strikeOrdinal}</strong>. {(userData as any)?.isBlocked || ((userData as any)?.unpaidStrikes || 0) >= 3 ? "Vaš račun je trajno blokiran za ponujanje na dražbah." : "Pri 3 opominih se račun avtomatsko blokira."}
+              {strikeApplied ? (
+                <>Zaradi neplačila v roku 48 ur ste prejeli <strong className="font-black text-red-800">{strikeOrdinal}</strong>. {(userData as any)?.isBlocked || ((userData as any)?.unpaidStrikes || 0) >= 3 ? "Vaš račun je trajno blokiran za ponujanje na dražbah." : "Pri 3 opominih se račun avtomatsko blokira."}</>
+              ) : (
+                <>Rok za plačilo je potekel.</>
+              )}
             </span>
           </div>
         )}
@@ -522,127 +689,71 @@ const WonAuctionItem: React.FC<{
               )}
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 w-full shrink-0">
-              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                <button
-                  onClick={() => {
-                    navigateTo("detail", { selectedItem: wonItem });
-                  }}
-                  className="bg-slate-100 text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] transition-all shadow-sm flex items-center justify-center gap-2 h-[42px]"
-                >
-                  Odpri dražbo
-                </button>
-                
-                <button
-                  onClick={async () => {
-                    let seller = transactionPartners.get(wonItem.id);
-                    if (!seller) {
-                      try {
-                        const token = await user?.getIdToken();
-                        const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
-                          headers: { 'Authorization': `Bearer ${token}` }
+            {/* Gemeinsame WinnerActions-Komponente fuer den Gewinner (DEL D) */}
+            <WinnerActions
+              wonItem={wonItem}
+              user={user}
+              isPaid={isPaid}
+              setReceiptConfirmModal={setReceiptConfirmModal}
+              openReviewModal={openReviewModal}
+              canLeaveReview={canLeaveReview}
+              onRefreshWonItems={fetchAuctions}
+              onOpenMessages={(auctionId) => {
+                setActiveConversationId(auctionId);
+                setActiveView("messages");
+                window.scrollTo({
+                  top: 0,
+                  behavior: "instant",
+                });
+              }}
+              onOpenInvoice={async () => {
+                let seller = transactionPartners.get(wonItem.id);
+                if (!seller) {
+                  try {
+                    const token = await user?.getIdToken();
+                    const res = await fetch(`/api/transactions/partner-info?auction_id=${wonItem.id}`, {
+                      headers: { 'Authorization': `Bearer ${token}` }
+                    });
+                    if (res.ok) {
+                      const data = await res.json();
+                      if (data?.success && data?.partner) {
+                        seller = data.partner;
+                        setTransactionPartners(prev => {
+                          const next = new Map(prev);
+                          next.set(wonItem.id, data.partner);
+                          return next;
                         });
-                        if (res.ok) {
-                          const data = await res.json();
-                          if (data?.success && data?.partner) {
-                            seller = data.partner;
-                            setTransactionPartners(prev => {
-                              const next = new Map(prev);
-                              next.set(wonItem.id, data.partner);
-                              return next;
-                            });
-                          }
-                        }
-                      } catch (e) {
-                        console.warn("Error fetching seller details:", e);
                       }
                     }
-                    setInvoiceModalData({
-                      isOpen: true,
-                      auction: wonItem,
-                      seller: seller || null,
-                      buyer: userData
-                    });
-                  }}
-                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-1.5 h-[42px] mt-auto"
-                >
-                  <FileText size={14} /> Račun
-                </button>
-                
-                <button
-                  onClick={() => setTimelineModalAuctionId(wonItem.id)}
-                  className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:border-[#FEBA4F] transition-all flex items-center justify-center gap-1.5 h-[42px] mt-2"
-                >
-                  <Clock size={14} /> Status plačila
-                </button>
-              </div>
-
-              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                {wonItem.delivery_method !== "post" ? (
-                  <button
-                    onClick={() => {
-                      setActiveConversationId(wonItem.id);
-                      setActiveView("messages");
-                      window.scrollTo({
-                        top: 0,
-                        behavior: "instant",
-                      });
-                    }}
-                    className="bg-[#FEBA4F] text-[#0A1128] px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 h-[42px]"
-                  >
-                    <MessageSquare size={14} /> Sporočila
-                  </button>
-                ) : (
-                  <div className="h-[42px] hidden sm:block"></div>
-                )}
-
-                <div className="flex flex-col items-center justify-center gap-2 mt-auto h-[42px] w-full">
-                  {wonItem.buyer_received ? (
-                    <div className="text-green-500 font-bold text-[10px] uppercase flex items-center gap-1 w-full justify-center bg-green-50 py-2 rounded-xl border border-green-100 h-[42px]">
-                      <CheckCircle2 size={12} /> Predmet prejet
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() =>
-                        setReceiptConfirmModal({
-                          isOpen: true,
-                          auctionId: wonItem.id,
-                          sellerId: wonItem.sellerId,
-                        })
-                      }
-                      className="bg-white border-2 border-slate-200 text-[#0A1128] px-4 py-2 rounded-xl font-bold text-[10px] uppercase tracking-widest hover:border-[#FEBA4F] transition-all w-full h-[42px] flex items-center justify-center"
-                    >
-                      Potrdi prejem
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex flex-col gap-3 flex-1 min-w-[140px]">
-                {(wonItem as any).review_submitted ? (
-                  <button
-                    onClick={() => openReviewModal(wonItem)}
-                    className="bg-green-50 text-green-700 border-2 border-green-200 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] hover:bg-green-100 transition-all flex items-center justify-center gap-1.5 h-[42px] shadow-sm"
-                    title="Vaša oddana ocena za prodajalca"
-                  >
-                    <Star size={14} className="text-[#FEBA4F] fill-[#FEBA4F]" />
-                    <span>Ocenjeno ({(wonItem as any).review_rating || 5}★)</span>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => openReviewModal(wonItem)}
-                    className="bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] border-2 border-[#FEBA4F]/40 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-[11px] transition-all shadow-md flex items-center justify-center gap-1.5 h-[42px]"
-                    title="Oddajte oceno za prodajalca"
-                  >
-                    <Star size={14} className="fill-current" />
-                    <span>Oceni prodajalca</span>
-                  </button>
-                )}
-              </div>
-            </div>
+                  } catch (e) {
+                    console.warn("Error fetching seller details:", e);
+                  }
+                }
+                setInvoiceModalData({
+                  isOpen: true,
+                  auction: wonItem,
+                  seller: seller || null,
+                  buyer: userData
+                });
+              }}
+              onOpenDetail={(item) => {
+                navigateTo("detail", { selectedItem: item });
+              }}
+              onOpenTimeline={(auctionId) => {
+                setTimelineModalAuctionId(auctionId);
+              }}
+              onOpenDeliveryChooser={setDeliveryMethodModal ? (auctionId) => {
+                setDeliveryMethodModal({
+                  isOpen: true,
+                  auctionId,
+                  deliveryMethod: null,
+                });
+              } : undefined}
+              layout="card"
+            />
           </div>
         ) : isOverdue ? (
-          <div className="flex flex-col gap-2 w-full lg:w-auto min-w-[220px]">
+          <div className="flex flex-col gap-2 w-full lg:w-auto lg:min-w-[220px]">
             <button
               disabled
               className="bg-red-100 text-red-600 border border-red-200 px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs cursor-not-allowed flex items-center justify-center gap-2 opacity-80 shadow-none w-full"
@@ -657,50 +768,121 @@ const WonAuctionItem: React.FC<{
           <div className="flex flex-col gap-2 w-full">
             {wonItem.post_auction_status !== 'offered_2nd' && wonItem.post_auction_status !== 'rejected_2nd' && (
               <div className="flex flex-col gap-1.5 w-full">
-                <button
-                  disabled={previewLoading || !preview}
-                  onClick={async () => {
-                    setCheckoutData({
-                      amount: totalAmountToPay,
-                      title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
-                      onSuccess: async () => {
-                        setIsCheckoutOpen(false);
-                        toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
-                        fetchAuctions();
-                        if (userData?.id) refreshUserData(userData.id);
-                      },
-                      metadata: {
-                        auction_id: wonItem.id,
-                        buyer_id: userData.id,
-                        seller_id: wonItem.sellerId,
-                        buyer_data: userData,
-                      },
-                    });
-                    setIsCheckoutOpen(true);
-                  }}
-                  className={`px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
-                    previewLoading || !preview
-                      ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
-                      : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
-                  }`}
-                >
-                  {previewLoading ? (
-                    <>
-                      <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
-                      <span>Nalaganje izračuna...</span>
-                    </>
-                  ) : (
-                    <>
-                      <CardIcon size={18} /> Plačaj zdaj
-                    </>
-                  )}
-                </button>
+                {wonItem.bank_transfer_final_chance === true && wonItem.bank_transfer_pending !== true && (
+                  <div className="bg-red-50 border border-red-200 rounded-2xl p-3 text-left">
+                    <p className="text-red-600 text-xs font-black uppercase tracking-wider">
+                      Zadnja priložnost: plačilo s kartico do {new Date(wonItem.payment_deadline).toLocaleString('sl-SI', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    </p>
+                  </div>
+                )}
+                {wonItem.bank_transfer_pending === true ? (
+                  <div className="bg-amber-500/10 border border-[#FEBA4F]/20 rounded-2xl p-4 text-left">
+                    <p className="text-[#FEBA4F] text-xs font-black uppercase tracking-wider mb-1 flex items-center gap-1.5">
+                      <ShieldCheck size={14} /> Plačilo v obdelavi
+                    </p>
+                    <p className="text-slate-500 text-xs font-bold leading-normal mb-3">
+                      Plačilo z bančnim nakazilom (SEPA) je v obdelavi. Počakajte na potrditev s strani našega plačilnega partnerja.
+                    </p>
+                    <button
+                      onClick={handleOpenBankTransferInstructions}
+                      disabled={openingInstructions}
+                      className="w-full text-xs bg-[#0A1128] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl transition-all shadow-md flex items-center justify-center gap-2 disabled:opacity-50 cursor-pointer"
+                    >
+                      {openingInstructions ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                          <span>Nalaganje navodil...</span>
+                        </>
+                      ) : (
+                        <>
+                          <ExternalLink size={14} />
+                          <span>Odpri navodila za nakazilo</span>
+                        </>
+                      )}
+                    </button>
+                    <LoadingButton
+                      onClick={() => setShowCancelConfirm(true)}
+                      disabled={cancellingBt}
+                      loading={cancellingBt}
+                      loadingText="Prekinjam..."
+                      className="w-full text-xs bg-slate-800 hover:bg-slate-700 text-white font-black uppercase tracking-wider py-3 px-4 rounded-xl border border-slate-700 transition-all disabled:opacity-50 cursor-pointer mt-2"
+                    >
+                      Raje plačam s kartico
+                    </LoadingButton>
+                    <p className="text-[11px] text-slate-400 font-bold leading-snug mt-2.5 text-center">
+                      Če nakazila še niste poslali, ga lahko kadarkoli zamenjate s plačilom s kartico.
+                    </p>
+                  </div>
+                ) : (
+                  <LoadingButton
+                    disabled={previewLoading || !preview}
+                    loadingText="Odpiram plačilo..."
+                    onClick={async () => {
+                      setCheckoutData({
+                        amount: totalAmountToPay,
+                        title: `${t("paymentFor")}: ${wonItem.title[language as keyof typeof wonItem.title] || wonItem.title.SLO}`,
+                        onSuccess: async () => {
+                          setIsCheckoutOpen(false);
+                          toast.success(t("paymentSuccessEmail") || "Plačilo sprejeto. Potrditev lahko traja nekaj sekund.");
+                          fetchAuctions();
+                          if (userData?.id) refreshUserData(userData.id);
+                        },
+                        metadata: {
+                          auction_id: wonItem.id,
+                          buyer_id: userData.id,
+                          seller_id: wonItem.sellerId,
+                          buyer_data: userData,
+                          payment_deadline: wonItem.payment_deadline,
+                          endTime: wonItem.endTime || wonItem.end_time,
+                          bank_transfer_used: wonItem.bank_transfer_used
+                        },
+                      });
+                      setIsCheckoutOpen(true);
+                    }}
+                    className={`px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm transition-all shadow-xl flex items-center justify-center gap-2 ${
+                      previewLoading || !preview
+                        ? 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                        : 'bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128]'
+                    }`}
+                  >
+                    {previewLoading ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-slate-400 border-t-transparent rounded-full animate-spin" />
+                        <span>Nalaganje izračuna...</span>
+                      </>
+                    ) : (
+                      <>
+                        <CardIcon size={18} /> Plačaj zdaj
+                      </>
+                    )}
+                  </LoadingButton>
+                )}
                 {!isPaid && !previewLoading && !preview && previewError && (
                   <p className="text-red-500 text-xs font-bold text-center mt-1">
                     Izračuna zneska ni bilo mogoče pridobiti. Osvežite stran.
                   </p>
                 )}
               </div>
+            )}
+            {isSecondOffer && (
+              <LoadingButton
+                loading={respondingOffer}
+                loadingText="Sprejemam..."
+                onClick={handleAcceptOffer}
+                className="bg-[#0A1128] text-white hover:bg-[#FEBA4F] hover:text-[#0A1128] px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm flex items-center justify-center gap-2"
+              >
+                Sprejmi ponudbo
+              </LoadingButton>
+            )}
+            {isSecondOffer && (
+              <LoadingButton
+                loading={respondingOffer}
+                loadingText="Zavračam..."
+                onClick={handleRejectOffer}
+                className="bg-slate-100 hover:bg-slate-200 text-slate-700 px-4 md:px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-xs flex items-center justify-center gap-2"
+              >
+                Zavrni ponudbo
+              </LoadingButton>
             )}
             {wonItem.delivery_method !== "post" && (
               <button
@@ -712,7 +894,7 @@ const WonAuctionItem: React.FC<{
                     behavior: "instant",
                   });
                 }}
-                className="bg-[#FEBA4F] text-[#0A1128] px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
+                className="bg-[#FEBA4F] text-[#0A1128] px-4 md:px-8 py-3 md:py-3 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2"
               >
                 <MessageSquare size={18} /> Sporočila
               </button>
@@ -720,6 +902,52 @@ const WonAuctionItem: React.FC<{
           </div>
         )}
       </div>
+
+      {showCancelConfirm && (
+        <Portal>
+          {/* Deutscher Kommentar: Responsives Bestaetigungsmodal fuer Stornierung der Bankueberweisung */}
+          <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-4">
+            <div 
+              className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" 
+              onClick={() => { if (!cancellingBt) setShowCancelConfirm(false); }} 
+            />
+            <div className="relative bg-white border border-slate-200 rounded-3xl p-5 sm:p-8 max-w-md w-full shadow-2xl text-center z-10 animate-in fade-in zoom-in-95 duration-200 max-h-[92dvh] overflow-y-auto">
+              <div className="bg-amber-100 w-14 h-14 sm:w-16 sm:h-16 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-5 text-amber-600">
+                <AlertCircle size={28} />
+              </div>
+              <h3 className="text-lg sm:text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-2 sm:mb-3">
+                Preklic bančnega nakazila
+              </h3>
+              <p className="text-slate-600 font-bold mb-5 sm:mb-6 text-xs sm:text-sm leading-relaxed">
+                Nakazilo bo preklicano. Če ste denar že nakazali, plačila ne preklicujte. Nadaljujem?
+              </p>
+              <div className="flex flex-col gap-2.5">
+                <button
+                  onClick={handleCancelBankTransfer}
+                  disabled={cancellingBt}
+                  className="w-full bg-red-600 hover:bg-red-700 text-white py-3.5 px-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 flex items-center justify-center gap-2 cursor-pointer shadow-lg min-h-[44px]"
+                >
+                  {cancellingBt ? (
+                    <>
+                      <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>Prekinjam...</span>
+                    </>
+                  ) : (
+                    <span>Prekliči nakazilo</span>
+                  )}
+                </button>
+                <button
+                  onClick={() => setShowCancelConfirm(false)}
+                  disabled={cancellingBt}
+                  className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-wider text-xs transition-all disabled:opacity-50 cursor-pointer min-h-[40px] flex items-center justify-center"
+                >
+                  Nazaj
+                </button>
+              </div>
+            </div>
+          </div>
+        </Portal>
+      )}
     </div>
   );
 };
@@ -756,6 +984,36 @@ const MainApp: React.FC = () => {
   const profilesMapRef = useRef(profilesMap);
   profilesMapRef.current = profilesMap;
 
+  // Deutscher Kommentar: State fuer geladene Liefermethoden aus den Transaktionen
+  const [deliveryMethodsMap, setDeliveryMethodsMap] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    const curUser = auth.currentUser;
+    if (!curUser) {
+      setDeliveryMethodsMap({});
+      return;
+    }
+    let isMounted = true;
+    async function fetchDeliveryMethods() {
+      try {
+        const token = await curUser?.getIdToken();
+        const res = await fetch('/api/orders/delivery-methods', {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted && data && typeof data === 'object') {
+            setDeliveryMethodsMap(data);
+          }
+        }
+      } catch (e) {
+        console.warn("Error fetching delivery-methods:", e);
+      }
+    }
+    fetchDeliveryMethods();
+    return () => { isMounted = false; };
+  }, []);
+
   const auctions = useMemo(() => {
     const combinedMap = new Map<string, any>();
     extraAuctions.forEach((item) => {
@@ -790,6 +1048,8 @@ const MainApp: React.FC = () => {
         payment_status: isItemPaid ? "paid" : (d.payment_status || "unpaid"),
         post_auction_status: d.post_auction_status,
         paid_at: d.paid_at,
+        delivery_method: d.delivery_method || d.selected_delivery || deliveryMethodsMap[d.id],
+        selected_delivery: d.selected_delivery || deliveryMethodsMap[d.id],
         sellerName: sellerName,
         seller: { 
           id: sellerId, 
@@ -804,7 +1064,7 @@ const MainApp: React.FC = () => {
         }
       } as AuctionItem;
     });
-  }, [rawAuctions, extraAuctions, profilesMap]);
+  }, [rawAuctions, extraAuctions, profilesMap, deliveryMethodsMap]);
   const [lastSeenWinnings, setLastSeenWinnings] = useState(() => Number(localStorage.getItem('last_seen_winnings') || "0"));
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
@@ -855,6 +1115,12 @@ const MainApp: React.FC = () => {
       checkPath.startsWith("/abonnements")
     )
       return "subscriptions";
+    if (
+      checkPath.startsWith("/admin/racunovodstvo") ||
+      checkPath.startsWith("/admin/accounting") ||
+      checkPath.startsWith("/admin/buchhaltung")
+    )
+      return "adminAccounting";
     if (checkPath.startsWith("/prijava") || checkPath.startsWith("/login") || checkPath.startsWith("/anmelden"))
       return "login";
     if (
@@ -956,6 +1222,7 @@ const MainApp: React.FC = () => {
     reserved_cents: 0,
   });
   const [myBidsMap, setMyBidsMap] = useState<Map<string, number>>(new Map());
+  const [bankTransferUsedMap, setBankTransferUsedMap] = useState<Record<string, boolean>>({});
   const bidAuctionIds = useMemo(() => {
     if (!userData?.id) return [];
     return Array.from(myBidsMap.keys());
@@ -973,13 +1240,12 @@ const MainApp: React.FC = () => {
     item: AuctionItem;
     amount: number;
   } | null>(null);
-  const [selectedRegion, setSelectedRegion] = useState<Region | null>(null);
-  const [selectedCategory, setSelectedCategory] = useState<Category | null>(
-    null,
-  );
+  // Regionen- und Kategoriefilter als Arrays für Mehrfachauswahl
+  const [selectedRegions, setSelectedRegions] = useState<Region[]>([]);
+  const [selectedCategories, setSelectedCategories] = useState<Category[]>([]);
   const [categoryFilters, setCategoryFilters] = useState<FilterState>({
-    delivery_option: undefined,
-    condition: undefined,
+    delivery_options: [],
+    conditions: [],
     specifications: {}
   });
   const [showFilters, setShowFilters] = useState<boolean>(() => {
@@ -994,16 +1260,26 @@ const MainApp: React.FC = () => {
   });
   const [isMobileFiltersOpen, setIsMobileFiltersOpen] = useState(false);
 
+  // Zählung der aktiven Filter für Badges
   const activeCategoryFilterCount = useMemo(() => {
     return (
-      (categoryFilters.delivery_option ? 1 : 0) +
-      (categoryFilters.condition ? 1 : 0) +
-      Object.keys(categoryFilters.specifications).filter(k => !!categoryFilters.specifications[k]).length
+      selectedCategories.length +
+      selectedRegions.length +
+      (categoryFilters.delivery_options?.length || 0) +
+      (categoryFilters.conditions?.length || 0) +
+      Object.values(categoryFilters.specifications || {}).reduce((acc, vals) => acc + (vals?.length || 0), 0)
     );
-  }, [categoryFilters]);
+  }, [selectedCategories, selectedRegions, categoryFilters]);
   const [selectedItem, setSelectedItem] = useState<AuctionItem | null>(null);
   const [selectedSeller, setSelectedSeller] = useState<Seller | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  // Deutscher Kommentar: Listener fuer aktive Auktionen ist begrenzt (zuerst die am schnellsten endenden); bei Suche/Filter wird automatisch bis 600 geladen
+  const AUCTIONS_PAGE_SIZE = 200;
+  const AUCTIONS_MAX_WITH_FILTERS = 600;
+  const [auctionsLimit, setAuctionsLimit] = useState(AUCTIONS_PAGE_SIZE);
+  const [auctionsUnlimited, setAuctionsUnlimited] = useState(false);
+  const hasActiveListFilters = searchQuery.trim().length > 0 || activeCategoryFilterCount > 0;
+  const effectiveAuctionsLimit = hasActiveListFilters ? Math.max(auctionsLimit, AUCTIONS_MAX_WITH_FILTERS) : auctionsLimit;
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -1025,7 +1301,7 @@ const MainApp: React.FC = () => {
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices'>('profile');
   const [appMissingInvoiceDataModal, setAppMissingInvoiceDataModal] = useState<{
     isOpen: boolean;
     missingFields: any[];
@@ -1069,15 +1345,16 @@ const MainApp: React.FC = () => {
   }, [activeView, userData?.id, republishData]);
 
   // Robust Universal Navigation History Stack
+  // Robuster Navigationsverlauf mit Mehrfachauswahl-Filtern
   interface NavigationEntry {
     view: ViewState;
     selectedItem: AuctionItem | null;
     selectedSeller: Seller | null;
     selectedPackageId: string | null;
-    selectedCategory: Category | null;
-    selectedRegion: Region | null;
+    selectedCategories: Category[];
+    selectedRegions: Region[];
     searchQuery: string;
-    settingsTab: 'profile' | 'personal' | 'stripe' | 'notifications';
+    settingsTab: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices';
     activeConversationId: string | null;
     createMode: 'choice' | 'single' | 'package';
     republishData: any;
@@ -1090,8 +1367,8 @@ const MainApp: React.FC = () => {
     selectedItem,
     selectedSeller,
     selectedPackageId,
-    selectedCategory,
-    selectedRegion,
+    selectedCategories,
+    selectedRegions,
     searchQuery,
     settingsTab,
     activeConversationId,
@@ -1102,8 +1379,8 @@ const MainApp: React.FC = () => {
     selectedItem,
     selectedSeller,
     selectedPackageId,
-    selectedCategory,
-    selectedRegion,
+    selectedCategories,
+    selectedRegions,
     searchQuery,
     settingsTab,
     activeConversationId,
@@ -1134,8 +1411,8 @@ const MainApp: React.FC = () => {
         if (overrides.selectedItem !== undefined) setSelectedItem(overrides.selectedItem);
         if (overrides.selectedSeller !== undefined) setSelectedSeller(overrides.selectedSeller);
         if (overrides.selectedPackageId !== undefined) setSelectedPackageId(overrides.selectedPackageId);
-        if (overrides.selectedCategory !== undefined) setSelectedCategory(overrides.selectedCategory);
-        if (overrides.selectedRegion !== undefined) setSelectedRegion(overrides.selectedRegion);
+        if (overrides.selectedCategories !== undefined) setSelectedCategories(overrides.selectedCategories);
+        if (overrides.selectedRegions !== undefined) setSelectedRegions(overrides.selectedRegions);
         if (overrides.searchQuery !== undefined) setSearchQuery(overrides.searchQuery);
         if (overrides.settingsTab !== undefined) setSettingsTab(overrides.settingsTab);
         if (overrides.activeConversationId !== undefined) setActiveConversationId(overrides.activeConversationId);
@@ -1143,37 +1420,32 @@ const MainApp: React.FC = () => {
         if (overrides.republishData !== undefined) setRepublishData(overrides.republishData);
       }
 
+      // Zugriffsschutz fuer geschlossene Auktionen (DEL E)
+      if (targetView === "detail") {
+        const itemToCheck = overrides?.selectedItem !== undefined ? overrides.selectedItem : selectedItem;
+        if (itemToCheck && !canViewAuction(itemToCheck, auth.currentUser, userData)) {
+          toast.info("Dražba je zaključena.");
+          setActiveView("grid");
+          return;
+        }
+      }
+
       setActiveView(targetView);
       if (options?.scrollToTop !== false) {
         window.scrollTo({ top: 0, behavior: "instant" });
       }
     },
-    [captureCurrentNavState]
+    [captureCurrentNavState, userData, selectedItem]
   );
 
-  // Globaler Hinweis: Antwortet der Server mit TERMS_REQUIRED, wird der Nutzer zur Zustimmung weitergeleitet
+  // Weiterleitung zur Zustimmung, wenn der Server TERMS_REQUIRED meldet
   useEffect(() => {
-    const originalFetch = window.fetch;
-    let lastRedirect = 0;
-    window.fetch = async (...args) => {
-      const response = await originalFetch(...args);
-      if (response.status === 403) {
-        try {
-          const data = await response.clone().json();
-          if (data?.code === 'TERMS_REQUIRED' && Date.now() - lastRedirect > 3000) {
-            lastRedirect = Date.now();
-            toast.error("Za to dejanje morate sprejeti posodobljene pogoje uporabe.");
-            navigateTo("acceptTerms");
-          }
-        } catch {
-          // Keine JSON-Antwort: ignorieren
-        }
-      }
-      return response;
+    const handler = () => {
+      toast.error("Za to dejanje morate sprejeti posodobljene pogoje uporabe.");
+      navigateTo("acceptTerms");
     };
-    return () => {
-      window.fetch = originalFetch;
-    };
+    window.addEventListener('terms-required', handler);
+    return () => window.removeEventListener('terms-required', handler);
   }, [navigateTo]);
 
   const goBack = useCallback(
@@ -1184,8 +1456,8 @@ const MainApp: React.FC = () => {
         setSelectedItem(previous.selectedItem ?? null);
         setSelectedSeller(previous.selectedSeller ?? null);
         setSelectedPackageId(previous.selectedPackageId ?? null);
-        setSelectedCategory(previous.selectedCategory ?? null);
-        setSelectedRegion(previous.selectedRegion ?? null);
+        setSelectedCategories(previous.selectedCategories ?? []);
+        setSelectedRegions(previous.selectedRegions ?? []);
         setSearchQuery(previous.searchQuery ?? "");
         setSettingsTab(previous.settingsTab ?? "profile");
         setActiveConversationId(previous.activeConversationId ?? null);
@@ -1248,7 +1520,8 @@ const MainApp: React.FC = () => {
       myUnsold: { SLO: "/neprodano", EN: "/my-unsold", DE: "/unverkauft" },
       watchlist: { SLO: "/seznam-zelja", EN: "/watchlist", DE: "/beobachtungsliste" },
       lastChance: { SLO: "/zadnja-priloznost", EN: "/last-chance", DE: "/letzte-chance" },
-      verification: { SLO: "/verifikacija", EN: "/verification", DE: "/verifizierung" }
+      verification: { SLO: "/verifikacija", EN: "/verification", DE: "/verifizierung" },
+      adminAccounting: { SLO: "/admin/racunovodstvo", EN: "/admin/accounting", DE: "/admin/buchhaltung" }
     };
 
     if (localizedPaths[activeView]) {
@@ -1264,18 +1537,18 @@ const MainApp: React.FC = () => {
     } else if (activeView === "sellerProfile" && selectedSeller?.id) {
       params.set("id", selectedSeller.id);
     } else if (activeView === "grid") {
-      if (selectedCategory) {
+      if (selectedCategories.length > 0) {
         const catKey = QUERY_PARAM_MAP.category[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.category.SLO;
-        const catValue = CATEGORY_URL_MAP[selectedCategory]?.[language as 'SLO' | 'EN' | 'DE'] || CATEGORY_URL_MAP[selectedCategory]?.SLO;
-        if (catValue) {
-          params.set(catKey, catValue);
+        const catValues = selectedCategories.map(c => CATEGORY_URL_MAP[c]?.[language as 'SLO' | 'EN' | 'DE'] || CATEGORY_URL_MAP[c]?.SLO).filter(Boolean);
+        if (catValues.length > 0) {
+          params.set(catKey, catValues.join(','));
         }
       }
-      if (selectedRegion) {
+      if (selectedRegions.length > 0) {
         const regKey = QUERY_PARAM_MAP.region[language as 'SLO' | 'EN' | 'DE'] || QUERY_PARAM_MAP.region.SLO;
-        const regValue = REGION_URL_MAP[selectedRegion]?.[language as 'SLO' | 'EN' | 'DE'] || REGION_URL_MAP[selectedRegion]?.SLO;
-        if (regValue) {
-          params.set(regKey, regValue);
+        const regValues = selectedRegions.map(r => REGION_URL_MAP[r]?.[language as 'SLO' | 'EN' | 'DE'] || REGION_URL_MAP[r]?.SLO).filter(Boolean);
+        if (regValues.length > 0) {
+          params.set(regKey, regValues.join(','));
         }
       }
     } else if (activeView === "settings") {
@@ -1304,16 +1577,21 @@ const MainApp: React.FC = () => {
 
     // Always persist to local storage for the watchdog
     localStorage.setItem("last_active_route", newUrl);
-  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language, selectedCategory, selectedRegion, settingsTab]);
+  }, [activeView, activeConversationId, selectedItem?.id, selectedSeller?.id, language, selectedCategories, selectedRegions, settingsTab]);
 
   // Initial Hydration from URL or LocalStorage
   useEffect(() => {
+    // Deutscher Kommentar: Wenn ein QR-Abholvorgang aussteht, Route-Wiederherstellung ueberspringen
+    const hasPendingQr = (() => {
+      try { return !!sessionStorage.getItem('pending_prevzem_qr'); } catch (e) { return false; }
+    })();
+
     const isSessionActive = sessionStorage.getItem("session_tab_active");
     if (!isSessionActive) {
       sessionStorage.setItem("session_tab_active", "true");
       setActiveView("grid");
-      setSelectedCategory(null);
-      setSelectedRegion(null);
+      setSelectedCategories([]);
+      setSelectedRegions([]);
       setSearchQuery("");
       setSelectedItem(null);
       setSelectedSeller(null);
@@ -1324,8 +1602,16 @@ const MainApp: React.FC = () => {
       if (language === "EN") cleanPath = "/en/";
       else if (language === "DE") cleanPath = "/de/";
 
-      window.history.replaceState(null, "", cleanPath);
-      localStorage.setItem("last_active_route", cleanPath);
+      if (!hasPendingQr) {
+        window.history.replaceState(null, "", cleanPath);
+        localStorage.setItem("last_active_route", cleanPath);
+      }
+      setTimeout(() => setIsHydrating(false), 50);
+      return;
+    }
+
+    if (hasPendingQr) {
+      setActiveView("grid");
       setTimeout(() => setIsHydrating(false), 50);
       return;
     }
@@ -1362,37 +1648,47 @@ const MainApp: React.FC = () => {
 
     const hydrateState = async () => {
       // Decode and map category, region, settings tab first so state is fully prepared
-      let categoryToSet: Category | null = null;
-      let regionToSet: Region | null = null;
+      let categoriesToSet: Category[] = [];
+      let regionsToSet: Region[] = [];
       let tabToSet: 'profile' | 'personal' | 'stripe' = 'profile';
 
       for (const [key, value] of searchParams.entries()) {
         const lowerKey = key.toLowerCase();
         if (lowerKey === "kategorija" || lowerKey === "category" || lowerKey === "kategorie") {
-          const decodedCat = slugToCategory(value);
-          if (decodedCat) categoryToSet = decodedCat;
+          const parts = value.split(',');
+          for (const p of parts) {
+            const decodedCat = slugToCategory(p.trim());
+            if (decodedCat && !categoriesToSet.includes(decodedCat)) categoriesToSet.push(decodedCat);
+          }
         }
         if (lowerKey === "regija" || lowerKey === "region") {
-          const decodedReg = slugToRegion(value);
-          if (decodedReg) regionToSet = decodedReg;
+          const parts = value.split(',');
+          for (const p of parts) {
+            const decodedReg = slugToRegion(p.trim());
+            if (decodedReg && !regionsToSet.includes(decodedReg)) regionsToSet.push(decodedReg);
+          }
         }
         if (lowerKey === "zavihek" || lowerKey === "tab") {
           tabToSet = slugToSettingsTab(value);
         }
       }
 
-      if (categoryToSet) setSelectedCategory(categoryToSet);
-      if (regionToSet) setSelectedRegion(regionToSet);
+      if (categoriesToSet.length > 0) setSelectedCategories(categoriesToSet);
+      if (regionsToSet.length > 0) setSelectedRegions(regionsToSet);
       setSettingsTab(tabToSet);
+
+      const drazbaQueryId = searchParams.get("drazba");
+      const isAuctionPath = path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion");
+      const targetAuctionId = isAuctionPath ? id : (drazbaQueryId || null);
 
       if (path.startsWith("/sporocila") || path.startsWith("/messages") || path.startsWith("/nachrichten")) {
         if (id) setActiveConversationId(id);
         setActiveView("messages");
-      } else if (path.startsWith("/drazba") || path.startsWith("/auction") || path.startsWith("/auktion")) {
-        if (id) {
-          let found = [].find((a) => a.id === id);
+      } else if (isAuctionPath || drazbaQueryId) {
+        if (targetAuctionId) {
+          let found = [].find((a) => a.id === targetAuctionId);
           if (!found) {
-            const snap = await getDoc(doc(db, 'auctions', id));
+            const snap = await getDoc(doc(db, 'auctions', targetAuctionId));
             const data: any = snap.exists() ? { id: snap.id, ...snap.data() } : null;
             if (data) {
               found = {
@@ -1406,13 +1702,19 @@ const MainApp: React.FC = () => {
                 paid_at: data.paid_at,
                 sellerName: data.sellerName || "",
                 delivery_method: data.delivery_method,
+                selected_delivery: data.selected_delivery,
                 buyer_received: data.buyer_received,
               };
             }
           }
           if (found) {
-            setSelectedItem(found);
-            setActiveView("detail");
+            if (!canViewAuction(found, auth.currentUser, null)) {
+              toast.info("Dražba je zaključena.");
+              setActiveView("grid");
+            } else {
+              setSelectedItem(found);
+              setActiveView("detail");
+            }
           } else {
             setActiveView("grid");
           }
@@ -1549,7 +1851,7 @@ const MainApp: React.FC = () => {
     }
   };
   const [activeLegal, setActiveLegal] = useState<
-    "terms" | "privacy" | "how" | null
+    "terms" | "privacy" | "how" | "cookies" | "imprint" | null
   >(null);
   const [currentPlan, setCurrentPlan] = useState<SubscriptionTier>(
     SubscriptionTier.FREE,
@@ -1569,17 +1871,138 @@ const MainApp: React.FC = () => {
     auctionId: string;
     deliveryMethod: "pickup" | "post" | null;
   }>({ isOpen: false, auctionId: "", deliveryMethod: null });
+  // Deutscher Kommentar: Ladezustand fuer das Speichern der Liefermethode
+  const [deliveryMethodSaving, setDeliveryMethodSaving] = useState(false);
   const [receiptConfirmModal, setReceiptConfirmModal] = useState<{
     isOpen: boolean;
     auctionId: string;
     sellerId: string;
-  }>({ isOpen: false, auctionId: "", sellerId: "" });
+    isPickup?: boolean;
+  }>({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
+  // Status fuer Lade- und Erfolgsanimation der Empfangsbestaetigung
+  const [receiptConfirmState, setReceiptConfirmState] = useState<'idle' | 'loading' | 'success'>('idle');
+  // Ladezustand fuer die API-Anfrage der Empfangsbestaetigung
+  const [receiptConfirmLoading, setReceiptConfirmLoading] = useState<boolean>(false);
+
+  useEffect(() => {
+    if (receiptConfirmModal.isOpen) {
+      setReceiptConfirmState('idle');
+      setReceiptConfirmLoading(false);
+    }
+  }, [receiptConfirmModal.isOpen]);
   const [timelineModalAuctionId, setTimelineModalAuctionId] = useState<string | null>(null);
+  const [copiedAddressId, setCopiedAddressId] = useState<string | null>(null);
   const [markShippedModal, setMarkShippedModal] = useState<{
     isOpen: boolean;
     auctionId: string;
     itemPrice: number;
   }>({ isOpen: false, auctionId: "", itemPrice: 0 });
+  const [verifyPickupPinModal, setVerifyPickupPinModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+  }>({ isOpen: false, auctionId: "" });
+  // Deutscher Kommentar: Zustand fuer In-App-Kamera-QR-Scanner
+  const [qrScannerModal, setQrScannerModal] = useState<{
+    isOpen: boolean;
+    auctionId: string;
+    auctionTitle?: string;
+  }>({ isOpen: false, auctionId: "", auctionTitle: "" });
+  const [pickupPinInput, setPickupPinInput] = useState("");
+  const [verifyPinLoading, setVerifyPinLoading] = useState(false);
+  const [user, setUser] = useState<any>(auth.currentUser);
+  // Deutscher Kommentar: Initialer Zustand fuer QR-Uebergabe direkt aus dem sessionStorage lesen
+  const [pendingPrevzemQr, setPendingPrevzemQr] = useState<{ auctionId: string; token: string } | null>(() => {
+    try {
+      const stored = typeof window !== 'undefined' ? sessionStorage.getItem('pending_prevzem_qr') : null;
+      return stored ? JSON.parse(stored) : null;
+    } catch (e) {
+      return null;
+    }
+  });
+  const [prevzemModalOpen, setPrevzemModalOpen] = useState(false);
+  const [prevzemLoading, setPrevzemLoading] = useState(false);
+  const [prevzemAuctionTitle, setPrevzemAuctionTitle] = useState("");
+  const [prevzemError, setPrevzemError] = useState<string | null>(null);
+
+  useEffect(() => {
+    // Deutscher Kommentar: Fallback falls Parameter noch in URL stehen
+    const params = new URLSearchParams(window.location.search);
+    const prevzem = params.get('prevzem');
+    const tParam = params.get('t');
+    if (prevzem && tParam) {
+      const data = { auctionId: prevzem, token: tParam };
+      setPendingPrevzemQr(data);
+      try { sessionStorage.setItem('pending_prevzem_qr', JSON.stringify(data)); } catch (e) {}
+      params.delete('prevzem');
+      params.delete('t');
+      const cleanSearch = params.toString() ? `?${params.toString()}` : '';
+      const newUrl = window.location.pathname + cleanSearch + window.location.hash;
+      window.history.replaceState({}, '', newUrl);
+    } else {
+      try {
+        const stored = sessionStorage.getItem('pending_prevzem_qr');
+        if (stored) {
+          setPendingPrevzemQr(JSON.parse(stored));
+        }
+      } catch (e) {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (isAuthLoading || !pendingPrevzemQr) return;
+
+    if (!user) {
+      setAuthMode('login');
+      navigateTo('login');
+      return;
+    }
+
+    let isMounted = true;
+    // Deutscher Kommentar: Modal sofort oeffnen (Titel und Fehler werden nachgeladen), damit der Bestaetigungs-Button ohne Verzoegerung sichtbar ist
+    setPrevzemModalOpen(true);
+    const safetyTimer = setTimeout(() => {}, 0);
+
+    async function loadHandoverInfo() {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`/api/orders/${pendingPrevzemQr!.auctionId}/handover-info`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        const data = await res.json();
+        if (!isMounted) return;
+        clearTimeout(safetyTimer);
+        if (res.ok) {
+          let resolvedTitle = "";
+          if (typeof data.title === 'string') {
+            resolvedTitle = data.title;
+          } else if (data.title && typeof data.title === 'object') {
+            resolvedTitle = data.title.SLO || data.title.EN || Object.values(data.title).find((v: any) => typeof v === 'string') || "Predmet dražbe";
+          }
+          setPrevzemAuctionTitle(resolvedTitle);
+          setPrevzemModalOpen(true);
+        } else {
+          toast.error(data.error || "Napaka pri nalaganju podatkov.");
+          if (res.status === 403) {
+            setPrevzemError(data.error);
+            setPrevzemModalOpen(true);
+          } else {
+            setPrevzemModalOpen(true);
+          }
+        }
+      } catch (e) {
+        if (!isMounted) return;
+        clearTimeout(safetyTimer);
+        setPrevzemModalOpen(true);
+      }
+    }
+
+    loadHandoverInfo();
+
+    return () => {
+      isMounted = false;
+      clearTimeout(safetyTimer);
+    };
+  }, [pendingPrevzemQr, user, isAuthLoading]);
   const [reviewModalData, setReviewModalData] = useState<{
     isOpen: boolean;
     auction: AuctionItem | null;
@@ -1587,6 +2010,10 @@ const MainApp: React.FC = () => {
   }>({ isOpen: false, auction: null, sellerName: "" });
 
   const openReviewModal = (auction: AuctionItem) => {
+    if (!(auction as any).review_submitted && !canLeaveReview(auction)) {
+      toast.error("Oceno lahko oddate šele, ko je predmet predan in predaja potrjena.");
+      return;
+    }
     const sId = auction.sellerId || (auction as any).seller_id;
     const seller = profilesMap.get(sId);
     let sName = auction.sellerName;
@@ -1611,11 +2038,82 @@ const MainApp: React.FC = () => {
     items?: any[];
     title: string;
   } | null>(null);
+  // Deutscher Kommentar: Bestaetigungsdialog fuer Angebot an den 2. Bieter (mit Preisanzeige)
+  const [secondOfferModal, setSecondOfferModal] = useState<{
+    item: any;
+    loading: boolean;
+    available: boolean;
+    amount: number;
+    submitting: boolean;
+  } | null>(null);
+  const openSecondOfferModal = async (item: any) => {
+    setSecondOfferModal({ item, loading: true, available: false, amount: 0, submitting: false });
+    try {
+      const res = await fetch(`/api/auctions/second-bidder-info?auction_id=${encodeURIComponent(item.id)}`, {
+        headers: await getAuthHeaders()
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Napaka pri pridobivanju podatkov.');
+      setSecondOfferModal({ item, loading: false, available: !!data.available, amount: Number(data.amount || 0), submitting: false });
+    } catch (e: any) {
+      toast.error(friendlyError(e, 'Napaka pri pridobivanju podatkov.'));
+      setSecondOfferModal(null);
+    }
+  };
   const [isQuickRepublishing, setIsQuickRepublishing] = useState<string | null>(null);
 
   const lastSessionCheckRef = useRef(0);
   const isCheckingSessionRef = useRef(false);
-  const [user, setUser] = useState<any>(auth.currentUser);
+  const markNotificationReadRef = useRef<((id?: string, all?: boolean) => void) | null>(null);
+
+  // Behandlung von Klicks auf Benachrichtigungen (DEL E)
+  const handleSelectNotification = useCallback((notification: any) => {
+    if (!notification) return;
+    if (notification.type === 'lost') {
+      if (notification.id) {
+        markNotificationReadRef.current?.(notification.id);
+      }
+      toast.info("Dražba je zaključena.");
+      return;
+    }
+    if (notification.type === 'won' || notification.type === 'second_chance_offer' || notification.target === 'winnings') {
+      navigateTo("winnings");
+    } else if (notification.target === 'unsold' || notification.type === 'seller_decision' || notification.type === 'second_chance_failed') {
+      navigateTo("myUnsold");
+    } else if (notification.type === 'review_received' || notification.target === 'reviews') {
+      nextSellerTabRef.current = 'reviews';
+      navigateToSellerProfile(userData?.id || auth.currentUser?.uid, userData?.username);
+    } else if (notification.target === 'sold' || notification.type === 'second_chance_accepted' || notification.type === 'shipping_dispute' || notification.type === 'shipping_required' || notification.type === 'shipping_reminder') {
+      navigateTo("mySold");
+    } else if (notification.auction_id) {
+      const target = auctions.find((a) => a.id === notification.auction_id);
+      if (target) {
+        if (!canViewAuction(target, user, userData)) {
+          toast.info("Dražba je zaključena.");
+          navigateTo("grid");
+          return;
+        }
+        navigateTo("detail", { selectedItem: target });
+      } else {
+        navigateTo("grid");
+      }
+    }
+  }, [auctions, navigateTo, user, userData]);
+
+  // Schutz fuer geschlossene Auktionen bei direkter Ansicht (DEL E)
+  useEffect(() => {
+    if (activeView === "detail" && selectedItem) {
+      const current = auctions.find((a) => a.id === selectedItem.id) || selectedItem;
+      if (!canViewAuction(current, user, userData)) {
+        toast.info("Dražba je zaključena.");
+        setActiveView("grid");
+      }
+    }
+  }, [activeView, selectedItem, auctions, user, userData]);
+
+  // Hook für Echtzeit-Polling von Benachrichtigungen
+  const { notifications, markRead: markNotificationRead } = useNotifications(user, handleSelectNotification);
+  markNotificationReadRef.current = markNotificationRead;
 
   useEffect(() => {
     let unsubscribeSnap: (() => void) | null = null;
@@ -1794,7 +2292,7 @@ const MainApp: React.FC = () => {
     return auctions
       .filter(
         (a) =>
-          (((a as any).winner_id === userData.id || a.winnerId === userData.id) || 
+          (((a as any).winner_id === userData.id || a.winnerId === userData.id || (a as any).second_winner_id === userData.id || (a as any).secondWinnerId === userData.id) || 
            (a.second_highest_bidder_id === userData.id && (a.post_auction_status === 'offered_2nd' || a.post_auction_status === 'awaiting_payment_2nd'))) &&
           (a.status === "completed" || a.endTime.getTime() <= Date.now()),
       )
@@ -1823,7 +2321,7 @@ const MainApp: React.FC = () => {
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedRegion, selectedCategory, searchQuery, activeView]);
+  }, [selectedRegions, selectedCategories, searchQuery, activeView]);
 
   const [showBackToTop, setShowBackToTop] = useState(false);
 
@@ -1843,9 +2341,14 @@ const MainApp: React.FC = () => {
   const auctionsSectionRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    let title = "dražbenik.si | Prva slovenska digitalna dražba";
-    let metaDesc =
-      "Najbolj zanesljiva platforma za spletne dražbe v Sloveniji. Pregledno, varno in enostavno.";
+    const T = (sl: string) => translateText(sl, language);
+    // Deutscher Kommentar: Markenname immer gross geschrieben (Dražbenik.si); keine unbelegbaren Superlative im Titel
+    let title = language === "DE" ? "Dražbenik.si | Online-Auktionen in Slowenien"
+      : language === "EN" ? "Dražbenik.si | Online auctions in Slovenia"
+      : "Dražbenik.si | Spletne dražbe v Sloveniji";
+    let metaDesc = language === "DE" ? "Online-Auktionen in Slowenien: bieten Sie auf Fahrzeuge, Maschinen, Elektronik und mehr oder versteigern Sie selbst. Übersichtlich, sicher und einfach."
+      : language === "EN" ? "Online auctions in Slovenia: bid on vehicles, machinery, electronics and more, or sell your own items. Clear, secure and simple."
+      : "Spletne dražbe v Sloveniji: licitirajte za vozila, stroje, elektroniko in drugo ali objavite svoj predmet. Pregledno, varno in enostavno.";
 
     switch (activeView) {
       case "detail":
@@ -1853,29 +2356,29 @@ const MainApp: React.FC = () => {
           const itemTitle =
             selectedItem.title[language as keyof typeof selectedItem.title] ||
             selectedItem.title["SLO"];
-          title = `${itemTitle} | dražbenik.si`;
+          title = `${itemTitle} | Dražbenik.si`;
         }
-        metaDesc = `Licitirajte za stroje, vozila ali nepremičnine. Oddajte svojo ponudbo zdaj.`;
+        metaDesc = T(`Licitirajte za stroje, vozila ali nepremičnine. Oddajte svojo ponudbo zdaj.`);
         break;
       case "sellerProfile":
         if (selectedSeller)
-          title = `Profil prodajalca: ${selectedSeller.name} | dražbenik.si`;
-        metaDesc = `Oglejte si vse aktivne dražbe prodajalca na dražbenik.si.`;
+          title = T("Profil prodajalca: {0} | dražbenik.si").replace("{0}", () => { const n: any = selectedSeller.name; return typeof n === "string" ? n : (n?.[language] || n?.SLO || Object.values(n || {})[0] || ""); });
+        metaDesc = T(`Oglejte si vse aktivne dražbe prodajalca na dražbenik.si.`);
         break;
       case "lastChance":
-        title = "Zadnja priložnost | Predmeti, ki se iztekajo | dražbenik.si";
+        title = T("Zadnja priložnost | Predmeti, ki se iztekajo | dražbenik.si");
         metaDesc =
-          "Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.";
+          T("Zgrabite še zadnjo priložnost za licitacijo. Dražbe se iztekajo.");
         break;
       case "createAuction":
-        title = "Objavi novo dražbo | dražbenik.si";
+        title = T("Objavi novo dražbo | dražbenik.si");
         break;
       case "login":
-        title = "Prijava in registracija | dražbenik.si";
+        title = T("Prijava in registracija | dražbenik.si");
         break;
     }
 
-    document.title = title;
+    document.title = title.replace(/dražbenik\.si/gi, "Dražbenik.si");
 
     let meta = document.querySelector('meta[name="description"]');
     if (!meta) {
@@ -1883,7 +2386,7 @@ const MainApp: React.FC = () => {
       meta.setAttribute("name", "description");
       document.head.appendChild(meta);
     }
-    meta.setAttribute("content", metaDesc);
+    if (activeView !== "detail") meta.setAttribute("content", metaDesc.replace(/dražbenik\.si/gi, "Dražbenik.si"));
   }, [activeView, selectedItem, selectedSeller, language]);
 
   const missingProfileIdsFetch = useCallback(async (sellerIds: string[]) => {
@@ -1946,6 +2449,38 @@ const MainApp: React.FC = () => {
       console.warn("Error fetching transaction partner info:", e);
     }
   }, [user]);
+
+  // Handler zum Oeffnen der Rechnung fuer eine Auktion (DEL D)
+  const handleOpenInvoice = useCallback(async (auction: any) => {
+    let seller = transactionPartners.get(auction.id);
+    if (!seller && user) {
+      try {
+        const token = await user.getIdToken();
+        const res = await fetch(`/api/transactions/partner-info?auction_id=${auction.id}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.success && data.partner) {
+            seller = data.partner;
+            setTransactionPartners((prev) => {
+              const next = new Map(prev);
+              next.set(auction.id, data.partner);
+              return next;
+            });
+          }
+        }
+      } catch (e) {
+        console.warn("Fehler beim Abrufen der Partner-Details fuer Rechnung:", e);
+      }
+    }
+    setInvoiceModalData({
+      isOpen: true,
+      auction: auction,
+      seller: seller || null,
+      buyer: userData
+    });
+  }, [user, transactionPartners, userData]);
 
   // Load transaction partner info automatically for paid auctions the user won or sold
   useEffect(() => {
@@ -2014,6 +2549,38 @@ const MainApp: React.FC = () => {
     return () => unsubBids();
   }, [user]);
 
+  // Private stream: bank_transfer_used boolean fetching from API
+  useEffect(() => {
+    const fetchBTStates = async () => {
+      if (!user || rawAuctions.length === 0) {
+        if (!user) setBankTransferUsedMap({});
+        return;
+      }
+      // IDs sammeln, fuer die wir den Status pruefen muessen
+      const ids = rawAuctions.map(a => a.id).join(',');
+      if (!ids) return;
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch(`/api/user/bank-transfer-states?ids=${ids}`, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          // Deutscher Kommentar: Nur aktualisieren, wenn sich der Inhalt wirklich geaendert hat (sonst Endlosschleife mit Flackern)
+          setBankTransferUsedMap((prev) => {
+            const prevKeys = Object.keys(prev);
+            const nextKeys = Object.keys(data || {});
+            if (prevKeys.length === nextKeys.length && nextKeys.every((k) => prev[k] === data[k])) {
+              return prev;
+            }
+            return data;
+          });
+        }
+      } catch (err) {
+        console.error('Error fetching bank transfer states:', err);
+      }
+    };
+    fetchBTStates();
+  }, [user, rawAuctions.length, rawAuctions.map(a => a.id).join(',')]);
+
   const listenerMapsRef = useRef<{
     a: Map<string, any>;
     b: Map<string, any>;
@@ -2025,6 +2592,33 @@ const MainApp: React.FC = () => {
     c: new Map(),
     d: new Map(),
   });
+
+  // Deutscher Kommentar: Aktueller Stand per Ref, damit mergeAndSetAuctions stabil bleibt und die Firestore-Listener nicht ständig neu aufgebaut werden
+  const bankTransferUsedMapRef = useRef<Record<string, boolean>>({});
+  bankTransferUsedMapRef.current = bankTransferUsedMap;
+
+  const mergeAndSetAuctions = useCallback(() => {
+    const mergedMap = new Map<string, any>();
+    // Merging maps: later maps override earlier ones by document id (A -> B -> C -> D)
+    listenerMapsRef.current.a.forEach((val, id) => mergedMap.set(id, val));
+    listenerMapsRef.current.b.forEach((val, id) => mergedMap.set(id, val));
+    listenerMapsRef.current.c.forEach((val, id) => mergedMap.set(id, val));
+    listenerMapsRef.current.d.forEach((val, id) => mergedMap.set(id, val));
+    
+    const auctionsArray = Array.from(mergedMap.values()).map(auc => {
+      // Deutscher Kommentar: bank_transfer_used wird jetzt aus dem bankTransferUsedMap geladen (server-side check)
+      return {
+        ...auc,
+        bank_transfer_used: bankTransferUsedMapRef.current[auc.id] || false
+      };
+    });
+
+    setRawAuctions(auctionsArray);
+  }, []);
+
+  useEffect(() => {
+    mergeAndSetAuctions();
+  }, [bankTransferUsedMap, mergeAndSetAuctions]);
 
   // Stream: Auctions (Listener A always/guests, B/C/D for user's won/sold/second-chance)
   useEffect(() => {
@@ -2038,18 +2632,11 @@ const MainApp: React.FC = () => {
       d: new Map(),
     };
 
-    const mergeAndSet = () => {
-      const mergedMap = new Map<string, any>();
-      // Merging maps: later maps override earlier ones by document id (A -> B -> C -> D)
-      listenerMapsRef.current.a.forEach((val, id) => mergedMap.set(id, val));
-      listenerMapsRef.current.b.forEach((val, id) => mergedMap.set(id, val));
-      listenerMapsRef.current.c.forEach((val, id) => mergedMap.set(id, val));
-      listenerMapsRef.current.d.forEach((val, id) => mergedMap.set(id, val));
-      setRawAuctions(Array.from(mergedMap.values()));
-    };
-
     // Listener A (always, also for guests): active auctions
-    const qA = query(collection(db, "auctions"), where("status", "==", "active"));
+    // Deutscher Kommentar: Ohne den Composite-Index (status, end_time) faellt die Abfrage automatisch auf die unbegrenzte Variante zurueck
+    const qA = auctionsUnlimited
+      ? query(collection(db, "auctions"), where("status", "==", "active"))
+      : query(collection(db, "auctions"), where("status", "==", "active"), orderBy("end_time", "asc"), limit(effectiveAuctionsLimit));
     const unsubA = registerSnapshotListener(
       onSnapshot(
         qA,
@@ -2059,10 +2646,13 @@ const MainApp: React.FC = () => {
             mapA.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
           });
           listenerMapsRef.current.a = mapA;
-          mergeAndSet();
+          mergeAndSetAuctions();
         },
         (error) => {
           console.error("Auctions listener A error:", error);
+          if (!auctionsUnlimited && (error as any)?.code === "failed-precondition") {
+            setAuctionsUnlimited(true);
+          }
         }
       )
     );
@@ -2080,7 +2670,7 @@ const MainApp: React.FC = () => {
               mapB.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
             });
             listenerMapsRef.current.b = mapB;
-            mergeAndSet();
+            mergeAndSetAuctions();
           },
           (error) => {
             console.error("Auctions listener B error:", error);
@@ -2100,7 +2690,7 @@ const MainApp: React.FC = () => {
               mapC.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
             });
             listenerMapsRef.current.c = mapC;
-            mergeAndSet();
+            mergeAndSetAuctions();
           },
           (error) => {
             console.error("Auctions listener C error:", error);
@@ -2120,7 +2710,7 @@ const MainApp: React.FC = () => {
               mapD.set(docSnap.id, { id: docSnap.id, ...docSnap.data() });
             });
             listenerMapsRef.current.d = mapD;
-            mergeAndSet();
+            mergeAndSetAuctions();
           },
           (error) => {
             console.error("Auctions listener D error:", error);
@@ -2133,7 +2723,7 @@ const MainApp: React.FC = () => {
     return () => {
       unsubs.forEach((unsub) => unsub());
     };
-  }, [user?.uid]);
+  }, [user?.uid, mergeAndSetAuctions, auctionsUnlimited, effectiveAuctionsLimit]);
 
   // Ended auctions user bid on that are not active or won/sold
   useEffect(() => {
@@ -2247,7 +2837,7 @@ const MainApp: React.FC = () => {
         const { status, action, sessionId } = event.data;
         if (status === 'success') {
           if (action === 'stripe_connect') {
-            toast.success("Stripe račun je bil uspešno povezan!");
+            toast.success("Račun za izplačila je bil uspešno povezan!");
             if (userData?.id) {
               await refreshUserData(userData.id);
             }
@@ -2298,7 +2888,9 @@ const MainApp: React.FC = () => {
           .then((res: any) => {
             fetchAuctions();
             if (userData?.id) refreshUserData(userData.id);
-            if (res?.type === 'subscription' || typeParam === 'subscription') {
+            if (res?.awaiting_bank_transfer) {
+              toast.success("Bančno nakazilo uspešno iniciirano! Navodila za plačilo boste prejeli s strani našega plačilnega partnerja.");
+            } else if (res?.type === 'subscription' || typeParam === 'subscription') {
               toast.success("Naročnina je bila uspešno aktivirana!");
             } else {
               toast.success(t("paymentSuccessEmail") || "Plačilo uspešno! Račun in potrdilo sta bila poslana.");
@@ -2319,7 +2911,7 @@ const MainApp: React.FC = () => {
     } else if (stripeParam === 'success') {
       const cleanUrl = window.location.pathname;
       window.history.replaceState({}, document.title, cleanUrl);
-      toast.success("Stripe račun je bil uspešno povezan!");
+      toast.success("Račun za izplačila je bil uspešno povezan!");
       if (userData?.id) refreshUserData(userData.id);
     }
   }, [userData]);
@@ -2340,7 +2932,7 @@ const MainApp: React.FC = () => {
         if (res?.data?.already_active) {
           toast.info(`Vaša naročnina (${res.data.subscription_tier}) je že aktivna.`);
         } else {
-          toast.info("Ni bilo najdenih novih neobdelanih plačil na Stripe.");
+          toast.info("Ni bilo najdenih novih neobdelanih plačil.");
         }
       }
     } catch (e) {
@@ -2357,7 +2949,12 @@ const MainApp: React.FC = () => {
     }
   }, [userData?.id, currentPlan, handleSyncSubscription]);
 
+  const [sellerInitialTab, setSellerInitialTab] = useState<'active' | 'reviews'>('active');
+  const nextSellerTabRef = useRef<'active' | 'reviews'>('active');
   const navigateToSellerProfile = (sellerInput: any, fallbackName?: string) => {
+    // Deutscher Kommentar: Start-Tab des Verkaeuferprofils einmalig uebernehmen (z. B. direkt zu den Bewertungen)
+    setSellerInitialTab(nextSellerTabRef.current);
+    nextSellerTabRef.current = 'active';
     let targetSeller: any = null;
     
     if (sellerInput && typeof sellerInput === 'object') {
@@ -2553,7 +3150,7 @@ const MainApp: React.FC = () => {
             post_auction_status: null,
             images: itemData.images,
             delivery_option: itemData.delivery_option || 'both',
-            shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+            shipping_fee_type: itemData.shipping_fee_type || 'fixed',
             shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
             is_package: true,
             package_id: pkg.packageId,
@@ -2586,7 +3183,8 @@ const MainApp: React.FC = () => {
       }
 
       toast.success("Zbirka je uspešno objavljena!");
-      setActiveView("grid");
+      navigateTo("grid", {}, { scrollToTop: true });
+      requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
       setCreateMode("choice");
       fetchAuctions();
     } catch (e: any) {
@@ -2671,7 +3269,7 @@ const MainApp: React.FC = () => {
         post_auction_status: null,
         images: itemData.images,
         delivery_option: itemData.delivery_option || 'both',
-        shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+        shipping_fee_type: itemData.shipping_fee_type || 'fixed',
         shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
         created_at: new Date().toISOString(),
         is_package: false,
@@ -2697,7 +3295,8 @@ const MainApp: React.FC = () => {
       }
 
       if (publishSuccess) {
-        setActiveView("grid");
+        navigateTo("grid", {}, { scrollToTop: true });
+        requestAnimationFrame(() => window.scrollTo({ top: 0, behavior: "instant" }));
         toast.success(t("auctionPublished"));
         fetchAuctions(); // Refresh the list from DB
       }
@@ -2723,6 +3322,7 @@ const MainApp: React.FC = () => {
     setActiveView("grid");
 
     try {
+      logoutStripeConnect();
       cleanupAllListeners();
       await safeSignOut(auth);
       toast.success(t("loggedOut"));
@@ -2805,6 +3405,24 @@ const MainApp: React.FC = () => {
     });
     setIsCheckoutOpen(true);
   };
+
+  // Deutscher Kommentar: Alle fest codierten Texte ueber den zentralen Katalog in die gewaehlte Sprache uebersetzen
+  useEffect(() => {
+    setDomLanguage(language);
+    setStripeConnectLanguage(language);
+  }, [language]);
+
+  // Deutscher Kommentar: Beim Login die gespeicherte Hauptsprache des Nutzers einmalig anwenden
+  const appliedPreferredLangForRef = useRef<string | null>(null);
+  useEffect(() => {
+    const uid = (userData as any)?.id;
+    const pref = (userData as any)?.preferred_language;
+    if (!uid) { appliedPreferredLangForRef.current = null; return; }
+    if (!pref || !['SLO', 'EN', 'DE'].includes(pref)) return;
+    if (appliedPreferredLangForRef.current === uid) return;
+    appliedPreferredLangForRef.current = uid;
+    setLanguage(pref);
+  }, [(userData as any)?.id, (userData as any)?.preferred_language]);
 
   const handleSaveSettings = useCallback(
     async (data: any) => {
@@ -2907,10 +3525,10 @@ const MainApp: React.FC = () => {
 
         const resData = await res.json();
         if (res.status === 409) {
-          throw new Error(resData.error || "To uporabniško ime je že zasedeno.");
+          throw new Error(resData.message || resData.error || "To uporabniško ime je že zasedeno.");
         }
         if (!res.ok) {
-          throw new Error(resData.error || "Napaka pri shranjevanju profila.");
+          throw new Error(resData.message || resData.error || "Napaka pri shranjevanju profila.");
         }
 
         setUserData((prev) => ({
@@ -2943,27 +3561,36 @@ const MainApp: React.FC = () => {
       filtered = filtered.filter((item) => {
         if (item.status === "completed" || new Date(item.endTime) <= now)
           return false;
-        if (selectedRegion && !matchesSelectedRegion(item.region, selectedRegion)) return false;
-        if (selectedCategory && item.category !== selectedCategory)
+        // Mehrfachauswahl Regionen (OR innerhalb, AND zwischen Gruppen)
+        if (selectedRegions.length > 0 && !selectedRegions.some((reg) => matchesSelectedRegion(item.region, reg))) return false;
+        // Mehrfachauswahl Kategorien
+        if (selectedCategories.length > 0 && !selectedCategories.includes(item.category as Category))
           return false;
-        if (categoryFilters.delivery_option) {
+        // Mehrfachauswahl Lieferoptionen
+        if (categoryFilters.delivery_options && categoryFilters.delivery_options.length > 0) {
           const itemDel = (item as any).delivery_option || item.delivery_method || 'both';
-          if (categoryFilters.delivery_option === 'pickup' && itemDel === 'shipping_only') return false;
-          if (categoryFilters.delivery_option === 'shipping' && itemDel === 'pickup_only') return false;
+          const matchesDel = categoryFilters.delivery_options.some((opt) => {
+            if (opt === 'pickup') return itemDel !== 'shipping_only';
+            if (opt === 'shipping') return itemDel !== 'pickup_only';
+            return true;
+          });
+          if (!matchesDel) return false;
         }
-        if (categoryFilters.condition) {
+        // Mehrfachauswahl Zustand
+        if (categoryFilters.conditions && categoryFilters.conditions.length > 0) {
           const condText = typeof item.condition === 'string'
             ? item.condition
             : (item.condition?.[language] || item.condition?.['SLO'] || '');
-          if (!condText.toLowerCase().includes(categoryFilters.condition.toLowerCase())) return false;
+          const matchesCond = categoryFilters.conditions.some((c) => condText.toLowerCase().includes(c.toLowerCase()));
+          if (!matchesCond) return false;
         }
+        // Mehrfachauswahl Spezifikationen
         if (categoryFilters.specifications) {
-          for (const [key, val] of Object.entries(categoryFilters.specifications)) {
-            if (val) {
+          for (const [key, vals] of Object.entries(categoryFilters.specifications)) {
+            if (vals && vals.length > 0) {
               const itemVal = item.specifications?.[key];
-              if (!itemVal || !String(itemVal).toLowerCase().includes(String(val).toLowerCase())) {
-                return false;
-              }
+              const matchesSpec = vals.some((v) => itemVal && String(itemVal).toLowerCase().includes(String(v).toLowerCase()));
+              if (!matchesSpec) return false;
             }
           }
         }
@@ -2986,8 +3613,8 @@ const MainApp: React.FC = () => {
   }, [
     auctions,
     activeView,
-    selectedRegion,
-    selectedCategory,
+    selectedRegions,
+    selectedCategories,
     categoryFilters,
     searchQuery,
     language,
@@ -3004,7 +3631,7 @@ const MainApp: React.FC = () => {
   const handlePageChange = (page: number) => {
     setCurrentPage(page);
     const isHomePage =
-      activeView === "grid" && !selectedCategory && !searchQuery;
+      activeView === "grid" && selectedCategories.length === 0 && selectedRegions.length === 0 && !searchQuery;
 
     if (isHomePage && auctionsSectionRef.current) {
       auctionsSectionRef.current.scrollIntoView({
@@ -3046,11 +3673,7 @@ const MainApp: React.FC = () => {
     case "package": {
       
 
-      // Allow Sandbox preview package to render properly by intercepting the ID
-      const isSandboxPackage = selectedPackageId === mockSandboxPackageId;
-      const packageAuctions = isSandboxPackage 
-          ? mockSandboxPackageItems 
-          : auctions.filter(a => a.package_id === selectedPackageId || (a as any).packageId === selectedPackageId);
+      const packageAuctions = auctions.filter(a => a.package_id === selectedPackageId || (a as any).packageId === selectedPackageId);
 
       const pkgTitle = (packageAuctions[0] as any)?.package_title || 
         (typeof packageAuctions[0]?.title === 'object' ? packageAuctions[0]?.title[language] || packageAuctions[0]?.title['SLO'] : packageAuctions[0]?.title) || 
@@ -3099,9 +3722,16 @@ const MainApp: React.FC = () => {
           t={t}
           onLoginSuccess={() => {
             setIsLoggedIn(true);
-            setSelectedRegion(null);
-            setSelectedCategory(null);
+            setSelectedRegions([]);
+            setSelectedCategories([]);
             setSearchQuery("");
+            try {
+                const stored = sessionStorage.getItem('pending_prevzem_qr');
+                if (stored) {
+                    setPendingPrevzemQr(JSON.parse(stored));
+                    sessionStorage.removeItem('pending_prevzem_qr');
+                }
+            } catch (e) {}
             goBack("grid");
           }}
           setIsVerified={setIsVerified}
@@ -3124,37 +3754,180 @@ const MainApp: React.FC = () => {
             onAcceptTerms={() => navigateTo("acceptTerms")}
           />
         );
-      } else if (!userData.stripe_onboarding_complete) {
-        content = (
-          <div className="max-w-3xl mx-auto py-32 px-6 flex flex-col items-center text-center animate-in">
-            <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
-              <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
-            </div>
-            <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-              {t("cannotPublish")}
-            </h1>
-            <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">
-              {t("connectBankAccountDesc")}
-            </p>
-            <button
-              onClick={() => {
-                  navigateTo("settings", { settingsTab: "stripe" });
-              }}
-              className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
-            >
-              {t("editPayouts")}
-            </button>
-          </div>
-        );
       } else {
+        const setupStep = getSellerSetupStep(userData);
+        if (setupStep !== 'done') {
+          // Hilfsfunktion zur Darstellung des Schritt-Trackers
+          const renderStepTracker = (currentStep: string) => {
+            const steps = [
+              { key: 'email', label: '1. Potrditev e-pošte' },
+              { key: 'profile', label: '2. Verifikacija' },
+              { key: 'payouts', label: '3. Izplačila' }
+            ];
+            
+            // Bestimmt den Index des aktiven Schritts
+            let activeIdx = 0;
+            if (currentStep === 'profile' || currentStep === 'terms') activeIdx = 1;
+            else if (currentStep === 'payouts') activeIdx = 2;
+
+            return (
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-4 sm:gap-8 mb-12 p-6 bg-slate-50 border border-slate-100 rounded-3xl w-full max-w-xl mx-auto">
+                {steps.map((s, idx) => {
+                  const isCompleted = idx < activeIdx;
+                  const isActive = idx === activeIdx;
+                  return (
+                    <div key={s.key} className="flex items-center gap-2">
+                      <div className={`w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs ${
+                        isCompleted ? 'bg-emerald-100 text-emerald-600' :
+                        isActive ? 'bg-[#0A1128] text-white border-2 border-[#FEBA4F]' : 'bg-slate-100 text-slate-400'
+                      }`}>
+                        {isCompleted ? '✓' : idx + 1}
+                      </div>
+                      <span className={`text-xs font-black uppercase tracking-wider ${
+                        isCompleted ? 'text-emerald-600' :
+                        isActive ? 'text-[#0A1128]' : 'text-slate-400'
+                      }`}>
+                        {s.label}
+                      </span>
+                      {idx < 2 && <span className="hidden sm:inline text-slate-300">→</span>}
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          };
+
+          let setupContent = null;
+
+          if (setupStep === 'email') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-blue-50 text-blue-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-blue-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"></path><polyline points="22,6 12,13 2,6"></polyline></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Potrdite e-poštni naslov</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">Pred objavo prve dražbe morate potrditi svoj e-poštni naslov s klikom na povezavo, ki smo vam jo poslali.</p>
+                <LoadingButton
+                  onClick={async () => {
+                    try {
+                      const email = userData?.email || auth.currentUser?.email || "";
+                      const displayName = (userData?.first_name || "").toString() || undefined;
+                      const res = await sendEmailVerificationAction(email, displayName, auth.currentUser?.uid);
+                      if (res.success) {
+                        toast.success("Potrditveno e-pošto smo poslali.");
+                      } else {
+                        toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvene e-pošte."));
+                      }
+                    } catch (err: any) {
+                      toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
+                    }
+                  }}
+                  loadingText="Pošiljam..."
+                  className="bg-[#0A1128] text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  Pošlji potrditveno e-pošto
+                </LoadingButton>
+              </div>
+            );
+          } else if (setupStep === 'profile') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-amber-50 text-amber-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-amber-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Najprej opravite verifikacijo</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">Pred urejanjem izplačil in objavo dražbe morate najprej vnesti svoje osebne podatke in opraviti verifikacijo.</p>
+                <button
+                  onClick={() => {
+                    setSettingsTab('personal');
+                    navigateTo("settings", { settingsTab: 'personal' });
+                  }}
+                  className="bg-[#0A1128] text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  Opravi verifikacijo
+                </button>
+              </div>
+            );
+          } else if (setupStep === 'terms') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-indigo-50 text-indigo-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-indigo-100 animate-pulse">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line><polyline points="10 9 9 9 8 9"></polyline></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">Sprejmite posodobljene pogoje</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">Pogoje uporabe smo posodobili. Za nadaljevanje in objavo dražbe jih morate prebrati in potrditi.</p>
+                <button
+                  onClick={() => {
+                    navigateTo("acceptTerms");
+                  }}
+                  className="bg-[#0A1128] text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  Preberi in potrdi pogoje
+                </button>
+              </div>
+            );
+          } else if (setupStep === 'payouts') {
+            setupContent = (
+              <div className="max-w-3xl mx-auto flex flex-col items-center text-center">
+                <div className="bg-red-50 text-red-500 w-24 h-24 rounded-full flex items-center justify-center mb-8 border-4 border-red-100">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="8" x2="12" y2="12"></line><line x1="12" y1="16" x2="12.01" y2="16"></line></svg>
+                </div>
+                <h1 className="text-4xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">{t("cannotPublish")}</h1>
+                <p className="text-lg text-slate-500 mb-8 max-w-xl font-medium">{t("connectBankAccountDesc")}</p>
+                <button
+                  onClick={() => {
+                    setSettingsTab('stripe');
+                    navigateTo("settings", { settingsTab: "stripe" });
+                  }}
+                  className="bg-[#0A1128] text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-colors shadow-xl"
+                >
+                  {t("editPayouts")}
+                </button>
+              </div>
+            );
+          }
+
+          content = (
+            <div className="max-w-4xl mx-auto py-16 px-6 animate-in">
+              {renderStepTracker(setupStep)}
+              {setupContent}
+            </div>
+          );
+        } else {
         if (createMode === "choice") {
+          const cycleInfo = getUserAuctionCycle(auctions, userData.id, userData);
+          const tierLabels = { FREE: "Brezplačni", BASIC: "Osnovni", PRO: "Napredni" };
+          const limitReached = !cycleInfo.isUnlimited && cycleInfo.count >= cycleInfo.userLimit;
+          const nearLimit = !cycleInfo.isUnlimited && cycleInfo.count >= cycleInfo.userLimit - 1 && cycleInfo.count < cycleInfo.userLimit;
+
           content = (
             <div className="max-w-5xl mx-auto p-4 md:p-8 animate-in fade-in">
               <h1 className="text-3xl font-black mb-8 text-center text-[#0A1128]">Kaj želite ustvariti?</h1>
+
+              {/* Deutscher Kommentar: Banner fuer Auktionslimit */}
+              {limitReached ? (
+                <div className="bg-red-50 border-2 border-red-200 p-6 rounded-3xl mb-8 animate-in text-center shadow-lg">
+                  <h3 className="text-xl font-black text-red-900 mb-2">Omejitev objav je dosežena</h3>
+                  <p className="text-red-700 font-bold mb-4">
+                    V tem obdobju ste objavili {cycleInfo.count} od {cycleInfo.userLimit} dražb ({tierLabels[cycleInfo.tier] || cycleInfo.tier} paket). 
+                    Nove dražbe boste lahko objavljali od {cycleInfo.resetDate ? new Date(cycleInfo.resetDate).toLocaleDateString('sl-SI') : "ob začetku naslednjega obdobja"}.
+                  </p>
+                  <button onClick={() => navigateTo("subscriptions")} className="bg-red-600 text-white px-6 py-3 rounded-xl font-black uppercase text-xs hover:bg-red-700 transition-all">Poglej naročnine</button>
+                  <p className="text-red-600/70 font-bold text-xs mt-4">Z višjim paketom lahko objavite več dražb ali neomejeno.</p>
+                </div>
+              ) : nearLimit ? (
+                <div className="bg-amber-50 border border-amber-200 p-4 rounded-2xl mb-8 flex items-center justify-between shadow-sm">
+                  <p className="text-amber-800 font-bold text-sm">Ostala vam je še 1 objava v tem obdobju.</p>
+                  <button onClick={() => navigateTo("subscriptions")} className="bg-amber-100 text-amber-900 px-4 py-2 rounded-lg font-black text-xs hover:bg-amber-200 transition-all">Poglej naročnine</button>
+                </div>
+              ) : cycleInfo.tier !== 'PRO' && (
+                <p className="text-center text-slate-400 font-bold text-xs mb-8">Objavljeno: {cycleInfo.count} / {cycleInfo.userLimit}</p>
+              )}
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div 
-                  onClick={() => setCreateMode("single")}
-                  className="bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1 group"
+                  onClick={() => !limitReached && setCreateMode("single")}
+                  className={`bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent transition-all group ${limitReached ? "opacity-60 cursor-not-allowed" : "hover:border-blue-500 cursor-pointer hover:-translate-y-1"}`}
                 >
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
                     <span className="text-4xl">📄</span>
@@ -3166,8 +3939,8 @@ const MainApp: React.FC = () => {
                 </div>
                 
                 <div 
-                  onClick={() => setCreateMode("package")}
-                  className="bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent hover:border-blue-500 cursor-pointer transition-all hover:-translate-y-1 group relative overflow-hidden"
+                  onClick={() => !limitReached && setCreateMode("package")}
+                  className={`bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent transition-all group relative overflow-hidden ${limitReached ? "opacity-60 cursor-not-allowed" : "hover:border-blue-500 cursor-pointer hover:-translate-y-1"}`}
                 >
                   <div className="absolute top-6 right-6 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">NOVO</div>
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
@@ -3179,6 +3952,9 @@ const MainApp: React.FC = () => {
                   </p>
                 </div>
               </div>
+              
+              {limitReached && <p className="text-center text-red-600 font-black mt-6">Objava ni mogoča do ponastavitve, osnutke lahko še vedno shranjujete.</p>}
+              
               <div className="mt-8 text-center">
                 <button onClick={() => goBack("grid")} className="text-gray-500 hover:text-black font-bold">
                   Nazaj na domačo stran
@@ -3207,6 +3983,7 @@ const MainApp: React.FC = () => {
               onNavigateToSettings={(tab) => {
                 navigateTo("settings", { settingsTab: tab || 'personal' });
               }}
+              navigateTo={navigateTo}
             />
           );
         } else {
@@ -3255,7 +4032,7 @@ const MainApp: React.FC = () => {
                     post_auction_status: null,
                     images: itemData.images,
                     delivery_option: itemData.delivery_option || 'both',
-                    shipping_fee_type: itemData.shipping_fee_type || 'calculated',
+                    shipping_fee_type: itemData.shipping_fee_type || 'fixed',
                     shipping_cost: itemData.shipping_cost !== undefined ? itemData.shipping_cost : null,
                     is_package: true,
                     package_id: packageId,
@@ -3270,16 +4047,23 @@ const MainApp: React.FC = () => {
               onNavigateToSettings={(tab) => {
                 navigateTo("settings", { settingsTab: tab || 'personal' });
               }}
+              navigateTo={navigateTo}
             />
           );
+        }
         }
       }
       break;
     case "detail":
       if (selectedItem) {
+        const detailItem = auctions.find(a => a.id === selectedItem.id) || selectedItem;
+        if (!canViewAuction(detailItem, user, userData)) {
+          content = null;
+          break;
+        }
         content = (
           <AuctionView
-            item={auctions.find(a => a.id === selectedItem.id) || selectedItem}
+            item={detailItem}
             t={t}
             onSellerClick={(sellerInput) => {
               const currentAuction = auctions.find(a => a.id === selectedItem.id) || selectedItem;
@@ -3314,12 +4098,29 @@ const MainApp: React.FC = () => {
                   auction_id: item.id,
                   buyer_id: userData.id,
                   seller_id: item.sellerId || item.seller_id,
+                  bank_transfer_used: item.bank_transfer_used,
                   fee_percentage: 10,
                   buyer_data: userData,
+                  payment_deadline: item.payment_deadline,
+                  endTime: item.endTime || item.end_time
                 },
               });
               setIsCheckoutOpen(true);
             }}
+            user={user}
+            setReceiptConfirmModal={setReceiptConfirmModal}
+            openReviewModal={openReviewModal}
+            canLeaveReview={canLeaveReview}
+            onOpenMessages={(auctionId: string) => {
+              setActiveConversationId(auctionId);
+              setActiveView("messages");
+              window.scrollTo({
+                top: 0,
+                behavior: "instant",
+              });
+            }}
+            onOpenInvoice={handleOpenInvoice}
+            setDeliveryMethodModal={setDeliveryMethodModal}
           />
         );
       }
@@ -3330,6 +4131,8 @@ const MainApp: React.FC = () => {
         <VerificationView
           onBack={() => goBack("grid")}
           t={t}
+          language={language}
+          onLanguageChange={setLanguage}
           isVerified={isVerified}
           userType={userType}
           initialData={userData}
@@ -3381,7 +4184,7 @@ const MainApp: React.FC = () => {
                   });
                   const resData = await res.json();
                   if (!res.ok) {
-                    return { data: null, error: new Error(resData.error || "Napaka pri shranjevanju podatkov.") };
+                    return { data: null, error: new Error(resData.message || resData.error || "Napaka pri shranjevanju podatkov.") };
                   }
                   return { data: { id: userId, ...updatePayload, profile_completed: resData.profile_completed }, error: null };
                 } catch(e) { return { data: null, error: e }; }
@@ -3447,11 +4250,23 @@ const MainApp: React.FC = () => {
           user={userData}
           auctions={auctions}
           onSave={handleSaveSettings}
+          onLanguageChange={setLanguage}
           onVerify={() => navigateTo("verification")}
           onStripeVerified={handleStripeVerified}
           onRefreshUser={() => refreshUserData(userData.id)}
+          onOpenLegal={(type) => setActiveLegal(type)}
+          onNavigateToCreateAuction={() => navigateTo("createAuction")}
           activeTab={settingsTab}
           setActiveTab={setSettingsTab}
+          onBack={() => goBack("grid")}
+        />
+      );
+      break;
+    case "adminAccounting":
+      content = (
+        <AccountingView
+          user={user}
+          userData={userData}
           onBack={() => goBack("grid")}
         />
       );
@@ -3523,6 +4338,7 @@ const MainApp: React.FC = () => {
                     a.status === "active" && new Date(a.endTime) > new Date() &&
                     bidAuctionIds.includes(a.id),
                 )
+                .sort((a, b) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime()) // prva se zaključi prva
                 .map((item) => (
                   <AuctionCard
                     key={item.id}
@@ -3566,6 +4382,7 @@ const MainApp: React.FC = () => {
       if (selectedSeller) {
         content = (
           <SellerView
+            key={selectedSeller.id}
             seller={selectedSeller}
             onBack={() => goBack("grid")}
             onAuctionClick={(item) => {
@@ -3576,6 +4393,8 @@ const MainApp: React.FC = () => {
             isLoggedIn={isLoggedIn}
             currentUserWinnings={currentUserWinnings}
             auctions={auctions}
+            currentUserId={auth.currentUser?.uid}
+            initialTab={sellerInitialTab}
           />
         );
       }
@@ -3633,6 +4452,7 @@ const MainApp: React.FC = () => {
                     openReviewModal={openReviewModal}
                     setTimelineModalAuctionId={setTimelineModalAuctionId}
                     user={user}
+                    setDeliveryMethodModal={setDeliveryMethodModal}
                   />
                 ))
               )}
@@ -3648,7 +4468,7 @@ const MainApp: React.FC = () => {
             (a as any).seller_id === userData.id) &&
           (a.status === "completed" || new Date(a.endTime) <= new Date()) &&
           !!(a.winnerId || (a as any).winner_id),
-      );
+      ).sort((a, b) => new Date(b.endTime).getTime() - new Date(a.endTime).getTime()); // najnovejša zaključena na vrhu
       content = (
         <div className="max-w-[1600px] mx-auto py-16 px-6 animate-in">
           <button
@@ -3683,11 +4503,17 @@ const MainApp: React.FC = () => {
                 currentUserSold.map((soldItem) => {
                   const winnerId = soldItem.winnerId || (soldItem as any).winner_id || soldItem.second_highest_bidder_id;
                   const buyer = transactionPartners.get(soldItem.id) || null;
-                  const isPostalShipping = soldItem.delivery_method === "post" ||
-                    soldItem.delivery_method === "shipping" ||
-                    (soldItem as any).selected_delivery === "post" ||
-                    (soldItem as any).selected_delivery === "shipping" ||
-                    (soldItem as any).delivery_option === "shipping_only";
+                   const effectiveDelivery = soldItem.delivery_method || soldItem.selected_delivery || deliveryMethodsMap[soldItem.id];
+                   const isPostalShipping = effectiveDelivery === "post" ||
+                     effectiveDelivery === "shipping" ||
+                     (soldItem as any).delivery_option === "shipping_only";
+
+                   const isFinished = Boolean(
+                     soldItem.buyer_received ||
+                     (soldItem as any).receipt_confirmed_at ||
+                     (soldItem as any).received_at ||
+                     ["DELIVERED", "COMPLETED"].includes(soldItem.post_auction_status)
+                   );
 
                   const buyerName = buyer?.company_name
                     ? buyer.company_name
@@ -3703,10 +4529,10 @@ const MainApp: React.FC = () => {
                   return (
                     <div
                       key={soldItem.id}
-                      className="flex flex-col lg:flex-row items-start lg:items-center gap-8 p-6 sm:p-8 rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
+                      className="grid grid-cols-1 sm:grid-cols-[7rem_minmax(0,1fr)] lg:grid-cols-[8.5rem_minmax(0,1fr)_19rem] items-start gap-4 lg:gap-6 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
                     >
                       <div
-                        className="w-32 h-32 shrink-0 bg-slate-100 rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
+                        className="w-24 h-24 md:w-32 md:h-32 shrink-0 bg-slate-100 rounded-2xl md:rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
                         onClick={() => {
                           navigateTo("detail", { selectedItem: soldItem });
                         }}
@@ -3721,9 +4547,9 @@ const MainApp: React.FC = () => {
                             />
                           )}
                       </div>
-                      <div className="flex-1 text-left w-full">
+                      <div className="min-w-0 text-left w-full">
                         <h3
-                          className="text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
+                          className="text-xl md:text-2xl font-black uppercase tracking-tighter text-[#0A1128] mb-2 cursor-pointer hover:text-[#FEBA4F] transition-colors"
                           onClick={() => {
                             navigateTo("detail", { selectedItem: soldItem });
                           }}
@@ -3749,7 +4575,7 @@ const MainApp: React.FC = () => {
                             </span>
                           ) : soldItem.post_auction_status === "failed_1st" ? (
                             <span className="bg-red-100 text-red-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
-                              <AlertCircle size={12} /> Zmagovalec ni plačal
+                              <AlertCircle size={12} /> Zmagovalec ni plačal – čaka na vašo odločitev
                             </span>
                           ) : soldItem.post_auction_status === "offered_2nd" ? (
                             <span className="bg-blue-100 text-blue-700 px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest flex items-center gap-1.5">
@@ -3769,45 +4595,50 @@ const MainApp: React.FC = () => {
                         {/* SHIPPING DETAILS BOX (WHEN POSTAL DELIVERY) */}
                         {isPostalShipping && (
                           <div className="mt-4 p-4 rounded-2xl bg-slate-50 border border-slate-200">
-                            <div className="flex items-center justify-between gap-2 mb-2.5 pb-2 border-b border-slate-200">
+                            <div className="flex flex-wrap items-center justify-between gap-2 mb-3 pb-3 border-b border-slate-200">
                               <span className="text-xs font-black uppercase tracking-wider text-[#0A1128] flex items-center gap-1.5">
                                 <Truck size={15} className="text-[#FEBA4F]" /> Podatki kupca za pošiljanje po pošti
                               </span>
                               <button
                                 onClick={() => {
-                                  const text = `${buyerName}\n${buyerAddress}\n${buyerPostalCode} ${buyerCity}\n${buyerPhone ? 'Tel: ' + buyerPhone : ''}\n${buyerEmail ? 'Email: ' + buyerEmail : ''}`;
+                                  // Deutscher Kommentar: Nur die Postadresse kopieren (Name, Strasse, PLZ Ort), damit sie direkt in ein Adressfeld passt
+                                  const text = [buyerName, buyerAddress, `${buyerPostalCode} ${buyerCity}`.trim()].filter(Boolean).join('\n');
                                   navigator.clipboard.writeText(text);
                                   toast.success("Naslov kupca je skopiran v odložišče!");
+                                  setCopiedAddressId(soldItem.id);
+                                  setTimeout(() => setCopiedAddressId((cur) => (cur === soldItem.id ? null : cur)), 2000);
                                 }}
-                                className="text-[10px] font-black uppercase tracking-wider text-slate-600 hover:text-[#0A1128] bg-white px-3 py-1 rounded-lg border border-slate-200 shadow-sm transition-colors"
+                                className={`text-[10px] font-black uppercase tracking-wider px-3 py-1.5 rounded-lg border shadow-sm transition-all flex items-center gap-1.5 ${copiedAddressId === soldItem.id ? 'bg-emerald-500 border-emerald-500 text-white scale-105' : 'bg-white border-slate-200 text-slate-600 hover:text-[#0A1128] hover:border-[#FEBA4F]'}`}
                               >
-                                Kopiraj naslov
+                                {copiedAddressId === soldItem.id ? <><CheckCircle2 size={12} /> Skopirano</> : <><Copy size={12} /> Kopiraj naslov</>}
                               </button>
                             </div>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3 text-xs font-bold text-slate-600">
-                              <div>
-                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Prejemnik</span>
-                                <span className="text-[#0A1128] font-black">{buyerName}</span>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm font-bold text-slate-600">
+                              <div className="min-w-0">
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Prejemnik</span>
+                                <span className="text-[#0A1128] font-black break-words">{buyerName}</span>
                               </div>
-                              <div>
-                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Naslov</span>
-                                <span className="text-[#0A1128]">{buyerAddress || "Naslov ni vnesen"}</span>
+                              <div className="min-w-0">
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Naslov</span>
+                                <span className="text-[#0A1128] break-words">{buyerAddress || "Naslov ni vnesen"}</span>
                               </div>
-                              <div>
-                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Kraj in Pošta</span>
-                                <span className="text-[#0A1128]">{buyerPostalCode} {buyerCity || "Kraj ni vnesen"}</span>
+                              <div className="min-w-0">
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Kraj in pošta</span>
+                                <span className="text-[#0A1128] break-words">{buyerPostalCode} {buyerCity || "Kraj ni vnesen"}</span>
                               </div>
-                              <div>
-                                <span className="text-slate-400 font-medium block text-[10px] uppercase">Kontakt</span>
-                                <span className="text-[#0A1128] truncate">{buyerPhone || buyerEmail || "Ni podatka"}</span>
+                              <div className="min-w-0">
+                                <span className="text-slate-400 font-medium block text-[10px] uppercase tracking-wider">Kontakt</span>
+                                {buyerPhone && <span className="text-[#0A1128] block break-words">{buyerPhone}</span>}
+                                {buyerEmail && <span className="text-[#0A1128] block break-all">{buyerEmail}</span>}
+                                {!buyerPhone && !buyerEmail && <span className="text-[#0A1128]">Ni podatka</span>}
                               </div>
                             </div>
                           </div>
                         )}
                       </div>
 
-                      <div className="flex flex-col sm:flex-row gap-3 w-full lg:w-auto shrink-0">
-                        <div className="flex flex-col gap-3 flex-1 min-w-[180px]">
+                      <div className="grid grid-cols-2 gap-2 w-full sm:col-span-2 lg:col-span-1">
+                        <div className="contents">
                         <button
                           onClick={() => {
                             navigateTo("detail", { selectedItem: soldItem });
@@ -3819,27 +4650,29 @@ const MainApp: React.FC = () => {
                         {soldItem.post_auction_status === "failed_1st" && (
                           <>
                             {(soldItem.has_second_bidder || (soldItem as any).hasSecondBidder) ? (
-                              <button
-                                onClick={() => handleOfferToSecondBidder(soldItem)}
-                                className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
+                              <LoadingButton
+                                onClick={() => openSecondOfferModal(soldItem)}
+                                loadingText="Nalaganje..."
+                                className="col-span-2 bg-blue-600 text-white px-4 md:px-8 py-3 md:py-3 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-blue-700 transition-all flex items-center justify-center gap-2"
                               >
                                 Ponudi 2. ponudniku
-                              </button>
+                              </LoadingButton>
                             ) : (
                               <p className="text-xs text-red-500 font-bold text-center">Ni 2. ponudnika</p>
                             )}
-                            <button
+                            <LoadingButton
                               onClick={() => handleMoveToArchive(soldItem)}
-                              className="bg-red-100 text-red-700 px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-red-200 transition-all flex items-center justify-center gap-2"
+                              loadingText="Premikam..."
+                              className="col-span-2 bg-red-100 text-red-700 px-4 md:px-8 py-3 md:py-3 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-red-200 transition-all flex items-center justify-center gap-2"
                             >
                               Premakni v arhiv
-                            </button>
+                            </LoadingButton>
                           </>
                         )}
 
                         {soldItem.payment_status === "paid" && (
                           <>
-                            <button
+                            <LoadingButton
                               onClick={async () => {
                               let b = transactionPartners.get(soldItem.id);
                               if (!b) {
@@ -3870,10 +4703,11 @@ const MainApp: React.FC = () => {
                                 buyer: b || null
                               });
                             }}
+                            loadingText="Nalagam..."
                             className="bg-slate-100 text-[#0A1128] border-2 border-slate-200 px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:border-slate-400 hover:bg-slate-200 transition-all flex items-center justify-center gap-2 mt-auto"
                           >
                             <FileText size={16} /> Račun
-                          </button>
+                          </LoadingButton>
                           
                           <button
                             onClick={() => setTimelineModalAuctionId(soldItem.id)}
@@ -3883,17 +4717,63 @@ const MainApp: React.FC = () => {
                           </button>
 
                           {soldItem.payment_status === "paid" && ((soldItem as any).delivery_method === "post" || (soldItem as any).selected_delivery === "post") && !(soldItem as any).shipped_at && (
+                            <div className={`col-span-2 mt-2 p-3 rounded-2xl border text-[11px] font-bold leading-relaxed ${soldItem.currentBid > 20 ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-slate-50 border-slate-200 text-slate-600'}`}>
+                              {soldItem.currentBid > 20
+                                ? 'Znesek je nad 20 €: pošiljka mora biti oddana s sledenjem. Sledilno številko vpišite pri označitvi odpreme. Pošiljke brez sledenja ne oddajajte.'
+                                : 'Pošiljka do 20 € je lahko brez sledenja, vendar tveganje izgube nosite sami. S sledenjem ste zaščiteni pred neutemeljenimi prijavami.'}
+                            </div>
+                          )}
+
+                          {soldItem.payment_status === "paid" && ((soldItem as any).delivery_method === "post" || (soldItem as any).selected_delivery === "post") && (soldItem as any).shipped_at && !soldItem.buyer_received && (
+                            <div className="col-span-2 flex items-center justify-center gap-2 bg-emerald-50 border-2 border-emerald-200 text-emerald-700 px-4 py-3 rounded-2xl font-black uppercase tracking-widest text-xs">
+                              <CheckCircle2 size={16} /> Poslano {new Date((soldItem as any).shipped_at).toLocaleDateString('sl-SI')} – čaka na prejem
+                            </div>
+                          )}
+
+                          {soldItem.payment_status === "paid" && ((soldItem as any).delivery_method === "post" || (soldItem as any).selected_delivery === "post") && !(soldItem as any).shipped_at && (
                             <button
                               onClick={() => setMarkShippedModal({ isOpen: true, auctionId: soldItem.id, itemPrice: soldItem.currentBid })}
-                              className="bg-[#0A1128] text-white px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
+                              className="col-span-2 bg-[#0A1128] text-white px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
                             >
                               <Truck size={16} /> Označi kot poslano
                             </button>
                           )}
+
+                          {soldItem.payment_status === "paid" && ((soldItem as any).delivery_method === "pickup" || (soldItem as any).selected_delivery === "pickup") && !soldItem.buyer_received && (
+                            <>
+                              {/* Deutscher Kommentar: Button zum manuellen Eingeben des Abhol-PINs */}
+                              <button
+                                onClick={() => {
+                                  setPickupPinInput("");
+                                  setVerifyPickupPinModal({ isOpen: true, auctionId: soldItem.id });
+                                }}
+                                className="col-span-2 bg-[#0A1128] text-white px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
+                              >
+                                <Key size={16} /> Vnesi kodo za predajo
+                              </button>
+
+                              {/* Deutscher Kommentar: Button zum Scannen des QR-Codes mit der Kamera */}
+                              <button
+                                onClick={() => {
+                                  const titleText = typeof soldItem.title === 'string'
+                                    ? soldItem.title
+                                    : soldItem.title?.SLO || soldItem.title?.EN || "Predmet dražbe";
+                                  setQrScannerModal({
+                                    isOpen: true,
+                                    auctionId: soldItem.id,
+                                    auctionTitle: titleText,
+                                  });
+                                }}
+                                className="col-span-2 bg-[#FEBA4F] text-[#0A1128] px-4 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all flex items-center justify-center gap-2 mt-2 shadow-lg"
+                              >
+                                <QrCode size={16} /> Skeniraj kodo
+                              </button>
+                            </>
+                          )}
                         </>
                         )}
                         </div>
-                        <div className="flex flex-col gap-3 flex-1 min-w-[180px]">
+                        <div className="contents">
                         {/* Sporočila button: ONLY shown for personal pickup, NOT for postal shipping */}
                         {!isPostalShipping ? (
                           <button
@@ -3905,22 +4785,22 @@ const MainApp: React.FC = () => {
                             <MessageSquare size={16} /> Sporočila
                           </button>
                         ) : (
-                          <div className="h-[52px] hidden sm:block"></div>
+                          null
                         )}
 
-                        <div className="flex flex-col items-center gap-2 mt-1">
-                          {soldItem.delivery_method ? (
+                        <div className="col-span-2 flex flex-col items-center gap-2 mt-1">
+                          {effectiveDelivery ? (
                             <div className="text-xs font-bold text-slate-500 bg-slate-50 px-3.5 py-1.5 rounded-xl border border-slate-100 flex items-center gap-1.5">
-                              {soldItem.delivery_method === "pickup" ? (
+                              {effectiveDelivery === "pickup" ? (
                                 <MapPin size={14} className="text-[#FEBA4F]" />
                               ) : (
                                 <Truck size={14} className="text-[#FEBA4F]" />
                               )}
-                              {soldItem.delivery_method === "pickup"
+                              {effectiveDelivery === "pickup"
                                 ? "Osebni prevzem"
                                 : "Pošiljanje po pošti"}
                             </div>
-                          ) : (
+                          ) : !isFinished ? (
                             <button
                               onClick={() =>
                                 setDeliveryMethodModal({
@@ -3933,7 +4813,7 @@ const MainApp: React.FC = () => {
                             >
                               Izberi način predaje
                             </button>
-                          )}
+                          ) : null}
                         </div>
                       </div>
                       </div>
@@ -3995,6 +4875,11 @@ const MainApp: React.FC = () => {
           currentUserUnsold.push({ type: 'single', item: pkg.items[0] });
         }
       });
+      // Deutscher Kommentar: Neueste (zuletzt beendete) Auktion zuerst, Pakete nach ihrem juengsten Artikel
+      const unsoldEndMs = (e: any) => e.type === 'package'
+        ? Math.max(...e.items.map((i: any) => new Date(i.endTime || i.end_time).getTime()))
+        : new Date(e.item.endTime || e.item.end_time).getTime();
+      currentUserUnsold.sort((x, y) => unsoldEndMs(y) - unsoldEndMs(x));
 
 
       content = (
@@ -4041,7 +4926,7 @@ const MainApp: React.FC = () => {
                     return (
                       <div
                         key={pkg.package_id}
-                        className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
+                        className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
                       >
                         <button 
                           onClick={() => setDeleteUnsoldModal({
@@ -4078,7 +4963,7 @@ const MainApp: React.FC = () => {
                           <button
                             onClick={() => handleDirectQuickRepublishPackage(items)}
                             disabled={isQuickRepublishing === "package"}
-                            className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                            className="bg-[#FEBA4F] text-[#0A1128] px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
                           >
                             <Upload size={16} /> {isQuickRepublishing === "package" ? "Objavljanje..." : "Hitra objava paketa"}
                           </button>
@@ -4089,7 +4974,7 @@ const MainApp: React.FC = () => {
                                 republishData: { type: 'package', items: items }
                               });
                             }}
-                            className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                            className="bg-[#0A1128] text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
                           >
                             <Upload size={16} /> Uredi in objavi paket
                           </button>
@@ -4107,7 +4992,7 @@ const MainApp: React.FC = () => {
                   return (
                     <div
                       key={soldItem.id}
-                      className="flex flex-col md:flex-row items-center gap-8 p-6 rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
+                      className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
                     >
                       <button 
                         onClick={() => setDeleteUnsoldModal({
@@ -4134,6 +5019,21 @@ const MainApp: React.FC = () => {
                             Neplačano (rok 48h potekel)
                           </div>
                         ) : null}
+                        {soldItem.post_auction_status === "failed_1st" && (
+                          <div className="mb-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs font-bold text-amber-900 leading-relaxed">
+                            Čaka na vašo odločitev: zmagovalec ni plačal. Dražbo lahko ponudite 2. ponudniku (ob potrditvi vidite ceno) ali jo objavite ponovno / izbrišete.
+                          </div>
+                        )}
+                        {soldItem.post_auction_status === "failed_2nd" && (
+                          <div className="mb-2 p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 leading-relaxed">
+                            Tudi 2. ponudnik ni kupil predmeta. Dražbo lahko objavite ponovno ali izbrišete.
+                          </div>
+                        )}
+                        {soldItem.post_auction_status === "rejected_2nd" && (
+                          <div className="mb-2 p-3 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold text-slate-600 leading-relaxed">
+                            2. ponudnik je ponudbo zavrnil. Dražbo lahko objavite ponovno ali izbrišete.
+                          </div>
+                        )}
                         <h3
                           className="text-2xl font-black uppercase tracking-tighter text-slate-500 mb-2 cursor-pointer hover:text-[#0A1128] transition-colors"
                           onClick={() => {
@@ -4157,10 +5057,18 @@ const MainApp: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
+                        {soldItem.post_auction_status === "failed_1st" && (
+                          <button
+                            onClick={() => openSecondOfferModal(soldItem)}
+                            className="bg-blue-600 text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-blue-700 transition-all shadow-xl flex items-center justify-center gap-2"
+                          >
+                            Ponudi 2. ponudniku
+                          </button>
+                        )}
                         <button
                           onClick={() => handleDirectQuickRepublish(soldItem)}
                           disabled={isQuickRepublishing === soldItem.id}
-                          className="bg-[#FEBA4F] text-[#0A1128] px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
+                          className="bg-[#FEBA4F] text-[#0A1128] px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#0A1128] hover:text-[#FEBA4F] transition-all shadow-xl flex items-center justify-center gap-2 disabled:opacity-50"
                         >
                           <Upload size={16} /> {isQuickRepublishing === soldItem.id ? "Objavljanje..." : "Hitra objava"}
                         </button>
@@ -4178,7 +5086,7 @@ const MainApp: React.FC = () => {
                               }
                             });
                           }}
-                          className="bg-[#0A1128] text-white px-8 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
+                          className="bg-[#0A1128] text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-2"
                         >
                           <Upload size={16} /> Uredi in objavi
                         </button>
@@ -4228,6 +5136,9 @@ const MainApp: React.FC = () => {
                 seller_id: auction.sellerId || (auction as any).seller_id,
                 fee_percentage: fee * 100,
                 buyer_data: userData,
+                payment_deadline: auction.payment_deadline,
+                endTime: auction.endTime || auction.end_time,
+                bank_transfer_used: auction.bank_transfer_used
               },
             });
             setIsCheckoutOpen(true);
@@ -4271,6 +5182,7 @@ const MainApp: React.FC = () => {
                   (a) =>
                     a.status === "active" && new Date(a.endTime) > new Date(),
                 )
+                .sort((a, b) => new Date(a.endTime).getTime() - new Date(b.endTime).getTime()) // prva se zaključi prva
                 .map((item) => (
                   <AuctionCard
                     key={item.id}
@@ -4310,45 +5222,13 @@ const MainApp: React.FC = () => {
         </div>
       );
       break;
-    case "testSandbox":
-      content = (
-        <TestSandboxView
-          onBack={() => goBack("grid")}
-          userData={userData}
-          onRefreshUserData={fetchAuctions}
-          onOpenInvoiceModal={(auction, seller, buyer) => {
-            setInvoiceModalData({
-              isOpen: true,
-              auction,
-              seller,
-              buyer
-            });
-          }}
-          t={t}
-          language={language}
-          isVerified={isVerified}
-          onAuctionClick={(item) => {
-            navigateTo("detail", { selectedItem: item });
-          }}
-          onSelectPackage={(packageId) => {
-            navigateTo("package", { selectedPackageId: packageId });
-          }}
-          watchlist={watchedIds}
-          onWatchToggle={toggleWatch}
-          onBidSubmit={handleBidSubmit}
-          onSellerClick={(seller) => {
-            navigateToSellerProfile(seller);
-          }}
-        />
-      );
-      break;
     default:
       content = (
         <div className="animate-in">
           {activeView === "grid" &&
-            !selectedCategory &&
+            selectedCategories.length === 0 &&
             !searchQuery &&
-            !selectedRegion && (
+            selectedRegions.length === 0 && (
               <HeroCarousel
                 items={auctions}
                 onSelectItem={(item) => {
@@ -4368,32 +5248,32 @@ const MainApp: React.FC = () => {
                 <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
                   {activeView === "lastChance"
                     ? t("lastChanceTitle")
-                    : selectedRegion
-                      ? `${t("regions")}: ${selectedRegion}`
-                      : selectedCategory
-                        ? `${t("category")}: ${getCategoryTranslation(selectedCategory, t)}`
+                    : selectedRegions.length > 0
+                      ? (selectedRegions.length === 1 ? `${t("regions")}: ${selectedRegions[0]}` : `${t("regions")}: ${selectedRegions.length} izbranih`)
+                      : selectedCategories.length > 0
+                        ? (selectedCategories.length === 1 ? `${t("category")}: ${getCategoryTranslation(selectedCategories[0], t)}` : `${t("category")}: ${selectedCategories.length} izbranih`)
                         : searchQuery
                           ? `${t("searchResults") || 'Rezultati'}: "${searchQuery}"`
                           : t("activeAuctions")}
                 </h2>
-                {selectedRegion && (
+                {selectedRegions.length > 0 && (
                   <button
-                    onClick={() => setSelectedRegion(null)}
+                    onClick={() => setSelectedRegions([])}
                     className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
                   >
-                    <span>{t("clearFilter") || "Počisti regijo"}</span>
+                    <span>{t("clearFilter") || "Počisti regije"}</span>
                     <X size={14} />
                   </button>
                 )}
-                {selectedCategory && (
+                {selectedCategories.length > 0 && (
                   <button
                     onClick={() => {
-                      setSelectedCategory(null);
-                      setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                      setSelectedCategories([]);
+                      setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
                     }}
                     className="flex items-center gap-1.5 bg-[#0A1128] text-[#FEBA4F] hover:bg-[#FEBA4F] hover:text-[#0A1128] text-xs font-black uppercase px-3 py-1.5 rounded-full transition-all border border-[#FEBA4F]/30"
                   >
-                    <span>{t("clearFilter") || "Počisti kategorijo"}</span>
+                    <span>{t("clearFilter") || "Počisti kategorije"}</span>
                     <X size={14} />
                   </button>
                 )}
@@ -4452,20 +5332,33 @@ const MainApp: React.FC = () => {
             {/* Dynamic Category & Specification Filter Bar & Auction Grid */}
             <div className={showFilters ? "lg:grid lg:grid-cols-[280px_1fr] lg:gap-6 items-start" : "w-full"}>
               <CategoryFilterBar
-                category={selectedCategory}
+                category={selectedCategories.length === 1 ? selectedCategories[0] : null}
+                selectedCategories={selectedCategories}
+                selectedRegions={selectedRegions}
+                onCategoriesChange={(cats) => {
+                  setSelectedCategories(cats);
+                  setCurrentPage(1);
+                }}
+                onRegionsChange={(regs) => {
+                  setSelectedRegions(regs);
+                  setCurrentPage(1);
+                }}
                 filters={categoryFilters}
                 onFilterChange={(newFilters) => {
                   setCategoryFilters(newFilters);
                   setCurrentPage(1);
                 }}
                 onResetFilters={() => {
-                  setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+                  setSelectedCategories([]);
+                  setSelectedRegions([]);
+                  setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
                   setCurrentPage(1);
                 }}
                 totalResultsCount={getFilteredAuctions.length}
                 showDesktopPanel={showFilters}
                 isMobileOpen={isMobileFiltersOpen}
                 onCloseMobile={() => setIsMobileFiltersOpen(false)}
+                auctions={auctions}
               />
 
               <div className="w-full min-w-0">
@@ -4570,6 +5463,17 @@ const MainApp: React.FC = () => {
                   );
                 })()}
 
+                {!auctionsUnlimited && !hasActiveListFilters && rawAuctions.length >= auctionsLimit && auctionsLimit < AUCTIONS_MAX_WITH_FILTERS && currentPage === totalPages && (
+                  <div className="mt-10 flex justify-center">
+                    <button
+                      onClick={() => setAuctionsLimit((l) => Math.min(l + AUCTIONS_PAGE_SIZE, AUCTIONS_MAX_WITH_FILTERS))}
+                      className="px-8 py-4 rounded-2xl border-2 border-slate-100 text-[#0A1128] font-black text-xs uppercase tracking-widest hover:border-[#FEBA4F] transition-all"
+                    >
+                      {t("loadMoreAuctions")}
+                    </button>
+                  </div>
+                )}
+
                 {totalPages > 1 && (
                   <div className="mt-20 flex flex-col md:flex-row items-center justify-between gap-8 border-t-2 border-slate-100 pt-12">
                     <div className="flex flex-col gap-2">
@@ -4644,21 +5548,69 @@ const MainApp: React.FC = () => {
 
   const [dontShowTermsAgain, setDontShowTermsAgain] = useState(false);
 
+  // Hinweis mit Aktionsknopf statt automatischer Weiterleitung
+  function showActionNotice(
+    message: string,
+    actionLabel: string,
+    onAction: () => void,
+    secondary?: { label: string; onClick: () => void }
+  ) {
+    toast.warning(message, {
+      duration: 12000,
+      action: { label: actionLabel, onClick: onAction },
+      ...(secondary ? { cancel: { label: secondary.label, onClick: secondary.onClick } } : {})
+    });
+  }
+
   async function handleBidSubmit(item: any, amount: number): Promise<"ok" | "outbid" | "error" | "login_required" | "cancelled"> {
     if (!isLoggedIn) {
-      toast.error("Za oddajo ponudbe se morate prijaviti ali registrirati.");
-      setAuthMode('login');
-      setActiveView("login");
+      showActionNotice(
+        "Za oddajo ponudbe se morate prijaviti.",
+        "Prijava",
+        () => {
+          setAuthMode('login');
+          navigateTo("login");
+        },
+        {
+          label: "Registracija",
+          onClick: () => {
+            setAuthMode('register');
+            navigateTo("login");
+          }
+        }
+      );
       return "login_required";
     }
     if (!(auth.currentUser?.emailVerified || userData?.email_verified)) {
-      toast.error("Za oddajo ponudbe morate najprej potrditi svoj e-poštni naslov.");
+      showActionNotice(
+        "Za oddajo ponudbe morate potrditi svoj e-poštni naslov.",
+        "Pošlji potrditveno e-pošto",
+        async () => {
+          try {
+            const email = userData?.email || auth.currentUser?.email || "";
+            const displayName = (userData?.first_name || "").toString() || undefined;
+            const res = await sendEmailVerificationAction(email, displayName, auth.currentUser?.uid);
+            if (res.success) {
+              toast.success("Potrditveno e-pošto smo poslali.");
+            } else {
+              toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvene e-pošte."));
+            }
+          } catch (err: any) {
+            toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
+          }
+        }
+      );
       return "error";
     }
     if (!userData?.profile_completed) {
-      toast.error("Za oddajo ponudbe morate najprej dopolniti svoj profil.");
-      setSettingsTab('personal');
-      setActiveView('settings');
+      showActionNotice(
+        "Za oddajo ponudbe morate dopolniti svoj profil.",
+        "Dopolni profil",
+        () => {
+          setSettingsTab('personal');
+          navigateTo("settings", { settingsTab: 'personal' });
+        }
+      );
       return "error";
     }
     const itemSellerId = item.sellerId || (item as any).seller_id || ((item as any).seller && (((item as any).seller as any).id || (item as any).seller.id));
@@ -4702,7 +5654,7 @@ const MainApp: React.FC = () => {
     if (bidResolverRef.current) bidResolverRef.current("cancelled");
   };
 
-  async function handleConfirmBid(confirmedAmount?: number) {
+  async function handleConfirmBid(confirmedAmount?: number, taxData?: any, acceptedBidTerms?: boolean) {
     if (!pendingBid) {
       if (bidResolverRef.current) bidResolverRef.current("error");
       return;
@@ -4726,6 +5678,7 @@ const MainApp: React.FC = () => {
         body: JSON.stringify({
           auction_id: item.id,
           amount,
+          accepted_bid_terms: acceptedBidTerms === true
         }),
       });
 
@@ -4733,9 +5686,35 @@ const MainApp: React.FC = () => {
 
       if (!response.ok || !data.success) {
         if (response.status === 403 && data.code === 'TERMS_REQUIRED') {
-          // Obvestilo in Weiterleitung erledigt der globale fetch-Handler
-        } else if (response.status === 403 && (data.code === 'EMAIL_NOT_VERIFIED' || data.code === 'PROFILE_INCOMPLETE')) {
-          toast.error(data.error);
+          // wird vom globalen Handler behandelt
+        } else if (response.status === 403 && data.code === 'EMAIL_NOT_VERIFIED') {
+          showActionNotice(
+            "Za oddajo ponudbe morate potrditi svoj e-poštni naslov.",
+            "Pošlji potrditveno e-pošto",
+            async () => {
+              try {
+                const email = userData?.email || auth.currentUser?.email || "";
+                const displayName = (userData?.first_name || "").toString() || undefined;
+                const res = await sendEmailVerificationAction(email, displayName, auth.currentUser?.uid);
+                if (res.success) {
+                  toast.success("Potrditveno e-pošto smo poslali.");
+                } else {
+                  toast.error(friendlyError(res.error, "Napaka pri pošiljanju potrditvene e-pošte."));
+                }
+              } catch (err: any) {
+                toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
+              }
+            }
+          );
+        } else if (response.status === 403 && data.code === 'PROFILE_INCOMPLETE') {
+          showActionNotice(
+            "Za oddajo ponudbe morate dopolniti svoj profil.",
+            "Dopolni profil",
+            () => {
+              setSettingsTab('personal');
+              navigateTo("settings", { settingsTab: 'personal' });
+            }
+          );
         } else {
           const errorMsg = friendlyError(data.error, "Napaka pri oddaji ponudbe.");
           toast.error(errorMsg);
@@ -4861,7 +5840,7 @@ const MainApp: React.FC = () => {
       if (!res.ok) {
         throw new Error(data.error || "Napaka pri sprejemu ponudbe.");
       }
-      toast.success(data.message || "Sprejeli ste ponudbo! Imate 48 ur za plačilo.");
+      toast.success(data.message || "Sprejeli ste ponudbo! Imate 24 ur za plačilo.");
       fetchAuctions();
     } catch (e: any) {
       toast.error(friendlyError(e, "Napaka pri sprejemu ponudbe."));
@@ -4890,7 +5869,9 @@ const MainApp: React.FC = () => {
   };
 
   async function handleDeliveryMethodSubmit() {
-    if (!deliveryMethodModal.auctionId || !deliveryMethodModal.deliveryMethod) return;
+    // Deutscher Kommentar: Schutz vor Mehrfachklicks und fehlender Auswahl
+    if (!deliveryMethodModal.auctionId || !deliveryMethodModal.deliveryMethod || deliveryMethodSaving) return;
+    setDeliveryMethodSaving(true);
     try {
       const res = await fetch('/api/auctions/set-delivery-method', {
         method: 'POST',
@@ -4905,30 +5886,48 @@ const MainApp: React.FC = () => {
         throw new Error(data.error || "Napaka pri shranjevanju načina predaje.");
       }
       toast.success(data.message || "Način predaje je bil uspešno posodobljen.");
+      setDeliveryMethodModal({ isOpen: false, auctionId: "", deliveryMethod: null });
+      fetchAuctions();
     } catch (e: any) {
       console.error("Napaka pri posodabljanju načina predaje:", e);
       toast.error(friendlyError(e, "Napaka pri shranjevanju načina predaje."));
-    } finally {
       setDeliveryMethodModal({ isOpen: false, auctionId: "", deliveryMethod: null });
-      fetchAuctions();
+    } finally {
+      setDeliveryMethodSaving(false);
     }
   };
 
   async function handleReceiptConfirmSubmit() {
+    // Verhindert mehrfaches Absenden, wenn bereits geladen oder erfolgreich
+    if (receiptConfirmLoading || receiptConfirmState === 'success') return;
+    setReceiptConfirmState('loading');
+    setReceiptConfirmLoading(true);
     try {
       const token = await auth.currentUser?.getIdToken();
-      if (!token) return;
+      if (!token) {
+        setReceiptConfirmState('idle');
+        setReceiptConfirmLoading(false);
+        toast.error("Niste prijavljeni.");
+        return;
+      }
       const res = await confirmReceiptAction({ auction_id: receiptConfirmModal.auctionId }, token);
       if (res.success) {
-        toast.success("Prejem uspešno potrjen. Sredstva so sproščena prodajalcu.");
+        setReceiptConfirmState('success');
+        setReceiptConfirmLoading(false);
+        setTimeout(() => {
+          setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
+          setReceiptConfirmState('idle');
+          fetchAuctions();
+        }, 1500);
       } else {
+        setReceiptConfirmState('idle');
+        setReceiptConfirmLoading(false);
         toast.error(friendlyError(res.error, "Napaka pri potrditvi prejema."));
       }
     } catch (e) {
+      setReceiptConfirmState('idle');
+      setReceiptConfirmLoading(false);
       toast.error(friendlyError(e, "Napaka pri potrditvi prejema."));
-    } finally {
-      setReceiptConfirmModal(prev => ({ ...prev, isOpen: false }));
-      fetchAuctions();
     }
   };
 
@@ -4980,6 +5979,7 @@ const MainApp: React.FC = () => {
   return (
     <ChatProvider userId={userData?.id || ""} auctions={auctions} appWakeupTrigger={appWakeupTrigger}>
       <div className="min-h-screen flex flex-col bg-[#f3f4f6] font-sans selection:bg-[#FEBA4F] selection:text-[#0A1128] overflow-x-hidden">
+        <DialogHost />
         <Toaster
           position="top-center"
           duration={4000}
@@ -5024,10 +6024,10 @@ const MainApp: React.FC = () => {
         )}
         <Header
           onHome={() => {
-            setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
+            setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
             navigateTo("grid", {
-              selectedRegion: null,
-              selectedCategory: null,
+              selectedRegions: [],
+              selectedCategories: [],
               searchQuery: ""
             });
           }}
@@ -5038,14 +6038,17 @@ const MainApp: React.FC = () => {
             }
           }}
           onRegionSelect={(reg) => {
-            navigateTo("grid", { selectedRegion: reg });
+            navigateTo("grid", { selectedRegions: reg ? [reg] : [] });
+          }}
+          onRegionsChange={(regs) => {
+            navigateTo("grid", { selectedRegions: regs });
           }}
           onCategorySelect={(cat) => {
-            setCategoryFilters({ delivery_option: undefined, condition: undefined, specifications: {} });
-            navigateTo("grid", { selectedCategory: cat });
+            setCategoryFilters({ delivery_options: [], conditions: [], specifications: {} });
+            navigateTo("grid", { selectedCategories: cat ? [cat] : [] });
           }}
           onLastChance={() => {
-            navigateTo("lastChance", { selectedRegion: null, selectedCategory: null });
+            navigateTo("lastChance", { selectedRegions: [], selectedCategories: [] });
           }}
           onLogin={() => {
             setAuthMode('login');
@@ -5062,6 +6065,9 @@ const MainApp: React.FC = () => {
           onSubscriptions={() => {
             navigateTo("subscriptions");
           }}
+          onAdminAccounting={() => {
+            navigateTo("adminAccounting");
+          }}
           onCreateAuction={() => {
             navigateTo("createAuction", { createMode: 'choice', republishData: null });
           }}
@@ -5074,6 +6080,10 @@ const MainApp: React.FC = () => {
           onMySold={() => {
             navigateTo("mySold");
           }}
+          onMyReviews={() => {
+            nextSellerTabRef.current = 'reviews';
+            navigateToSellerProfile(userData?.id || auth.currentUser?.uid, userData?.username);
+          }}
           onMyUnsold={() => {
             navigateTo("myUnsold");
           }}
@@ -5084,9 +6094,14 @@ const MainApp: React.FC = () => {
             navigateTo("messages");
           }}
           onAcceptTerms={() => navigateTo("acceptTerms")}
+          notifications={notifications}
+          onMarkNotificationRead={markNotificationRead}
+          onSelectNotification={handleSelectNotification}
+          isTermsBarReady={showBannerDelayPassed && !isAuthLoading}
           activeView={activeView}
-          selectedRegion={selectedRegion}
-          selectedCategory={selectedCategory}
+          selectedRegion={selectedRegions[0] ?? null}
+          selectedRegions={selectedRegions}
+          selectedCategory={selectedCategories[0] ?? null}
           isLoggedIn={isLoggedIn}
           isAuthLoading={isAuthLoading}
           isVerified={isVerified}
@@ -5106,42 +6121,41 @@ const MainApp: React.FC = () => {
             t={t}
             onLegal={setActiveLegal}
             onNavigate={(view) => navigateTo(view)}
-            onTestSandbox={() => {
-              navigateTo("testSandbox");
-            }}
           />
         )}
         {showTermsModal && (
           <Portal>
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-              <div className="bg-white w-full max-w-xl rounded-[3rem] p-10 lg:p-14 shadow-2xl relative">
+            {/* Deutscher Kommentar: Responsives Splosni pogoji poslovanja Modal fuer mobile Geraete */}
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in">
+              <div className="bg-white w-full max-w-xl rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 lg:p-14 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
                 <button
                   onClick={handleCancelTerms}
-                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+                  className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-[#0A1128] transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
+                  aria-label="Zapri"
                 >
                   <X size={24} />
                 </button>
-                <div className="bg-[#FEBA4F] w-20 h-20 rounded-3xl flex items-center justify-center mb-8 shadow-lg shadow-[#FEBA4F]/20">
-                  <ShieldCheck size={40} className="text-[#0A1128]" />
+                <div className="bg-[#FEBA4F] w-14 h-14 sm:w-20 sm:h-20 rounded-2xl sm:rounded-3xl flex items-center justify-center mb-5 sm:mb-8 shadow-lg shadow-[#FEBA4F]/20">
+                  <ShieldCheck size={32} className="text-[#0A1128]" />
                 </div>
-                <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                <h2 className="text-xl sm:text-3xl font-black text-[#0A1128] uppercase tracking-tighter mb-3 sm:mb-4">
                   Splošni pogoji poslovanja
                 </h2>
-                <p className="text-slate-500 font-bold leading-relaxed mb-6">
+                <p className="text-slate-500 font-bold leading-relaxed mb-5 sm:mb-6 text-xs sm:text-base">
                   Z oddajo ponudbe potrjujete, da se strinjate s splošnimi pogoji
                   poslovanja platforme dražbenik.si. Vaša ponudba je pravno
                   zavezujoča. V primeru, da zmagate na dražbi, ste dolžni predmet
                   prevzeti in plačati v skladu s pogoji prodajalca.
                 </p>
-                <label className="flex items-center gap-3 mb-10 cursor-pointer group">
+                <label className="flex items-center gap-3 mb-6 sm:mb-10 cursor-pointer group min-h-[40px]">
                   <div
-                    className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all ${dontShowTermsAgain ? "bg-[#FEBA4F] border-[#FEBA4F]" : "border-slate-300 group-hover:border-[#FEBA4F]"}`}
+                    className={`w-6 h-6 rounded-md border-2 flex items-center justify-center transition-all shrink-0 ${dontShowTermsAgain ? "bg-[#FEBA4F] border-[#FEBA4F]" : "border-slate-300 group-hover:border-[#FEBA4F]"}`}
                   >
                     {dontShowTermsAgain && (
                       <CheckCircle2 size={16} className="text-[#0A1128]" />
                     )}
                   </div>
-                  <span className="text-sm font-bold text-slate-600 select-none">
+                  <span className="text-xs sm:text-sm font-bold text-slate-600 select-none">
                     Ne prikaži več tega obvestila
                   </span>
                   <input
@@ -5153,7 +6167,7 @@ const MainApp: React.FC = () => {
                 </label>
                 <button
                   onClick={handleAcceptTerms}
-                  className="w-full bg-[#0A1128] text-white py-6 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+                  className="w-full bg-[#0A1128] text-white py-3.5 sm:py-6 rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl min-h-[44px] flex items-center justify-center"
                 >
                   Strinjam se in potrjujem ponudbo
                 </button>
@@ -5171,42 +6185,95 @@ const MainApp: React.FC = () => {
             t={t}
             onConfirm={handleConfirmBid}
             userData={userData}
+            onOpenTerms={() => setActiveLegal('terms')}
           />
         )}
+        <CookieNotice onOpenPolicy={() => setActiveLegal("cookies")} />
         {activeLegal && (
           <LegalModal
             type={activeLegal}
             onClose={() => setActiveLegal(null)}
             t={t}
+            language={language}
           />
+        )}
+
+        {/* Modal: Angebot an 2. Bieter bestaetigen */}
+        {secondOfferModal && (
+          <Portal>
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-4">
+              <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => { if (!secondOfferModal.submitting) setSecondOfferModal(null); }} />
+              <div className="relative bg-white rounded-3xl p-5 sm:p-8 max-w-md w-full shadow-2xl text-center z-10 max-h-[92dvh] overflow-y-auto">
+                <h3 className="text-lg sm:text-xl font-black text-[#0A1128] uppercase tracking-tighter mb-3">Ponudba 2. ponudniku</h3>
+                {secondOfferModal.loading ? (
+                  <p className="text-sm font-bold text-slate-500 py-6">Nalaganje...</p>
+                ) : !secondOfferModal.available ? (
+                  <p className="text-sm font-bold text-red-600 py-4">Za to dražbo ni 2. ponudnika. Dražbo lahko objavite ponovno.</p>
+                ) : (
+                  <>
+                    <p className="text-sm font-bold text-slate-600 leading-relaxed mb-3">
+                      Predmet bo ponujen 2. najvišjemu ponudniku po njegovi ponudbi:
+                    </p>
+                    <p className="text-3xl font-black text-[#0A1128] mb-3">€{secondOfferModal.amount.toLocaleString("sl-SI", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+                    <p className="text-xs font-bold text-slate-500 leading-relaxed mb-5">
+                      Ponudnik bo o ponudbi obveščen po e-pošti in na spletni strani. Ima 24 ur za sprejem ponudbe in nato še 24 ur za plačilo. Če ponudbe ne sprejme, dražba preide med neprodane brez opomina; če jo sprejme in ne plača v roku, prejme opomin in dražba preide med neprodane in jo lahko objavite ponovno.
+                    </p>
+                  </>
+                )}
+                <div className="flex flex-col gap-2.5">
+                  {!secondOfferModal.loading && secondOfferModal.available && (
+                    <button
+                      disabled={secondOfferModal.submitting}
+                      onClick={async () => {
+                        setSecondOfferModal((m) => (m ? { ...m, submitting: true } : m));
+                        await handleOfferToSecondBidder(secondOfferModal.item);
+                        setSecondOfferModal(null);
+                      }}
+                      className="w-full bg-blue-600 hover:bg-blue-700 text-white py-3.5 px-4 rounded-2xl font-black uppercase tracking-wider text-xs disabled:opacity-50 min-h-[44px]"
+                    >
+                      {secondOfferModal.submitting ? "Pošiljam..." : "Potrdi in ponudi"}
+                    </button>
+                  )}
+                  <button
+                    disabled={secondOfferModal.submitting}
+                    onClick={() => setSecondOfferModal(null)}
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-700 py-3 px-4 rounded-2xl font-black uppercase tracking-wider text-xs min-h-[40px]"
+                  >
+                    Prekliči
+                  </button>
+                </div>
+              </div>
+            </div>
+          </Portal>
         )}
 
         {/* Modal for Unsold Auction Permanent Deletion */}
         {deleteUnsoldModal && deleteUnsoldModal.isOpen && (
           <Portal>
-            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            {/* Deutscher Kommentar: Responsives Modal fuer Loeschung unverkaufter Auktionen */}
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-3 sm:p-4">
               <div 
                 className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm animate-in fade-in"
                 onClick={() => setDeleteUnsoldModal(null)}
               />
-              <div className="relative bg-white rounded-[2.5rem] p-8 sm:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10">
-                <div className="w-16 h-16 rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-6 mx-auto shadow-inner">
-                  <Trash2 size={32} />
+              <div className="relative bg-white rounded-3xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10 max-h-[92dvh] overflow-y-auto">
+                <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-4 sm:mb-6 mx-auto shadow-inner">
+                  <Trash2 size={28} />
                 </div>
-                <h3 className="text-2xl font-black uppercase tracking-tight text-[#0A1128] text-center mb-2">
+                <h3 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-[#0A1128] text-center mb-2">
                   Dokončen izbris dražbe
                 </h3>
-                <p className="text-sm font-bold text-slate-500 text-center mb-8 leading-relaxed">
+                <p className="text-xs sm:text-sm font-bold text-slate-500 text-center mb-6 sm:mb-8 leading-relaxed">
                   Ali ste prepričani, da želite dokončno izbrisati <span className="text-[#0A1128] font-black">"{deleteUnsoldModal.title}"</span>? Te akcije ni mogoče razveljaviti in dražba bo trajno odstranjena.
                 </p>
-                <div className="grid grid-cols-2 gap-4">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4">
                   <button
                     onClick={() => setDeleteUnsoldModal(null)}
-                    className="bg-slate-100 hover:bg-slate-200 text-[#0A1128] px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all"
+                    className="bg-slate-100 hover:bg-slate-200 text-[#0A1128] px-4 sm:px-6 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-[11px] sm:text-xs transition-all min-h-[44px] flex items-center justify-center"
                   >
                     Prekliči
                   </button>
-                  <button
+                  <LoadingButton
                     onClick={async () => {
                       try {
                         const idsToDelete = deleteUnsoldModal.items
@@ -5232,10 +6299,11 @@ const MainApp: React.FC = () => {
                         toast.error(friendlyError(err, "Napaka pri brisanju."));
                       }
                     }}
-                    className="bg-red-600 hover:bg-red-700 text-white px-6 py-4 rounded-2xl font-black uppercase tracking-widest text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-2"
+                    loadingText="Brišem..."
+                    className="bg-red-600 hover:bg-red-700 text-white px-4 sm:px-6 py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-[11px] sm:text-xs transition-all shadow-lg shadow-red-600/30 flex items-center justify-center gap-1.5 sm:gap-2 min-h-[44px]"
                   >
                     <Trash2 size={16} /> Izbriši
-                  </button>
+                  </LoadingButton>
                 </div>
               </div>
             </div>
@@ -5245,8 +6313,9 @@ const MainApp: React.FC = () => {
         {/* Modals for delivery and rating */}
         {deliveryMethodModal.isOpen && (
           <Portal>
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-              <div className="bg-white w-full max-w-lg rounded-[3rem] p-10 shadow-2xl relative">
+            {/* Deutscher Kommentar: Responsives Versandart-Auswahl-Modal */}
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in">
+              <div className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
                 <button
                   onClick={() =>
                     setDeliveryMethodModal({
@@ -5255,67 +6324,72 @@ const MainApp: React.FC = () => {
                       deliveryMethod: null,
                     })
                   }
-                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
+                  className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-[#0A1128] transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
+                  aria-label="Zapri"
                 >
                   <X size={24} />
                 </button>
-                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
+                <h2 className="text-xl sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-2 sm:mb-4">
                   Način predaje
                 </h2>
-                <p className="text-slate-500 font-bold mb-8">
-                  Izberite, na kakšen način boste predmet predali kupcu.
+                <p className="text-slate-500 font-bold mb-6 sm:mb-8 text-xs sm:text-sm">
+                  Izberite želeni način predaje ali prevzema predmeta.
                 </p>
-                <div className="grid grid-cols-2 gap-4 mb-8">
+                <div className="grid grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
                   <button
+                    disabled={deliveryMethodSaving}
                     onClick={() =>
                       setDeliveryMethodModal((prev) => ({
                         ...prev,
                         deliveryMethod: "pickup",
                       }))
                     }
-                    className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "pickup" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                    className={`p-4 sm:p-6 rounded-2xl border-2 sm:border-4 transition-all flex flex-col items-center gap-2 sm:gap-3 disabled:opacity-50 disabled:cursor-not-allowed ${deliveryMethodModal.deliveryMethod === "pickup" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
                   >
                     <MapPin
-                      size={32}
+                      size={28}
                       className={
                         deliveryMethodModal.deliveryMethod === "pickup"
                           ? "text-[#FEBA4F]"
                           : "text-slate-400"
                       }
                     />
-                    <span className="font-bold text-sm text-[#0A1128]">
+                    <span className="font-bold text-xs sm:text-sm text-[#0A1128] text-center">
                       Osebni prevzem
                     </span>
                   </button>
                   <button
+                    disabled={deliveryMethodSaving}
                     onClick={() =>
                       setDeliveryMethodModal((prev) => ({
                         ...prev,
                         deliveryMethod: "post",
                       }))
                     }
-                    className={`p-6 rounded-2xl border-4 transition-all flex flex-col items-center gap-3 ${deliveryMethodModal.deliveryMethod === "post" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
+                    className={`p-4 sm:p-6 rounded-2xl border-2 sm:border-4 transition-all flex flex-col items-center gap-2 sm:gap-3 disabled:opacity-50 disabled:cursor-not-allowed ${deliveryMethodModal.deliveryMethod === "post" ? "border-[#FEBA4F] bg-[#FEBA4F]/10" : "border-slate-100 hover:border-slate-200 bg-white"}`}
                   >
                     <Truck
-                      size={32}
+                      size={28}
                       className={
                         deliveryMethodModal.deliveryMethod === "post"
                           ? "text-[#FEBA4F]"
                           : "text-slate-400"
                       }
                     />
-                    <span className="font-bold text-sm text-[#0A1128]">
+                    <span className="font-bold text-xs sm:text-sm text-[#0A1128] text-center">
                       Pošiljanje po pošti
                     </span>
                   </button>
                 </div>
-                <button
+                <LoadingButton
                   onClick={handleDeliveryMethodSubmit}
-                  disabled={!deliveryMethodModal.deliveryMethod}
-                  className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  loading={deliveryMethodSaving}
+                  loadingText="Shranjujem..."
+                  disabled={!deliveryMethodModal.deliveryMethod || deliveryMethodSaving}
+                  className="w-full bg-[#0A1128] text-white py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px]"
                 >
                   Potrdi izbiro
-                </button>
+                </LoadingButton>
               </div>
             </div>
           </Portal>
@@ -5323,50 +6397,76 @@ const MainApp: React.FC = () => {
 
         {receiptConfirmModal.isOpen && (
           <Portal>
-            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-6 animate-in">
-              <div className="bg-white w-full max-w-md rounded-[3rem] p-10 shadow-2xl relative text-center">
-                <button
-                  onClick={() =>
-                    setReceiptConfirmModal({
-                      isOpen: false,
-                      auctionId: "",
-                      sellerId: "",
-                    })
-                  }
-                  className="absolute top-8 right-8 text-slate-400 hover:text-[#0A1128] transition-colors"
-                >
-                  <X size={24} />
-                </button>
-                <div className="bg-green-100 w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-6">
-                  <CheckCircle2 size={40} className="text-green-600" />
-                </div>
-                <h2 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-4">
-                  Potrditev prejema
-                </h2>
-                <p className="text-slate-500 font-bold mb-8">
-                  S potrditvijo izjavljate, da ste predmet uspešno prevzeli.
-                  Dejanja ni mogoče razveljaviti.
-                </p>
-                <div className="flex flex-col gap-3">
-                  <button
-                    onClick={handleReceiptConfirmSubmit}
-                    className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all"
-                  >
-                    Dokončno potrdi prejem
-                  </button>
+            {/* Deutscher Kommentar: Responsives Bestaetigungsmodal fuer Empfang */}
+            <div 
+              className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in"
+              onClick={() => {
+                // Schließen des Modals nur erlauben, wenn kein Ladevorgang läuft
+                if (receiptConfirmState === 'idle' && !receiptConfirmLoading) {
+                  setReceiptConfirmModal({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
+                }
+              }}
+            >
+              <div 
+                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                {receiptConfirmState !== 'loading' && receiptConfirmState !== 'success' && !receiptConfirmLoading && (
                   <button
                     onClick={() =>
                       setReceiptConfirmModal({
                         isOpen: false,
                         auctionId: "",
                         sellerId: "",
+                        isPickup: false,
                       })
                     }
-                    className="w-full bg-slate-100 text-slate-600 py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                    className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-[#0A1128] transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
+                    aria-label="Zapri"
                   >
-                    Prekliči
+                    <X size={24} />
                   </button>
+                )}
+                <div className="bg-green-100 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                  <CheckCircle2 size={32} className={`text-green-600 ${receiptConfirmState === 'success' ? 'animate-in zoom-in duration-300' : ''}`} />
                 </div>
+                <h2 className="text-xl sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-2 sm:mb-4">
+                  {receiptConfirmState === 'success' ? "Prejem potrjen!" : "Potrditev prejema"}
+                </h2>
+                <p className="text-slate-500 font-bold mb-6 sm:mb-8 text-xs sm:text-sm">
+                  {receiptConfirmState === 'success'
+                    ? "Izplačilo prodajalcu je sproženo."
+                    : receiptConfirmModal.isPickup
+                    ? "Sredstva bodo takoj sprejeta prodajalcu. Potrdite samo, če ste predmet že prejeli in preverili."
+                    : "S potrditvijo prejema potrjujete, da ste predmet pregledali, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejemate. Posel je s tem zaključen in izplačilo prodajalcu se sprosti takoj. Nadaljujem?"}
+                </p>
+                {receiptConfirmState !== 'success' && (
+                  <div className="flex flex-col gap-2.5 sm:gap-3">
+                    <LoadingButton
+                      onClick={handleReceiptConfirmSubmit}
+                      disabled={receiptConfirmLoading}
+                      loading={receiptConfirmLoading}
+                      loadingText="Potrjujem..."
+                      className="w-full bg-[#0A1128] text-white py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[44px]"
+                    >
+                      <span>Potrdi prejem</span>
+                    </LoadingButton>
+                    <button
+                      onClick={() =>
+                        setReceiptConfirmModal({
+                          isOpen: false,
+                          auctionId: "",
+                          sellerId: "",
+                          isPickup: false,
+                        })
+                      }
+                      disabled={receiptConfirmLoading}
+                      className="w-full bg-slate-100 text-slate-600 py-3 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-slate-200 transition-all disabled:opacity-50 disabled:cursor-not-allowed min-h-[44px] flex items-center justify-center"
+                    >
+                      Prekliči
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </Portal>
@@ -5374,18 +6474,19 @@ const MainApp: React.FC = () => {
 
         {timelineModalAuctionId && (
           <Portal>
-            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-4">
+            {/* Deutscher Kommentar: Responsives Timeline-Modal */}
+            <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
               <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => setTimelineModalAuctionId(null)}></div>
-              <div className="relative bg-white w-full max-w-4xl rounded-[3rem] p-1 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[90vh] overflow-hidden flex flex-col">
-                 <div className="p-8 pb-4 flex justify-between items-center border-b border-slate-100">
-                    <h3 className="text-2xl font-black text-[#0A1128] uppercase tracking-tighter">Status plačila in dostave</h3>
-                    <button onClick={() => setTimelineModalAuctionId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400"><X size={24} /></button>
+              <div className="relative bg-white w-full max-w-4xl rounded-3xl sm:rounded-[3rem] p-1 shadow-2xl animate-in border-2 sm:border-4 border-[#FEBA4F] max-h-[92dvh] overflow-hidden flex flex-col">
+                 <div className="p-4 sm:p-8 pb-3 sm:pb-4 flex justify-between items-center border-b border-slate-100">
+                    <h3 className="text-lg sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter">Status plačila in dostave</h3>
+                    <button onClick={() => setTimelineModalAuctionId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 min-w-[40px] min-h-[40px] flex items-center justify-center" aria-label="Zapri"><X size={22} /></button>
                  </div>
-                 <div className="p-8 overflow-y-auto custom-scrollbar flex-1">
+                 <div className="p-4 sm:p-8 overflow-y-auto custom-scrollbar flex-1">
                     <PaymentTimeline auctionId={timelineModalAuctionId} />
                  </div>
-                 <div className="p-8 pt-4 border-t border-slate-100 flex justify-end">
-                    <button onClick={() => setTimelineModalAuctionId(null)} className="bg-[#0A1128] text-white px-8 py-3 rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-lg">Zapri</button>
+                 <div className="p-4 sm:p-8 pt-3 sm:pt-4 border-t border-slate-100 flex justify-end">
+                    <button onClick={() => setTimelineModalAuctionId(null)} className="w-full sm:w-auto bg-[#0A1128] text-white px-6 sm:px-8 py-3 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-lg min-h-[44px] flex items-center justify-center">Zapri</button>
                  </div>
               </div>
             </div>
@@ -5412,7 +6513,7 @@ const MainApp: React.FC = () => {
             onClose={() => setIsCheckoutOpen(false)}
             onSuccess={checkoutData.onSuccess}
             metadata={checkoutData.metadata}
-            />
+          />
         )}
         <MissingInvoiceDataModal
           isOpen={appMissingInvoiceDataModal.isOpen}
@@ -5442,6 +6543,225 @@ const MainApp: React.FC = () => {
           itemPrice={markShippedModal.itemPrice}
           onSuccess={fetchAuctions}
         />
+
+        {verifyPickupPinModal.isOpen && (
+          <Portal>
+            {/* Deutscher Kommentar: Responsives Modal fuer PIN-Uebergabebestaetigung */}
+            <div
+              className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in"
+              onClick={() => {
+                if (!verifyPinLoading) {
+                  setVerifyPickupPinModal({ isOpen: false, auctionId: "" });
+                }
+              }}
+            >
+              <div
+                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <button
+                  onClick={() => setVerifyPickupPinModal({ isOpen: false, auctionId: "" })}
+                  disabled={verifyPinLoading}
+                  className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-[#0A1128] transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
+                  aria-label="Zapri"
+                >
+                  <X size={24} />
+                </button>
+                <div className="bg-amber-100 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                  <Key size={32} className="text-amber-600" />
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-2 sm:mb-3">
+                  Potrditev predaje
+                </h2>
+                <p className="text-slate-500 font-bold mb-5 sm:mb-6 text-xs sm:text-sm">
+                  Vnesite 6-mestno kodo, ki vam jo pokaže kupec ob predaji predmeta.
+                </p>
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const cleanPin = pickupPinInput.trim();
+                    if (!/^\d{6}$/.test(cleanPin)) {
+                      toast.error("Vnesite 6-mestno številčno kodo.");
+                      return;
+                    }
+                    setVerifyPinLoading(true);
+                    try {
+                      const token = await user?.getIdToken();
+                      const res = await fetch(`/api/orders/${verifyPickupPinModal.auctionId}/verify-pickup-pin`, {
+                        method: 'POST',
+                        headers: {
+                          'Content-Type': 'application/json',
+                          'Authorization': `Bearer ${token}`
+                        },
+                        body: JSON.stringify({ pin: cleanPin })
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (res.ok && data?.success) {
+                        toast.success("Predaja potrjena. Izplačilo je sproženo.");
+                        setVerifyPickupPinModal({ isOpen: false, auctionId: "" });
+                        fetchAuctions();
+                        refreshUserData();
+                      } else {
+                        toast.error(data?.error || "Napačna koda.");
+                      }
+                    } catch (err: any) {
+                      toast.error(err?.message || "Napaka pri preverjanju kode.");
+                    } finally {
+                      setVerifyPinLoading(false);
+                    }
+                  }}
+                  className="flex flex-col gap-4"
+                >
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    maxLength={6}
+                    placeholder="000000"
+                    value={pickupPinInput}
+                    onChange={(e) => setPickupPinInput(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    autoFocus
+                    className="w-full text-center text-2xl sm:text-3xl font-mono font-black tracking-[0.3em] sm:tracking-[0.4em] py-3 sm:py-3.5 px-4 bg-slate-50 border-2 border-slate-200 rounded-xl sm:rounded-2xl focus:border-[#FEBA4F] focus:bg-white outline-none transition-all"
+                  />
+                  <div className="flex flex-col gap-2.5 mt-2">
+                    <LoadingButton
+                      type="submit"
+                      loading={verifyPinLoading}
+                      loadingText="Preverjanje..."
+                      disabled={verifyPinLoading || pickupPinInput.length !== 6}
+                      className="w-full bg-[#0A1128] text-white py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[44px]"
+                    >
+                      Potrdi predajo
+                    </LoadingButton>
+                    <button
+                      type="button"
+                      onClick={() => setVerifyPickupPinModal({ isOpen: false, auctionId: "" })}
+                      disabled={verifyPinLoading}
+                      className="w-full bg-slate-100 text-slate-600 py-3 sm:py-3.5 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-slate-200 transition-all min-h-[40px]"
+                    >
+                      Zapri
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          </Portal>
+        )}
+
+        {qrScannerModal.isOpen && (
+          <QrScannerModal
+            isOpen={qrScannerModal.isOpen}
+            auctionId={qrScannerModal.auctionId}
+            auctionTitle={qrScannerModal.auctionTitle}
+            onClose={() => setQrScannerModal({ isOpen: false, auctionId: "", auctionTitle: "" })}
+            onScanSuccess={(data) => {
+              setQrScannerModal({ isOpen: false, auctionId: "", auctionTitle: "" });
+              setPendingPrevzemQr(data);
+              try { sessionStorage.setItem('pending_prevzem_qr', JSON.stringify(data)); } catch (e) {}
+              if (qrScannerModal.auctionTitle) {
+                setPrevzemAuctionTitle(qrScannerModal.auctionTitle);
+              }
+              setPrevzemModalOpen(true);
+            }}
+            onSwitchToPin={() => {
+              const currentAuctionId = qrScannerModal.auctionId;
+              setQrScannerModal({ isOpen: false, auctionId: "", auctionTitle: "" });
+              setPickupPinInput("");
+              setVerifyPickupPinModal({ isOpen: true, auctionId: currentAuctionId });
+            }}
+          />
+        )}
+
+        {prevzemModalOpen && pendingPrevzemQr && (
+          <Portal>
+            {/* Deutscher Kommentar: Responsives Modal fuer QR-Uebergabebestaetigung */}
+            <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in" onClick={(e) => e.stopPropagation()}>
+              <div className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto">
+                <div className="bg-amber-100 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
+                  <Key size={32} className="text-amber-600" />
+                </div>
+                <h2 className="text-xl sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter mb-2 sm:mb-3">
+                  Potrditev predaje
+                </h2>
+                {prevzemAuctionTitle && (
+                  <p className="text-xs sm:text-sm font-bold text-[#0A1128] mb-2 bg-slate-100 py-2 px-3 sm:px-4 rounded-xl">
+                    {prevzemAuctionTitle}
+                  </p>
+                )}
+                {prevzemError ? (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-red-500 font-bold mb-4 sm:mb-6 text-xs sm:text-sm">{prevzemError}</p>
+                    <button
+                      onClick={() => {
+                        setPrevzemModalOpen(false);
+                        setPendingPrevzemQr(null);
+                        setPrevzemError(null);
+                        sessionStorage.removeItem('pending_prevzem_qr');
+                      }}
+                      className="w-full bg-[#0A1128] text-white py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all min-h-[44px]"
+                    >
+                      Zapri
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex flex-col gap-3">
+                    <p className="text-slate-500 font-bold mb-4 sm:mb-6 text-xs sm:text-sm">
+                      Potrdite samo, če ste predmet izročili kupcu.
+                    </p>
+                    <LoadingButton
+                      onClick={async () => {
+                        setPrevzemLoading(true);
+                        try {
+                          const token = await user?.getIdToken();
+                          const res = await fetch(`/api/orders/${pendingPrevzemQr!.auctionId}/verify-pickup-qr`, {
+                            method: 'POST',
+                            headers: {
+                              'Content-Type': 'application/json',
+                              'Authorization': `Bearer ${token}`
+                            },
+                            body: JSON.stringify({ token: pendingPrevzemQr!.token })
+                          });
+                          const data = await res.json().catch(() => ({}));
+                          if (res.ok && data?.success) {
+                            toast.success("Predaja potrjena. Izplačilo je sproženo.");
+                            setPrevzemModalOpen(false);
+                            setPendingPrevzemQr(null);
+                            sessionStorage.removeItem('pending_prevzem_qr');
+                            fetchAuctions();
+                            if (userData?.id) refreshUserData(userData.id);
+                          } else {
+                            toast.error(data?.error || "Napaka pri potrditvi predaje.");
+                          }
+                        } catch (err: any) {
+                          toast.error(err?.message || "Napaka pri potrditvi predaje.");
+                        } finally {
+                          setPrevzemLoading(false);
+                        }
+                      }}
+                      loading={prevzemLoading}
+                      loadingText="Potrjevanje..."
+                      disabled={prevzemLoading}
+                      className="w-full bg-[#0A1128] text-white py-4 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    >
+                      Potrdi predajo
+                    </LoadingButton>
+                    <button
+                      onClick={() => {
+                        setPrevzemModalOpen(false);
+                        setPendingPrevzemQr(null);
+                        sessionStorage.removeItem('pending_prevzem_qr');
+                      }}
+                      disabled={prevzemLoading}
+                      className="w-full bg-slate-100 text-slate-600 py-3.5 rounded-2xl font-black uppercase tracking-widest text-sm hover:bg-slate-200 transition-all"
+                    >
+                      Prekliči
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Portal>
+        )}
 
         {showBackToTop && (
           <button

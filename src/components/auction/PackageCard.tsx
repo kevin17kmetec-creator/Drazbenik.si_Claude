@@ -79,12 +79,12 @@ export const PackageCard: React.FC<PackageCardProps> = ({
 
   return (
     <div 
-      className={`col-span-full bg-[#0A1128] text-white rounded-[2.5rem] p-6 sm:p-8 shadow-2xl transition-all duration-300 relative overflow-hidden group ${borderClass}`}
+      className={`col-span-full bg-[#0A1128] text-white rounded-2xl md:rounded-[2.5rem] p-3 sm:p-8 shadow-xl md:shadow-2xl transition-all duration-300 relative overflow-hidden group ${borderClass}`}
     >
       {/* Top Header */}
-      <div className="flex flex-wrap items-center justify-between gap-4 pb-6 border-b border-white/10 relative z-10">
-        <div className="flex items-center gap-4">
-          <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-[#FEBA4F] shadow-md">
+      <div className="flex flex-wrap items-center justify-between gap-3 sm:gap-4 pb-4 md:pb-6 border-b border-white/10 relative z-10">
+        <div className="flex items-center gap-3 md:gap-4 min-w-0">
+          <div className="w-10 h-10 md:w-12 md:h-12 shrink-0 rounded-xl md:rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-[#FEBA4F] shadow-md">
             <Layers size={22} />
           </div>
           <div>
@@ -143,14 +143,14 @@ export const PackageCard: React.FC<PackageCardProps> = ({
         </div>
 
         {/* Timer & View Button */}
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-4 py-2.5 rounded-2xl text-xs font-black text-[#FEBA4F] tabular-nums">
+        <div className="flex flex-wrap items-center gap-2 md:gap-4 w-full md:w-auto">
+          <div className="flex items-center gap-2 bg-white/5 border border-white/10 px-3 md:px-4 py-2 md:py-2.5 rounded-2xl text-xs font-black text-[#FEBA4F] tabular-nums">
             <Clock size={16} />
             <span>{timeLeftStr}</span>
           </div>
           <button
             onClick={() => onSelectPackage(packageId)}
-            className="flex items-center gap-2 bg-[#FEBA4F] hover:bg-white text-[#0A1128] font-black text-[10px] uppercase tracking-widest px-6 py-3 rounded-2xl transition-all shadow-lg active:scale-95 whitespace-nowrap"
+            className="flex items-center gap-2 bg-[#FEBA4F] hover:bg-white text-[#0A1128] font-black text-[10px] uppercase tracking-widest px-4 md:px-6 py-2.5 md:py-3 rounded-2xl transition-all shadow-lg active:scale-95 whitespace-nowrap"
           >
             <span>Ogled zbirke</span>
             <ChevronRight size={16} />
@@ -159,7 +159,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
       </div>
 
       {/* Collection Items Grid (3 previews) */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5 mt-6 relative z-10">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 sm:gap-5 mt-4 md:mt-6 relative z-10">
         {displayItems.map((item) => {
           const imgUrl = item.images && item.images.length > 0 
             ? (item.images[0].startsWith('http') || item.images[0].startsWith('blob:') 
@@ -176,7 +176,7 @@ export const PackageCard: React.FC<PackageCardProps> = ({
               className="bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#FEBA4F]/50 rounded-2xl p-4 transition-all duration-200 cursor-pointer flex flex-col justify-between group/item"
             >
               <div>
-                <div className="w-full h-36 rounded-xl overflow-hidden mb-3 bg-[#0A1128] relative">
+                <div className="w-full h-32 md:h-36 rounded-xl overflow-hidden mb-3 bg-[#0A1128] relative">
                   <img
                     src={imgUrl}
                     alt={itemTitle}
