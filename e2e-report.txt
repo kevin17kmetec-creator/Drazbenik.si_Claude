@@ -1,0 +1,38 @@
+PASS | open-dispute: brez prijave -> 401
+PASS | open-dispute: prekratek razlog -> 400
+PASS | open-dispute: "druga tezava" brez fotografije -> 400
+PASS | open-dispute: neveljavna slika -> 400
+PASS | open-dispute: tuj uporabnik -> 403
+PASS | open-dispute: zakljuceno narocilo -> 400
+PASS | open-dispute: posiljka se ni poslana (HELD_IN_ESCROW, dostava) -> 400
+PASS | open-dispute: "ni prispelo" prezgodaj -> 400
+PASS | open-dispute: rok 3 dni po dostavi potekel -> 400 brez osirotelih fotografij
+PASS | open-dispute: uspesen spor pri posiljki
+PASS | confirm-receipt: v sporu ni mogoce potrditi
+PASS | resolve-dispute: ne-admin -> 403
+FAIL | resolve-dispute: sprostitev prodajalcu -> COMPLETED + releasable
+      status {"error":"STRIPE_SECRET_KEY environment variable is required"}: pricakovano 200, dobljeno 500
+PASS | open-dispute: po zakljucku ni vec mogoce
+PASS | pickup: "ni prispelo" ni dovoljeno
+PASS | pickup: spor pred predajo z dokazi -> 200
+PASS | confirm-receipt: brez izjave -> 400
+PASS | confirm-receipt: z izjavo -> COMPLETED + dokaz
+PASS | open-dispute: po potrditvi prejema -> 400
+SKIP | resolve-dispute: vracilo kupcu (Stripe test) -> REFUNDED
+      STRIPE_SECRET_KEY ni nastavljen
+FAIL | webhook: napacen podpis -> 400
+      status: pricakovano 400, dobljeno 500
+FAIL | chargeback odprt: izplacilo zamrznjeno + opozorilo
+      status: pricakovano 200, dobljeno 500
+FAIL | chargeback dobljen: izplacilo spet releasable
+      status: pricakovano 200, dobljeno 500
+FAIL | chargeback izgubljen pred izplacilom: vracilo in status REFUNDED
+      status: pricakovano 200, dobljeno 500
+FAIL | chargeback po izplacilu: dolg prodajalca + blokada izplacil
+      Cannot read properties of undefined (reading 'already_paid_out')
+PASS | reset: brez ALLOW_TEST_DATA_RESET -> 403
+PASS | reset: ne-admin -> 403
+PASS | reset: brez besede IZBRIŠI -> 400
+PASS | reset: izbris naročil in uporabnikov, admin ostane
+
+Skupaj: 29, PASS 22, FAIL 6, SKIP 1
