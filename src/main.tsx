@@ -1,3 +1,5 @@
+// Deutscher Kommentar: Selbst gehostete Schrift (keine Anfrage an Dritte)
+import '@fontsource-variable/schibsted-grotesk';
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';

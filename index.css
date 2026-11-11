@@ -77,3 +77,81 @@
     border-radius: 1.5rem !important;
   }
 }
+
+
+/* =====================================================================
+   Neues Erscheinungsbild (Skin-Schicht)
+   Deutscher Kommentar: Diese Schicht beruhigt die bestehenden Utility-Klassen
+   zentral (Schriftgewicht, Versalien, Radien, Schatten), ohne die Komponenten
+   umzuschreiben. So bleibt die Funktion unberuehrt und spaetere Aenderungen
+   aus dem Hauptprojekt lassen sich weiter uebernehmen.
+   ===================================================================== */
+:root {
+  --navy: #0A1128;
+  --navy-2: #131C3A;
+  --gold: #FEBA4F;
+  --gold-deep: #B97A0F;
+  --paper: #F5F6F8;
+  --line: #E3E6EC;
+  --ink-2: #4B556B;
+  --r-card: 14px;
+  --r-ctl: 10px;
+}
+
+body {
+  font-family: 'Schibsted Grotesk Variable', system-ui, -apple-system, 'Segoe UI', Roboto, Arial, sans-serif;
+  font-feature-settings: 'tnum' 0;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Schriftgewichte: 900 wirkt laut, 650-700 genuegt */
+.font-black { font-weight: 700; }
+.font-extrabold { font-weight: 700; }
+.font-bold { font-weight: 600; }
+
+/* Versalien und Sperrung zentral abschalten; .keep-upper erhaelt sie bewusst */
+.uppercase:not(.keep-upper) { text-transform: none; }
+.tracking-widest:not(.keep-upper),
+.tracking-wider:not(.keep-upper),
+.tracking-wide:not(.keep-upper) { letter-spacing: 0; }
+.tracking-tighter { letter-spacing: -0.02em; }
+.italic { font-style: normal; }
+
+/* Kleinstschriften waren nur in Versalien lesbar */
+.text-\[8px\], .text-\[9px\], .text-\[10px\] { font-size: 0.75rem; line-height: 1.1rem; }
+.text-\[11px\] { font-size: 0.8125rem; line-height: 1.15rem; }
+
+/* Radien: eine ruhige Skala statt 2-4rem */
+.rounded-\[4rem\], .rounded-\[3rem\], .rounded-\[2\.5rem\], .rounded-\[2rem\], .rounded-3xl { border-radius: var(--r-card); }
+.rounded-2xl { border-radius: 12px; }
+.rounded-xl { border-radius: var(--r-ctl); }
+@media (min-width: 640px) {
+  .sm\:rounded-\[3rem\], .sm\:rounded-\[2\.5rem\], .sm\:rounded-\[2rem\], .sm\:rounded-3xl { border-radius: var(--r-card); }
+  .sm\:rounded-2xl { border-radius: 12px; }
+}
+@media (min-width: 768px) {
+  .md\:rounded-\[3rem\], .md\:rounded-\[2\.5rem\], .md\:rounded-\[2rem\], .md\:rounded-3xl { border-radius: var(--r-card); }
+}
+
+/* Schatten und Rahmen: flacher, feiner */
+.shadow-2xl { box-shadow: 0 18px 40px -18px rgba(10, 17, 40, 0.28), 0 2px 6px rgba(10, 17, 40, 0.06); }
+.shadow-xl { box-shadow: 0 10px 24px -14px rgba(10, 17, 40, 0.22), 0 1px 3px rgba(10, 17, 40, 0.05); }
+.shadow-lg { box-shadow: 0 6px 16px -10px rgba(10, 17, 40, 0.2), 0 1px 2px rgba(10, 17, 40, 0.05); }
+.border-4 { border-width: 1px; }
+
+/* Zahlen in Preisen und Zeiten stehen fest */
+.tabular-nums { font-variant-numeric: tabular-nums; }
+
+/* Sichtbarer Tastaturfokus */
+:focus-visible { outline: 2px solid var(--gold-deep); outline-offset: 2px; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+}
+
+/* Deutscher Kommentar: Auktionsraster - mobil zwei Spalten, ab 640px automatisch fuellend */
+.auction-grid { display: grid; gap: 12px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@media (min-width: 640px) {
+  .auction-grid { gap: 20px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+}

@@ -960,6 +960,16 @@ const WonAuctionItem: React.FC<{
   );
 };
 
+// Deutscher Kommentar: Texte, die im Katalog komplett in Versalien stehen, werden als normaler Satz gezeigt (neues Erscheinungsbild ohne Versalien)
+const KEEP_UPPER = /\b(pdf|ddv|qr|sms|iban|sepa|eu|id|pin|vat|mwst|ust|ssl|url|faq|gdpr|d\.o\.o\.|s\.p\.)(?![\p{L}])/giu;
+const sentenceCase = (v: string): string => {
+  if (typeof v !== 'string' || v.length < 5) return v;
+  const letters = v.replace(/[^\p{L}]/gu, '');
+  if (letters.length < 4 || v !== v.toUpperCase() || v === v.toLowerCase()) return v;
+  const lower = v.toLowerCase();
+  return (lower.charAt(0).toUpperCase() + lower.slice(1)).replace(KEEP_UPPER, (x) => x.toUpperCase());
+};
+
 const MainApp: React.FC = () => {
   const [language, setLanguage] = useState(() => {
     if (typeof window === "undefined") return "SLO";
@@ -981,7 +991,7 @@ const MainApp: React.FC = () => {
   const t = useCallback(
     (key: string) => {
       const normalizedLang = (language === 'EN' || language === 'en') ? 'EN' : (language === 'DE' || language === 'de') ? 'DE' : 'SLO';
-      return translations[normalizedLang]?.[key] || translations['SLO']?.[key] || translations['EN']?.[key] || '';
+      return sentenceCase(translations[normalizedLang]?.[key] || translations['SLO']?.[key] || translations['EN']?.[key] || '');
     },
     [language],
   );
@@ -4389,10 +4399,7 @@ const MainApp: React.FC = () => {
             </div>
 
             <div
-              className="grid gap-8 justify-center"
-              style={{
-                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
-              }}
+              className="auction-grid"
             >
               {auctions
                 .filter(
@@ -5231,10 +5238,7 @@ const MainApp: React.FC = () => {
             </div>
 
             <div
-              className="grid gap-8 justify-center"
-              style={{
-                gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
-              }}
+              className="auction-grid"
             >
               {auctions
                 .filter((a) => Array.from(new Set([...watchedIds, ...watchlistSnapshot])).includes(a.id))
@@ -5488,10 +5492,7 @@ const MainApp: React.FC = () => {
 
                       {/* Render Standalone Auctions */}
                       <div
-                        className="grid gap-8 justify-center"
-                        style={{
-                          gridTemplateColumns: "repeat(auto-fit, minmax(320px, 320px))",
-                        }}
+                        className="auction-grid"
                       >
                         {standaloneItems.map((item) => (
                           <AuctionCard

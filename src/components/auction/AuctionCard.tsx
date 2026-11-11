@@ -22,6 +22,7 @@ export const AuctionCard: React.FC<{
   onTimeUp?: (auctionId: string) => void;
 }> = ({ item, t, language, isVerified, currentUserId, hasBid, myMax, isWatched, onWatchToggle, onClick, onBidSubmit, onSellerClick, onTimeUp }) => {
   const [timeLeftStr, setTimeLeftStr] = useState('');
+  const [secsLeft, setSecsLeft] = useState(Number.MAX_SAFE_INTEGER);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [signedImages, setSignedImages] = useState<string[]>([]);
   const seller = (item as any).seller;
@@ -59,6 +60,7 @@ export const AuctionCard: React.FC<{
     const update = () => {
       const diff = Math.max(0, Math.floor((item.endTime.getTime() - Date.now()) / 1000));
       setTimeLeftStr(formatSeconds(diff));
+      setSecsLeft(diff);
       
       if (diff === 0 && !hasEndedFiredRef.current) {
         hasEndedFiredRef.current = true;
@@ -92,138 +94,125 @@ export const AuctionCard: React.FC<{
     setIsBidding(false);
   };
 
-  // Border logic
-  let borderClass = "border-transparent";
+  // Deutscher Kommentar: Rahmen zeigt den eigenen Gebotsstatus (fuehrend / ueberboten)
+  let borderClass = "border-[#E3E6EC]";
   if (hasBid) {
-    borderClass = isWinner ? "border-green-500 border-2 ring-2 ring-green-500/20" : "border-red-500 border-2 ring-2 ring-red-500/20";
+    borderClass = isWinner ? "border-green-600 ring-2 ring-green-600/15" : "border-red-500 ring-2 ring-red-500/15";
   }
+  const imgCount = signedImages.length || item.images.length;
+  // Deutscher Kommentar: Dringlichkeit der Restzeit (unter 1 Stunde rot, unter 24 Stunden gold)
+  const timeTone = secsLeft <= 3600
+    ? 'bg-red-50 text-red-700 border-red-200'
+    : secsLeft <= 86400
+      ? 'bg-[#FFF4DC] text-[#7A4E05] border-[#F5D38A]'
+      : 'bg-slate-50 text-slate-600 border-slate-200';
+  const bidLabel = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
+  const canBid = isVerified && !!onBidSubmit;
 
   return (
-    <div className={`bg-[#0A1128] rounded-2xl md:rounded-[2.5rem] overflow-hidden shadow-xl md:shadow-2xl hover:shadow-2xl md:hover:-translate-y-2 transition-all duration-300 group flex flex-col border relative ${borderClass}`}>
-      <div className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer group/image" onClick={onClick}>
+    <div className={`@container bg-white rounded-2xl overflow-hidden flex flex-col border relative transition-shadow duration-200 hover:shadow-xl group ${borderClass}`}>
+      <div className="relative aspect-[4/3] w-full overflow-hidden cursor-pointer group/image bg-slate-100" onClick={onClick}>
         <img 
           src={signedImages[currentImageIndex] || item.images[currentImageIndex]} 
           alt={item.title[language] || item.title['SLO']} 
           loading="lazy" 
           referrerPolicy="no-referrer" 
-          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 opacity-90 group-hover:opacity-100" 
+          className="w-full h-full object-cover" 
         />
-        {(signedImages.length > 1 || item.images.length > 1) && (
+        {imgCount > 1 && (
           <>
             <button 
-              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev - 1 + (signedImages.length || item.images.length)) % (signedImages.length || item.images.length)); }}
-              className="absolute left-2 top-1/2 -translate-y-1/2 p-1 bg-white/30 hover:bg-white/60 rounded-full opacity-0 group-hover/image:opacity-100 transition-opacity"
+              aria-label="Prejšnja slika"
+              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev - 1 + imgCount) % imgCount); }}
+              className="absolute left-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center bg-white/90 hover:bg-white rounded-full shadow opacity-0 group-hover/image:opacity-100 focus-visible:opacity-100 transition-opacity"
             >
-                <ChevronLeft size={16} className="text-white" />
+                <ChevronLeft size={16} className="text-[#0A1128]" />
             </button>
             <button 
-              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev + 1) % (signedImages.length || item.images.length)); }}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 bg-white/30 hover:bg-white/60 rounded-full opacity-0 group-hover/image:opacity-100 transition-opacity"
+              aria-label="Naslednja slika"
+              onClick={(e) => { e.stopPropagation(); setCurrentImageIndex((prev) => (prev + 1) % imgCount); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-8 h-8 flex items-center justify-center bg-white/90 hover:bg-white rounded-full shadow opacity-0 group-hover/image:opacity-100 focus-visible:opacity-100 transition-opacity"
             >
-                <ChevronRight size={16} className="text-white" />
+                <ChevronRight size={16} className="text-[#0A1128]" />
             </button>
+            <span className="absolute bottom-2 left-2 bg-[#0A1128]/75 text-white text-[11px] font-bold px-2 py-0.5 rounded-md tabular-nums">{currentImageIndex + 1}/{imgCount}</span>
           </>
         )}
-        <div className="absolute top-2 left-2 md:top-4 md:left-4 bg-[#0A1128]/90 backdrop-blur-sm px-2 md:px-3.5 py-1 md:py-1.5 rounded-lg md:rounded-xl max-w-[70%] break-words leading-tight text-[8px] md:text-[9px] font-black uppercase tracking-widest text-white shadow-lg flex items-center gap-1.5 border border-white/10">
-          <MapPin size={10} className="text-[#FEBA4F]" /> {item.location[language] || item.location['SLO']}
-        </div>
 
-        <div className="absolute top-2 right-2 md:top-4 md:right-4 flex flex-col items-end gap-2">
+        <div className="absolute top-2 right-2 flex flex-col items-end gap-1.5">
           <button 
+            aria-label="Opazuj"
             onClick={(e) => { e.stopPropagation(); onWatchToggle(); }}
-            className={`p-2 rounded-xl backdrop-blur-sm shadow-lg border transition-all ${isWatched ? 'bg-[#FEBA4F] border-[#FEBA4F] text-[#0A1128]' : 'bg-[#0A1128]/90 border-white/10 text-white hover:bg-white/10'}`}
+            className={`w-9 h-9 flex items-center justify-center rounded-full shadow transition-colors ${isWatched ? 'bg-[#FEBA4F] text-[#0A1128]' : 'bg-white/95 text-[#0A1128] hover:bg-white'}`}
           >
-            <Eye size={14} />
+            <Eye size={16} />
           </button>
           <ShareButton item={item} language={language} t={t} />
-          {isWinner && (
-            <div className="bg-green-500 text-white backdrop-blur-sm px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-lg flex items-center gap-1.5 border border-green-400/50 animate-pulse">
-              <Trophy size={10} /> {t('leading') || 'Vodilni'}
-            </div>
-          )}
         </div>
+        {isWinner && (
+          <div className="absolute top-2 left-2 bg-green-600 text-white px-2.5 py-1 rounded-md text-xs font-bold flex items-center gap-1.5">
+            <Trophy size={12} /> {t('leading') || 'Vodilni'}
+          </div>
+        )}
       </div>
-      <div className="p-3 sm:p-6 flex flex-col flex-1">
-        <h3 className="text-sm sm:text-lg font-black leading-tight text-white hover:text-[#FEBA4F] transition-colors line-clamp-2 cursor-pointer mb-2 md:mb-4" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
+      <div className="p-3 sm:p-4 flex flex-col flex-1">
+        <h3 className="text-sm sm:text-base font-bold leading-snug text-[#0A1128] hover:underline decoration-[#FEBA4F] decoration-2 underline-offset-4 line-clamp-2 min-h-[2.75em] cursor-pointer" onClick={onClick}>{item.title[language] || item.title['SLO']}</h3>
+        <p className="mt-1 text-xs text-slate-500 flex items-center gap-1 min-w-0">
+          <MapPin size={12} className="shrink-0" /> <span className="truncate">{item.location[language] || item.location['SLO']}</span>
+        </p>
 
-        <div className="flex items-center gap-2 md:gap-3 mb-2 md:mb-4">
-          <div className="bg-white/5 p-1.5 md:p-2 rounded-lg text-[#FEBA4F] border border-white/10"><Clock size={14} /></div>
-          <div className="text-[10px] font-black uppercase tracking-widest text-white">
-            <span className="text-slate-400 block">{t('timeLeft')}</span>
-            <span className="text-[#FEBA4F] tabular-nums text-xs md:text-sm">{timeLeftStr}</span>
-          </div>
-        </div>
-        <div className="mt-auto pt-3 md:pt-6 border-t border-white/10">
-          <div className="flex justify-between items-end mb-3 md:mb-6">
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('currentBid')}</p>
-              <p className="text-lg md:text-xl font-black text-[#FEBA4F]">€{item.currentBid.toLocaleString('sl-SI')}</p>
-              {getShippingPriceLabel(item) && (
-                <p className="text-[10px] md:text-[11px] font-bold text-slate-300 mt-0.5 flex items-center gap-1"><Truck size={11} className="text-[#FEBA4F] shrink-0" />{getShippingPriceLabel(item)}</p>
-              )}
-              {isWinner && (myMax || 0) > item.currentBid && (
-                  <p className="text-[9px] font-black uppercase tracking-widest text-green-400 mt-1">Moja max: €{Number(myMax).toLocaleString('sl-SI')}</p>
-              )}
+        <div className="mt-auto pt-3 sm:pt-4">
+          <div className="flex justify-between items-end gap-2">
+            <div className="min-w-0">
+              <p className="text-xs text-slate-500 whitespace-nowrap">{t('currentBid')}</p>
+              <p className="text-lg sm:text-xl font-black text-[#0A1128] tabular-nums leading-tight">{item.currentBid.toLocaleString('sl-SI')} €</p>
             </div>
-            <div className="text-right">
-              <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('bidCount')}</p>
-              <p className="text-sm font-black text-[#FEBA4F]">{item.bidCount}</p>
+            <div className={`shrink-0 inline-flex items-center gap-1.5 border rounded-md px-2 py-1 text-xs font-bold tabular-nums ${timeTone}`} title={t('timeLeft')}>
+              <Clock size={12} /> {timeLeftStr}
             </div>
           </div>
+          <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-slate-500">
+            <span>{t('bidCount')}: <span className="font-bold text-[#0A1128] tabular-nums">{item.bidCount}</span></span>
+            {getShippingPriceLabel(item) && (
+              <span className="flex items-center gap-1"><Truck size={12} className="shrink-0" />{getShippingPriceLabel(item)}</span>
+            )}
+          </div>
+          {isWinner && (myMax || 0) > item.currentBid && (
+            <p className="text-xs font-bold text-green-700 mt-1">Moja max: {Number(myMax).toLocaleString('sl-SI')} €</p>
+          )}
+
+          <div className="mt-3 pt-3 border-t border-[#E3E6EC]">
           {isSeller ? (
-            <div className="h-12 w-full bg-white/5 border border-white/10 rounded-2xl flex items-center justify-center gap-2 text-slate-400 font-black text-[10px] uppercase tracking-widest cursor-default select-none">
-              <ShieldCheck size={14} className="text-[#FEBA4F]" /> Vaša dražba
+            <div className="h-10 w-full bg-slate-50 border border-[#E3E6EC] rounded-xl flex items-center justify-center gap-2 text-slate-600 font-bold text-xs cursor-default select-none">
+              <ShieldCheck size={14} className="text-[#B97A0F]" /> Vaša dražba
             </div>
           ) : (
-            <div className="flex flex-col md:flex-row items-stretch md:items-center gap-2 md:gap-4 w-full relative">
-               <div className="flex items-center bg-white/5 rounded-2xl border border-white/10 p-1 md:flex-[5]">
-                  <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Minus size={14}/></button>
-                  <div className="flex-1 flex items-center justify-center px-1">
-                      <span className="text-[#FEBA4F] font-black text-lg mr-1">€</span>
-                      <input type="text" value={bidValue} readOnly className="w-full bg-transparent text-center text-white font-black text-lg outline-none tabular-nums" />
+            <div className="flex flex-col @[270px]:flex-row items-stretch gap-2 w-full">
+               <div className="flex items-center rounded-xl border border-[#D5DAE3] h-10 @[270px]:flex-1 min-w-0">
+                  <button aria-label="Znižaj" onClick={(e) => { e.stopPropagation(); handleAdjustBid('down'); }} className="w-9 h-full flex items-center justify-center text-slate-500 hover:text-[#0A1128] hover:bg-slate-50 rounded-l-xl flex-shrink-0"><Minus size={14}/></button>
+                  <div className="flex-1 flex items-center justify-center min-w-0">
+                      <input type="text" value={bidValue} readOnly aria-label="Znesek ponudbe" className="w-full min-w-0 bg-transparent text-right text-[#0A1128] font-bold text-sm outline-none tabular-nums" />
+                      <span className="text-slate-500 font-bold text-sm ml-1 mr-1">€</span>
                   </div>
-                  <button onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-8 h-10 flex items-center justify-center text-slate-400 hover:text-white hover:bg-white/10 rounded-xl transition-all flex-shrink-0"><Plus size={14}/></button>
+                  <button aria-label="Zvišaj" onClick={(e) => { e.stopPropagation(); handleAdjustBid('up'); }} className="w-9 h-full flex items-center justify-center text-slate-500 hover:text-[#0A1128] hover:bg-slate-50 rounded-r-xl flex-shrink-0"><Plus size={14}/></button>
                </div>
                <button 
                   onClick={handleBidClick} 
                   disabled={isBidding} 
-                  className={`h-10 md:h-12 md:flex-[4] px-2 py-1.5 leading-tight text-center rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg flex items-center justify-center gap-2 ${isVerified && onBidSubmit ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white' : 'bg-slate-800 text-slate-500'} ${isBidding ? 'opacity-75 cursor-not-allowed' : ''}`}
+                  className={`h-10 px-3 rounded-xl font-bold text-sm transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap disabled:opacity-70 disabled:cursor-not-allowed ${canBid ? 'bg-[#FEBA4F] text-[#0A1128] hover:bg-[#F5A623]' : 'bg-[#0A1128] text-white hover:bg-[#131C3A]'}`}
                >
                   {isBidding ? (
-                      <div className="w-4 h-4 border-2 border-[#0A1128]/30 border-t-[#0A1128] rounded-full animate-spin" />
-                  ) : !onBidSubmit || !isVerified ? (
-                      <div className="flex items-center justify-center gap-1.5">
-                        <Lock size={14} className="flex-shrink-0" />
-                        {(() => {
-                            const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
-                            const words = rawText.trim().split(/\s+/);
-                            if (words.length === 2) {
-                              return (
-                                <span className="flex flex-col items-center leading-tight">
-                                  <span>{words[0]}</span>
-                                  <span>{words[1]}</span>
-                                </span>
-                              );
-                            }
-                            return <span>{rawText}</span>;
-                        })()}
-                      </div>
-                  ) : (() => {
-                      const rawText = isWinner ? (t('increaseBid') || 'Zvišaj ponudbo') : (t('placeBid') || 'Oddaj ponudbo');
-                      const words = rawText.trim().split(/\s+/);
-                      if (words.length === 2) {
-                        return (
-                          <span className="flex flex-col items-center leading-tight">
-                            <span>{words[0]}</span>
-                            <span>{words[1]}</span>
-                          </span>
-                        );
-                      }
-                      return <span>{rawText}</span>;
-                  })()}
+                      <div className="w-4 h-4 border-2 border-current/30 border-t-current rounded-full animate-spin" />
+                  ) : (
+                      <>
+                        {!canBid && <Lock size={13} className="flex-shrink-0" />}
+                        <span>{bidLabel}</span>
+                      </>
+                  )}
                </button>
             </div>
           )}
+          </div>
         </div>
       </div>
     </div>

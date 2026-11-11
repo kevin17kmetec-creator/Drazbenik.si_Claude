@@ -159,8 +159,7 @@ export const PackageView: React.FC<PackageViewProps> = ({
       </div>
 
       <div 
-        className="grid gap-8 justify-center" 
-        style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 320px))' }}
+        className="auction-grid"
       >
         {items.map(item => {
           const itemHasBid = bidAuctionIds.includes(item.id);

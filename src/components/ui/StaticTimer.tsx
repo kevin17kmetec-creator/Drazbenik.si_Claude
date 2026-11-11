@@ -12,8 +12,8 @@ export const StaticTimer: React.FC<{ endTime: Date }> = ({ endTime }) => {
     update(); const t = setInterval(update, 1000); return () => clearInterval(t);
   }, [endTime]);
   return (
-    <div className="inline-flex items-center gap-2.5 px-4 py-2 rounded-2xl border-2 bg-[#FEBA4F]/10 border-[#FEBA4F]/30 text-[#FEBA4F] font-mono font-black text-2xl tabular-nums shadow-xl">
-      <Clock size={20} /><span>{timeLeftStr}</span>
+    <div className="inline-flex items-center gap-2 text-white font-bold text-xl sm:text-2xl tabular-nums">
+      <Clock size={18} className="text-[#FEBA4F]" /><span>{timeLeftStr}</span>
     </div>
   );
 };

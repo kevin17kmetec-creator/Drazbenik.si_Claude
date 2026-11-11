@@ -143,7 +143,7 @@ export const ShareButton: React.FC<{
           onClick={handleClick}
           aria-label={label}
           title={label}
-          className={`p-2 rounded-xl backdrop-blur-sm shadow-lg border bg-[#0A1128]/90 border-white/10 text-white hover:bg-white/10 transition-all ${className}`}
+          className={`w-9 h-9 flex items-center justify-center rounded-full shadow bg-white/95 text-[#0A1128] hover:bg-white transition-colors ${className}`}
         >
           <Share2 size={14} />
         </button>
