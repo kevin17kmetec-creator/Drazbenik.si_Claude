@@ -155,3 +155,9 @@ body {
 @media (min-width: 640px) {
   .auction-grid { gap: 20px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
 }
+
+/* Deutscher Kommentar: Dekorative Daueranimationen und Hover-Spruenge abschalten (Ladeindikatoren mit animate-spin/pulse bleiben) */
+.animate-bounce { animation: none; }
+.hover\:scale-105:hover, .hover\:scale-110:hover, .group:hover .group-hover\:scale-110, .group:hover .group-hover\:scale-105 { scale: 1; }
+.hover\:-translate-y-2:hover, .hover\:-translate-y-1:hover { translate: 0 0; }
+@media (min-width: 768px) { .md\:hover\:-translate-y-2:hover { translate: 0 0; } }
