@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ArrowLeft, Layers, FileUp, Camera, ImagePlus, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle, CheckCircle2 } from '../icons';
+import { ArrowLeft, Layers, FileUp, Camera, ImagePlus, Trash2, Gavel, Wand2, X, Eye, ChevronLeft, ChevronRight, GripHorizontal, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { Category, Region, AuctionItem } from "../../types";
 import { getCategoryTranslation } from "../../lib/translations";
 import { storage, auth } from "../../lib/firebase";
@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { compressImage as imageCompression } from '../../lib/imageCompress';
 import { CameraCapture, isCameraSupported } from '../ui/CameraCapture';
+import { isRealEstateCategory, isRegisteredVehicle } from '@/src/lib/restrictedListings';
+import { RealEstateInquiry } from './RealEstateInquiry';
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import AuctionView from "@/src/components/auction/AuctionView";
 import { CategoryAttributesInput } from "./CategoryAttributesInput";
@@ -606,6 +608,14 @@ export const CreateAuctionForm: React.FC<{
             }
         }
 
+        if (isRealEstateCategory(formData.category)) {
+            toast.error("Nepremičnin ni mogoče objaviti kot dražbo. Za nepremičnine nam pošljite povpraševanje.");
+            return;
+        }
+        if (isRegisteredVehicle(formData.category, formData.specifications) && formData.delivery_option !== 'pickup_only') {
+            setFormData(prev => ({ ...prev, delivery_option: 'pickup_only' }));
+        }
+
         const errors: {
             title?: boolean;
             description?: boolean;
@@ -861,8 +871,13 @@ export const CreateAuctionForm: React.FC<{
     };
 
     const cycleInfo = useMemo(() => getUserAuctionCycle(auctions || [], userData?.id, userData), [auctions, userData]);
-    const limitReached = !cycleInfo.isUnlimited && cycleInfo.count >= cycleInfo.userLimit;
+    // Deutscher Kommentar: Erneutes Veroeffentlichen einer bestehenden Dražba (mit ID) zaehlt nicht gegen das Limit
+    const limitReached = !cycleInfo.isUnlimited && !initialData?.id && cycleInfo.count >= cycleInfo.userLimit;
     const isAnyImagePreparing = imagePrepStates.some(s => s === 'preparing') || isCompressing;
+
+    if (isRealEstateCategory(formData.category)) {
+        return <RealEstateInquiry onChooseOther={() => setFormData({ ...formData, category: Category.Ostalo, specifications: {} })} />;
+    }
 
     return (
         <div className="max-w-4xl mx-auto px-3 md:px-6 py-6 md:py-14 animate-in">
@@ -873,11 +888,11 @@ export const CreateAuctionForm: React.FC<{
               </div>
             )}
             <button onClick={onBack} className="flex items-center gap-2 text-slate-400 hover:text-[#0A1128] transition-colors mb-10 font-black text-[10px] uppercase tracking-widest"><ArrowLeft size={16} /> {t('cancel')}</button>
-            <div className="bg-white rounded-3xl md:rounded-[1.35rem] p-4 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
+            <div className="bg-white rounded-3xl md:rounded-[3rem] p-4 md:p-10 lg:p-16 shadow-xl md:shadow-2xl border border-slate-100">
                 <h2 className="text-2xl md:text-4xl font-black text-[#0A1128] mb-6 md:mb-8 uppercase tracking-tighter">{t('newAuction')}</h2>
                 <div className="space-y-8">
                     <div className="space-y-4">
-                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionTitle')}</label>
+                        <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionTitle')}</label>
                         <input 
                             type="text" 
                             placeholder={t('enterTitle')} 
@@ -891,7 +906,7 @@ export const CreateAuctionForm: React.FC<{
                         {invalidFields.title && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Vnesite naslov dražbe.</p>}
                     </div>
                     <div className="space-y-4">
-                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemDescription')}</label>
+                        <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemDescription')}</label>
                         <textarea 
                             placeholder={t('describeItem')} 
                             value={formData.description}
@@ -903,9 +918,9 @@ export const CreateAuctionForm: React.FC<{
                         />
                         {invalidFields.description && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Vnesite opis predmeta.</p>}
                     </div>
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-8">
+                    <div className="grid grid-cols-1 gap-5 md:gap-8">
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('startingPriceEur')}</label>
+                            <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('startingPriceEur')}</label>
                             <div className="relative flex items-center">
                                 <input 
                                     type="text" 
@@ -922,11 +937,30 @@ export const CreateAuctionForm: React.FC<{
                             </div>
                             {invalidFields.startingPrice && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Začetna cena mora biti vsaj 1 €.</p>}
                         </div>
-                        {/* Deutscher Kommentar: Rechte Spalte neben dem Preis - Versandkosten (nur Festpreis) oder Hinweis bei Abholung */}
-                        <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">Poštnina (€)</label>
-                            {formData.delivery_option !== 'pickup_only' ? (
-                                <>
+                    </div>
+
+                    <div className="space-y-4 p-5 md:p-6 bg-slate-50 rounded-2xl border border-slate-100">
+                        <h3 className="text-sm font-black text-[#0A1128] uppercase tracking-wider">Način predaje</h3>
+                        {isRealEstateCategory(formData.category) && (
+                            <div className="rounded-2xl border-2 border-red-200 bg-red-50 py-4 px-6 text-sm font-bold text-red-600">Nepremičnin ni mogoče objaviti kot dražbo. Za nepremičnine nam pošljite povpraševanje.</div>
+                        )}
+                        {isRegisteredVehicle(formData.category, formData.specifications) && (
+                            <div className="rounded-2xl border-2 border-[#FEBA4F] bg-[#FEBA4F]/10 py-4 px-6 text-sm font-bold text-[#0A1128]">Vozila se predajo samo z osebnim prevzemom. Denar se sprosti šele, ko prodajalec vnese PIN, ki mu ga kupec razkrije ob prevzemu.</div>
+                        )}
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            {['both', 'pickup_only', 'shipping_only'].filter((opt) => !isRegisteredVehicle(formData.category, formData.specifications) || opt === 'pickup_only').map((opt) => (
+                                <label key={opt} className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-center justify-center ${formData.delivery_option === opt ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 hover:border-[#FEBA4F]/50 text-slate-400 bg-white'}`}>
+                                    <input type="radio" name="delivery_option" value={opt} checked={formData.delivery_option === opt} onChange={(e) => setFormData({...formData, delivery_option: e.target.value, shipping_fee_type: 'fixed'})} className="hidden" />
+                                    <span className="font-black text-[11px] uppercase tracking-wider text-center">
+                                        {opt === 'both' ? 'Oboje (izbere kupec)' : opt === 'pickup_only' ? 'Samo osebni prevzem' : 'Samo pošiljanje'}
+                                    </span>
+                                </label>
+                            ))}
+                        </div>
+                        {/* Deutscher Kommentar: Versandkosten nur bei Versand-Optionen, direkt unter der Auswahl der Uebergabeart */}
+                        {formData.delivery_option !== 'pickup_only' && (
+                            <div className="space-y-3">
+                                <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">Poštnina (€)</label>
                                     <div className={`relative flex items-stretch overflow-hidden rounded-2xl border-2 bg-slate-50 ${invalidFields.shipping_cost ? 'border-red-500' : 'border-slate-200 focus-within:border-[#FEBA4F]'} transition-all`}>
                                         <input
                                             type="number"
@@ -945,25 +979,8 @@ export const CreateAuctionForm: React.FC<{
                                     {invalidFields.shipping_cost
                                         ? <p className="text-red-500 text-xs font-bold ml-2">Vnesite znesek poštnine (0 za brezplačno).</p>
                                         : <p className="text-[11px] font-bold text-slate-400 ml-2">Fiksna poštnina, ki jo plača kupec skupaj z dražbo.</p>}
-                                </>
-                            ) : (
-                                <div className="rounded-2xl border-2 border-dashed border-slate-200 bg-slate-50 py-4 px-6 text-sm font-bold text-slate-400">Samo osebni prevzem - poštnine ni.</div>
-                            )}
-                        </div>
-                    </div>
-
-                    <div className="space-y-4 p-5 md:p-6 bg-slate-50 rounded-2xl border border-slate-100">
-                        <h3 className="text-sm font-black text-[#0A1128] uppercase tracking-wider">Način predaje</h3>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            {['both', 'pickup_only', 'shipping_only'].map((opt) => (
-                                <label key={opt} className={`p-4 rounded-xl border-2 cursor-pointer transition-all flex items-center justify-center ${formData.delivery_option === opt ? 'border-[#FEBA4F] bg-[#FEBA4F]/10 text-[#0A1128]' : 'border-slate-100 hover:border-[#FEBA4F]/50 text-slate-400 bg-white'}`}>
-                                    <input type="radio" name="delivery_option" value={opt} checked={formData.delivery_option === opt} onChange={(e) => setFormData({...formData, delivery_option: e.target.value, shipping_fee_type: 'fixed'})} className="hidden" />
-                                    <span className="font-black text-[11px] uppercase tracking-wider text-center">
-                                        {opt === 'both' ? 'Oboje (izbere kupec)' : opt === 'pickup_only' ? 'Samo osebni prevzem' : 'Samo pošiljanje'}
-                                    </span>
-                                </label>
-                            ))}
-                        </div>
+                            </div>
+                        )}
                         {formData.delivery_option !== 'pickup_only' && (
                             <div className="flex items-start gap-2 text-amber-800 bg-amber-50 p-3 rounded-xl border border-amber-200">
                                 <AlertCircle size={16} className="shrink-0 mt-0.5" />
@@ -976,7 +993,7 @@ export const CreateAuctionForm: React.FC<{
                     
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-8">
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                            <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
                                 {t('category')} <span className="text-red-500">*</span>
                             </label>
                             <select value={formData.category} className={`w-full bg-slate-50 border-2 ${invalidFields.category ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, category: e.target.value as Category, specifications: {} }); if (invalidFields.category) setInvalidFields(prev => ({ ...prev, category: false })); }}>
@@ -985,7 +1002,7 @@ export const CreateAuctionForm: React.FC<{
                             {invalidFields.category && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Izberite kategorijo.</p>}
                         </div>
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                            <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
                                 {t('itemCondition')} <span className="text-red-500">*</span>
                             </label>
                             <select value={formData.condition} className={`w-full bg-slate-50 border-2 ${invalidFields.condition ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, condition: e.target.value}); if (invalidFields.condition) setInvalidFields(prev => ({ ...prev, condition: false })); }}>
@@ -1007,7 +1024,7 @@ export const CreateAuctionForm: React.FC<{
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-8">
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                            <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
                                 {t('region')} <span className="text-red-500">*</span>
                             </label>
                             <select value={formData.region} className={`w-full bg-slate-50 border-2 ${invalidFields.region ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, region: e.target.value as Region}); if (invalidFields.region) setInvalidFields(prev => ({ ...prev, region: false })); }}>
@@ -1016,7 +1033,7 @@ export const CreateAuctionForm: React.FC<{
                             {invalidFields.region && <p className="text-red-500 text-xs font-bold mt-1 ml-2">Izberite regijo.</p>}
                         </div>
                         <div className="space-y-4">
-                            <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
+                            <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">
                                 {t('city')} <span className="text-red-500">*</span>
                             </label>
                             <select value={formData.location} className={`w-full bg-slate-50 border-2 ${invalidFields.city ? 'border-red-500 bg-red-50/20' : 'border-slate-200 focus:border-[#FEBA4F]'} rounded-2xl py-4 px-6 font-bold text-lg text-[#0A1128] focus:ring-0 transition-all outline-none appearance-none cursor-pointer shadow-inner`} onChange={e => { setFormData({...formData, location: e.target.value}); if (invalidFields.city) setInvalidFields(prev => ({ ...prev, city: false })); }}>
@@ -1036,10 +1053,10 @@ export const CreateAuctionForm: React.FC<{
                     </div>
 
                     <div className="space-y-4">
-                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionEndTime')}</label>
+                        <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('auctionEndTime')}</label>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-5 md:gap-8">
                             <div className="space-y-2">
-                                <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('endDate')}</label>
+                                <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('endDate')}</label>
                                 <CustomDatePicker 
                                     value={formData.endDate}
                                     onChange={(val) => setFormData({...formData, endDate: val})}
@@ -1048,7 +1065,7 @@ export const CreateAuctionForm: React.FC<{
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('endTime')}</label>
+                                <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('endTime')}</label>
                                 <CustomTimePicker 
                                     value={formData.endTime}
                                     onChange={(val) => setFormData({...formData, endTime: val})}
@@ -1058,12 +1075,12 @@ export const CreateAuctionForm: React.FC<{
                     </div>
                     
                     <div className="space-y-4">
-                        <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemImages')}</label>
+                        <label className="block text-xs font-black uppercase tracking-widest text-[#0A1128] ml-2">{t('itemImages')}</label>
                         <div 
                             onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
                             onDragLeave={() => setIsDragging(false)}
                             onDrop={(e) => { e.preventDefault(); setIsDragging(false); if(e.dataTransfer.files) handleFiles(Array.from(e.dataTransfer.files)); }}
-                            className={`p-6 md:p-12 border-4 border-dashed rounded-3xl md:rounded-[1.35rem] text-center transition-all cursor-pointer relative group ${
+                            className={`p-6 md:p-12 border-4 border-dashed rounded-3xl md:rounded-[2.5rem] text-center transition-all cursor-pointer relative group ${
                                 invalidFields.images 
                                     ? 'border-red-500 bg-red-50/20' 
                                     : isDragging 
@@ -1137,7 +1154,7 @@ export const CreateAuctionForm: React.FC<{
                                         {imagePrepStates[i] === 'preparing' && (
                                             <div className="absolute inset-0 bg-[#0A1128]/75 backdrop-blur-[2px] flex flex-col items-center justify-center p-2 z-20 pointer-events-none animate-in fade-in">
                                                 <div className="w-6 h-6 border-2 border-[#FEBA4F] border-t-transparent rounded-full animate-spin mb-1.5" />
-                                                <span className="text-white text-[11px] font-black uppercase tracking-wider">Pripravljam...</span>
+                                                <span className="text-white text-[10px] sm:text-[11px] font-black uppercase tracking-normal leading-tight text-center break-words max-w-full px-1">Pripravljam...</span>
                                             </div>
                                         )}
 
@@ -1145,7 +1162,7 @@ export const CreateAuctionForm: React.FC<{
                                         {enhancingIndex === i && (
                                             <div className="absolute inset-0 bg-[#0A1128]/75 backdrop-blur-[2px] flex flex-col items-center justify-center p-2 z-20 pointer-events-none animate-in fade-in">
                                                 <div className="w-6 h-6 border-2 border-[#FEBA4F] border-t-transparent rounded-full animate-spin mb-1.5" />
-                                                <span className="text-white text-[11px] font-black uppercase tracking-wider">Izboljšujem...</span>
+                                                <span className="text-white text-[10px] sm:text-[11px] font-black uppercase tracking-normal leading-tight text-center break-words max-w-full px-1">Izboljšujem...</span>
                                             </div>
                                         )}
 
@@ -1305,7 +1322,7 @@ export const CreateAuctionForm: React.FC<{
             {showPreview && (
                 <Portal>
                     <div className="fixed inset-0 z-[2000] flex items-center justify-center bg-black/80 backdrop-blur-md p-4 lg:p-8 overflow-y-auto" onClick={() => setShowPreview(false)}>
-                        <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[1.35rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
+                        <div className="bg-[#f8fafc] w-full max-w-7xl rounded-[3rem] border border-white/20 shadow-2xl overflow-hidden relative mt-20 md:mt-0" onClick={e => e.stopPropagation()}>
                             <div className="flex justify-between items-center p-6 border-b border-slate-200 bg-white sticky top-0 z-20">
                                 <h2 className="text-2xl font-black uppercase tracking-tighter text-[#0A1128]">{t('auctionPreview')}</h2>
                                 <button onClick={() => setShowPreview(false)} className="w-12 h-12 bg-slate-100 rounded-2xl flex items-center justify-center text-slate-500 hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all cursor-pointer"><X size={20} strokeWidth={3} /></button>
@@ -1350,7 +1367,7 @@ export const CreateAuctionForm: React.FC<{
                                 </div>
                                 <div className="pb-12">
                                    <h3 className="text-xl font-black uppercase tracking-tighter text-[#0A1128] mb-6 border-b pb-4">{t('pagePreview')}</h3>
-                                   <div className="border border-slate-200 rounded-[1.35rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
+                                   <div className="border border-slate-200 rounded-[2.5rem] overflow-hidden bg-slate-50 w-full relative h-[600px] md:h-[800px] overflow-x-auto">
                                        <div className="pointer-events-none w-[1280px] origin-top-left transform scale-[0.4] sm:scale-[0.5] md:scale-[0.7] lg:scale-[0.8] xl:scale-[0.9]">
                                            <AuctionView 
                                               item={{

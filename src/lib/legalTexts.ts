@@ -1,7 +1,7 @@
 // Deutscher Kommentar: Rechtliche Texte (nur slowenische Fassung ist verbindlich), zentral gepflegt fuer Footer, Cookie-Hinweis und Modals
 import { PLATFORM_COMPANY } from './platformCompany';
 
-const LAST_UPDATE = '13. 10. 2026';
+const LAST_UPDATE = '27. 10. 2026';
 
 export const IMPRINT_TEXT = `PODATKI O PONUDNIKU STORITEV
 
@@ -38,14 +38,14 @@ Upravljavec osebnih podatkov je ${PLATFORM_COMPANY.name}, ${PLATFORM_COMPANY.add
 2. Katere podatke obdelujemo, zakaj in na kateri podlagi
 
 a) Registracija in uporabniški račun
-Podatki: e-poštni naslov, uporabniško ime, geslo (v obliki, ki je ne moremo prebrati) ali prijava z Google računom, ime in priimek, naslov, telefonska številka, vrsta uporabnika (zasebna oseba / podjetje), pri podjetjih naziv, matična in davčna številka, profilna slika.
+Podatki: e-poštni naslov, uporabniško ime, geslo (v obliki, ki je ne moremo prebrati) ali prijava z Google računom, ime in priimek, naslov, telefonska številka, letnica rojstva, vrsta uporabnika (ob zagonu platforme samo zasebna oseba), profilna slika.
 Namen: ustvarjanje in upravljanje računa, prijava, komunikacija z vami.
 Podlaga: izvajanje pogodbe (6. člen, 1. odstavek, točka b GDPR).
 
 b) Verifikacija identitete in preprečevanje zlorab
-Podatki: podatki za preverjanje identitete, davčna številka (za preprečevanje zlorab hranimo samo zgoščeno, nepovratno šifrirano vrednost), podatki o neplačanih dražbah, blokadah in skupnem znesku nakupov.
+Podatki: podatki za preverjanje identitete (rezultat preverjanja in letnica rojstva za preverjanje najnižje starosti 16 let), davčna številka (za preprečevanje zlorab hranimo samo zgoščeno, nepovratno šifrirano vrednost), podatki o neplačanih dražbah, blokadah in skupnem znesku nakupov.
 Namen: preprečevanje goljufij, zlorab in večkratnih registracij, izpolnjevanje zakonskih obveznosti (npr. davčno poročanje po DAC7, točka i).
-Podlaga: zakoniti interes (točka f) in zakonska obveznost (točka c). Če je račun blokiran zaradi ponavljajočih se neplačanih dražb, zgoščeno vrednost davčne številke hranimo tudi po izbrisu računa, največ 5 let od blokade.
+Slik osebnega dokumenta in obraza ne prejemamo in ne hranimo; preverjanje izvaja ponudnik plačilnih storitev (Stripe Identity) kot samostojni upravljavec, mi prejmemo le rezultat preverjanja. Podlaga: zakoniti interes (točka f) in zakonska obveznost (točka c). Če je račun blokiran zaradi ponavljajočih se neplačanih dražb, zgoščeno vrednost davčne številke hranimo tudi po izbrisu računa, največ 5 let od blokade.
 
 c) Dražbe, ponudbe, sporočila in naročila
 Podatki: objavljeni predmeti (slike, opisi), ponudbe, zgodovina ponudb, sporočila med uporabniki, izbira načina predaje, podatki o dostavi, ocene.
@@ -70,13 +70,23 @@ g) Funkcije umetne inteligence (neobvezno)
 
 h) Varnost in delovanje strani
 Podatki: tehnični podatki (IP naslov, vrsta naprave in brskalnika, čas dostopa), varnostni dnevniki, ocena tveganja storitve reCAPTCHA pri registraciji.
-Namen: zagotavljanje varnosti, odpravljanje napak, zaščita pred zlorabami.
+Namen: zagotavljanje varnosti, odpravljanje napak, zaščita pred zlorabami ter dokazovanje v primeru spora ali reklamacije pri banki (ob prvi ponudbi, plačilu, potrditvi prejema in prevzemu se zabeležita IP naslov in naprava; hramba 18 mesecev).
 Podlaga: zakoniti interes (točka f).
 
 i) Davčno poročanje operaterja platforme (DAC7)
 Podatki: podatki za identifikacijo prodajalca (npr. ime, naslov, davčna številka), plačila, ki jih prodajalec prejme prek platforme, provizije, število prodaj in račun, na katerega se plačila izplačajo.
 Namen: izpolnitev zakonske obveznosti operaterja platforme do poročanja Finančni upravi RS (direktiva DAC7), ki podatke lahko izmenja z davčnimi organi drugih držav članic EU.
 Podlaga: zakonska obveznost (6. člen, 1. odstavek, točka c GDPR).
+
+j) Povpraševanja za nepremičnine
+Podatki: vrsta, lokacija, cena, telefonska številka in opis, ki jih vpišete v obrazec za povpraševanje, ter vaši osnovni podatki iz računa.
+Namen: obravnava povpraševanja in vzpostavitev stika z vami.
+Podlaga: ukrepi pred sklenitvijo pogodbe na vašo zahtevo (točka b).
+
+k) Spori in dokazi
+Podatki: opis spora, vaša besedila in fotografije, dokazila o pošiljanju, izid spora, evidenca dogodkov (čas, IP-naslov in naprava ob prvi ponudbi, plačilu, potrditvi prejema in prevzemu) ter število sporov posameznega uporabnika.
+Namen: reševanje sporov med uporabniki, uveljavljanje in obramba pravnih zahtevkov, odgovor na ugovor plačila s kartico (chargeback) pri ponudniku plačilnih storitev in odkrivanje zlorab.
+Podlaga: zakoniti interes (točka f) in izvajanje pogodbe (točka b).
 
 3. Piškotki in podobne tehnologije
 Uporabljamo samo nujne in funkcionalne tehnologije. Podrobnosti so v Politiki piškotkov.
@@ -95,6 +105,9 @@ Nekateri izvajalci imajo sedež ali strežnike zunaj EU/EGP (npr. v ZDA). Prenos
 - podatki, zbrani za poročanje DAC7: 5 let po koncu leta poročanja;
 - zgoščena vrednost davčne številke pri blokiranih računih: največ 5 let od blokade;
 - sporočila in zgodovina dražb: do izbrisa računa oz. dokler je potrebno za varstvo pravnih zahtevkov;
+- evidenca dogodkov za dokazovanje (IP-naslov, naprava, čas): 18 mesecev;
+- povpraševanja za nepremičnine: dokler je potrebno za obravnavo povpraševanja;
+- dokazila v sporih: dokler je potrebno za uveljavljanje ali obrambo pravnih zahtevkov;
 - varnostni dnevniki: le toliko časa, kolikor je nujno za zagotavljanje varnosti in odpravljanje napak.
 
 7. Vaše pravice
@@ -102,10 +115,10 @@ Imate pravico do: dostopa do podatkov, popravka, izbrisa, omejitve obdelave, pre
 Imate tudi pravico do pritožbe pri nadzornem organu: Informacijski pooblaščenec, Dunajska cesta 22, 1000 Ljubljana, www.ip-rs.si, gp.ip@ip-rs.si.
 
 8. Obvezni podatki in avtomatizirane odločitve
-Podatki, označeni kot obvezni pri registraciji, so potrebni za sklenitev pogodbe; brez njih računa ne moremo odpreti. Ne izvajamo odločanja izključno na podlagi avtomatizirane obdelave, ki bi imelo pravne učinke za vas (profiliranje). Samodejno omejevanje (npr. blokada računa po več neplačanih dražbah) temelji na jasnih pravilih iz Splošnih pogojev, vi pa lahko zahtevate človeški pregled na info@drazbenik.si.
+Podatki, označeni kot obvezni pri registraciji, so potrebni za sklenitev pogodbe; brez njih računa ne moremo odpreti. Ne izvajamo odločanja izključno na podlagi avtomatizirane obdelave, ki bi imelo pravne učinke za vas (profiliranje). Samodejno omejevanje (npr. blokada računa po več neplačanih dražbah, najnižja starost, omejitve za nove prodajalce, števci sporov) temelji na jasnih pravilih iz Splošnih pogojev, vi pa lahko zahtevate človeški pregled na info@drazbenik.si.
 
 9. Mladoletniki
-Platforma je namenjena polnoletnim osebam. Če izvemo, da je bil račun odprt brez ustrezne pravne sposobnosti, ga lahko zapremo.
+Platforma je namenjena osebam, starim 16 let ali več. Za osebe med 16. in 18. letom je potrebna privolitev staršev ali skrbnikov; uporabnik to potrdi v verifikaciji, mi pa potrditev trajno hranimo (datum, čas, IP, naprava, različica besedila) kot dokazilo o izpolnjeni zakonski zahtevi (zakoniti interes in zakonska obveznost). Do potrditve oddaja ponudb in objava dražb nista mogoči. Zbiramo samo letnico rojstva. Če izvemo, da je račun odprl uporabnik, mlajši od 16 let, ga zapremo.
 
 10. Varnost
 Uporabljamo tehnične in organizacijske ukrepe: šifriran prenos (HTTPS), nadzor dostopa, ločevanje občutljivih podatkov, nepovratno shranjevanje občutljivih identifikatorjev. O kršitvah varstva podatkov obvestimo pristojni organ in prizadete osebe v skladu z GDPR.
@@ -125,7 +138,7 @@ Pregled
 - reCAPTCHA (storitev Google, www.google.com / www.gstatic.com): zaščita registracije pred roboti. Lahko nastavi piškotek za oceno tveganja. Trajanje določa ponudnik storitve. Več: policies.google.com/privacy.
 
 2) Plačila (nujno, samo ob plačilu)
-- Piškotki ponudnika plačilnih storitev: izvedba plačila in preprečevanje goljufij. Nastavijo se šele, ko odprete plačilno okno.
+- Piškotki ponudnika plačilnih storitev: izvedba plačila, preverjanje identitete in preprečevanje goljufij. Nastavijo se šele, ko odprete plačilno okno.
 
 3) Delovanje in udobje (funkcionalno)
 - Lokalna shramba brskalnika (IndexedDB, Firestore): predpomnilnik za hitrejše nalaganje profila in dražb.
@@ -134,6 +147,11 @@ Pregled
 - drazbenik_show_filters, last_seen_winnings, dontShowTermsAgain: prikaz filtrov in obvestil. Trajanje: do izbrisa.
 - drazbe_package_draft_*: osnutek paketa, ki ga pišete. Trajanje: do objave ali izbrisa.
 - cookie_notice_ack: shrani, da ste prebrali to obvestilo. Trajanje: 12 mesecev.
+- language: izbrani jezik vmesnika. Trajanje: do izbrisa.
+- pending_prevzem_qr (sessionStorage): začasen zapis kode za prevzem, da se ne izgubi po prijavi. Trajanje: do konca seje.
+
+Dostop do kamere
+Kamero uporabimo samo, če izberete "Fotografiraj". Posnetki se ne shranijo, dokler jih sami ne pošljete. Dostop odobrite ali zavrnete v brskalniku.
 
 Kako jih izbrišete ali blokirate
 Shrambo lahko kadar koli izbrišete v nastavitvah brskalnika (npr. "Izbriši podatke o brskanju"). Če nujne tehnologije blokirate, se ne boste mogli prijaviti ali plačati.

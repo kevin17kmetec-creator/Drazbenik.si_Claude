@@ -3,6 +3,7 @@ import { cancelAuctionBankTransfer } from './bankTransferCancel';
 import { syncPublicProfile } from './publicProfile';
 import { createNotification, isUserOnline } from './notifications';
 import { markIdentityBlocked } from './identityLock';
+import { notifyAmlLimitIfExceeded } from './amlExposure';
 import Stripe from 'stripe';
 import { Resend } from './localizedResend';
 import {
@@ -165,6 +166,15 @@ export async function finalizeAuction(auctionId: string): Promise<FinalizeAuctio
       } catch (winErr: any) {
         console.error(`[finalizeAuction] Error notifying winner ${finalizedData.winnerId}:`, winErr.message);
       }
+
+      // Deutscher Kommentar: Hat der Gewinner mit dieser Auktion das Jahreslimit (10.000 EUR) ueberschritten, braucht er eine Identitaetspruefung
+      await notifyAmlLimitIfExceeded({
+        userId: finalizedData.winnerId,
+        auctionId,
+        auctionTitle: finalizedData.title,
+        imageUrl: finalizedData.imageUrl,
+        price: finalizedData.finalPrice,
+      });
 
       // Benachrichtigungen für alle anderen Bieter (lost)
       try {

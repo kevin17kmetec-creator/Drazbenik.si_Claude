@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { X, Camera, SwitchCamera, Check, ImagePlus } from '../icons';
+import { X, Camera, SwitchCamera, Check, ImagePlus } from 'lucide-react';
 import { Portal } from './Portal';
 
 interface CameraCaptureProps {

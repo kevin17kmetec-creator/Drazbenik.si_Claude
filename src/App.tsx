@@ -25,6 +25,7 @@ import { StaticTimer } from "@/src/components/ui/StaticTimer";
 import { AuctionCard } from "@/src/components/auction/AuctionCard";
 import { HeroCarousel } from "@/src/components/auction/HeroCarousel";
 import { Header } from "@/src/components/layout/Header";
+import { TermsConsentBar } from "@/src/components/layout/TermsConsentBar";
 import { Footer } from "@/src/components/layout/Footer";
 import { CookieNotice } from "@/src/components/layout/CookieNotice";
 import { CheckoutModal } from "@/src/components/modals/CheckoutModal";
@@ -43,6 +44,11 @@ import { TERMS_VERSION } from "./lib/termsVersion";
 import { getSellerSetupStep } from "./lib/sellerSetup";
 import { checkUserInvoiceData } from "./lib/invoiceDataCheck";
 import { getAuthHeaders } from "./lib/authFetch";
+import { fetchAmlStatus, startIdentityVerification, type AmlStatus } from "./lib/identityVerification";
+import { AmlLimitBanner } from "@/src/components/layout/AmlLimitBanner";
+import { ParentalConsentBanner } from "@/src/components/layout/ParentalConsentBanner";
+import { ParentalConsentModal } from "@/src/components/modals/ParentalConsentModal";
+import { needsParentalConsent } from "@/src/lib/minorConsent";
 import { cancelBankTransferPayment } from "./lib/bankTransfer";
 import { friendlyError } from "./lib/friendlyError";
 import { sendEmailVerificationAction } from "@/src/actions/auth-emails";
@@ -114,14 +120,12 @@ import {
   List,
   Scale,
   FileText,
-  Check,
-  Package,
   HelpCircle,
   Languages,
   FileUp,
   Key,
   QrCode,
-} from './components/icons';
+} from "lucide-react";
 
 import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -206,7 +210,7 @@ const SignedImg = ({
   );
 };
 
-import { Timer } from './components/icons';
+import { Timer } from "lucide-react";
 
 const PaymentTimer: React.FC<{ endTime: string | Date; deadlineAt?: string | Date | null }> = ({ endTime, deadlineAt }) => {
   const [timeLeft, setTimeLeft] = useState<{
@@ -289,10 +293,12 @@ const QUERY_PARAM_MAP = {
   tab: { SLO: "zavihek", EN: "tab", DE: "tab" }
 };
 
-const SETTINGS_TAB_MAP: Record<'profile' | 'personal' | 'stripe', Record<string, string>> = {
+const SETTINGS_TAB_MAP: Record<'profile' | 'personal' | 'stripe' | 'promotions' | 'promoadmin', Record<string, string>> = {
   profile: { SLO: "profil", EN: "profile", DE: "profil" },
   personal: { SLO: "osebno", EN: "personal", DE: "persoenlich" },
-  stripe: { SLO: "placila", EN: "billing", DE: "zahlungen" }
+  stripe: { SLO: "placila", EN: "billing", DE: "zahlungen" },
+  promotions: { SLO: "ugodnosti", EN: "perks", DE: "vorteile" },
+  promoadmin: { SLO: "promocije-admin", EN: "promotions-admin", DE: "aktionen-admin" }
 };
 
 function slugToCategory(slug: string): Category | null {
@@ -321,13 +327,13 @@ function slugToRegion(slug: string): Region | null {
   return null;
 }
 
-function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' {
+function slugToSettingsTab(slug: string): 'profile' | 'personal' | 'stripe' | 'promotions' | 'promoadmin' {
   if (!slug) return "profile";
   const decoded = decodeURIComponent(slug).toLowerCase().trim();
   for (const [tab, langMap] of Object.entries(SETTINGS_TAB_MAP)) {
     for (const val of Object.values(langMap)) {
       if (val.toLowerCase() === decoded) {
-        return tab as 'profile' | 'personal' | 'stripe';
+        return tab as 'profile' | 'personal' | 'stripe' | 'promotions' | 'promoadmin';
       }
     }
   }
@@ -556,7 +562,7 @@ const WonAuctionItem: React.FC<{
   return (
     <div
       key={wonItem.id}
-      className={`flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 transition-colors group ${
+      className={`flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 transition-colors group ${
         isOverdue 
           ? "border-red-500 bg-red-50/20 shadow-sm" 
           : "border-slate-100 hover:border-[#FEBA4F]"
@@ -1071,6 +1077,11 @@ const MainApp: React.FC = () => {
   const [activeView, setActiveView] = useState<ViewState>(() => {
     if (typeof window === "undefined") return "grid";
     const isSessionActive = sessionStorage.getItem("session_tab_active");
+    // Deutscher Kommentar: Direktaufruf der Anmeldeseite (z. B. nach E-Mail-Bestaetigung in neuem Tab) muss immer die Anmeldung zeigen
+    const directPath = window.location.pathname.replace(/^\/(de|en|sl)(?=\/|$)/, "") || "/";
+    if (/^\/(prijava|login|anmelden)(\/|$)/.test(directPath)) {
+      return "login";
+    }
     if (!isSessionActive) {
       return "grid";
     }
@@ -1200,6 +1211,8 @@ const MainApp: React.FC = () => {
   });
   const [republishData, setRepublishData] = useState<any>(null);
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login');
+  // Deutscher Kommentar: Zaehler erzwingt Neuaufbau des Auth-Formulars bei jedem Klick auf Anmelden/Registrieren in der Kopfzeile
+  const [authNonce, setAuthNonce] = useState(0);
   const [quickRepublishItem, setQuickRepublishItem] = useState<any>(null);
   const [quickRepublishDuration, setQuickRepublishDuration] = useState<number>(3); // days
   const [selectedPackageId, setSelectedPackageId] = useState<string | null>(null);
@@ -1303,7 +1316,7 @@ const MainApp: React.FC = () => {
   const [isPollingStopped, setIsPollingStopped] = useState(false);
   const [isHydrating, setIsHydrating] = useState(true);
   const [createMode, setCreateMode] = useState<"choice" | "single" | "package">("choice");
-  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices'>('profile');
+  const [settingsTab, setSettingsTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices' | 'promotions' | 'promoadmin'>('profile');
   const [appMissingInvoiceDataModal, setAppMissingInvoiceDataModal] = useState<{
     isOpen: boolean;
     missingFields: any[];
@@ -1356,7 +1369,7 @@ const MainApp: React.FC = () => {
     selectedCategories: Category[];
     selectedRegions: Region[];
     searchQuery: string;
-    settingsTab: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices';
+    settingsTab: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices' | 'promotions' | 'promoadmin';
     activeConversationId: string | null;
     createMode: 'choice' | 'single' | 'package';
     republishData: any;
@@ -1452,7 +1465,12 @@ const MainApp: React.FC = () => {
 
   const goBack = useCallback(
     (fallbackView: ViewState = "grid") => {
-      const previous = navHistoryRef.current.pop();
+      let previous = navHistoryRef.current.pop();
+      // Deutscher Kommentar: Wer angemeldet ist, darf nie auf die Anmeldeseite zurueckgeworfen werden
+      while (previous && previous.view === "login" && auth.currentUser) {
+        previous = navHistoryRef.current.pop();
+      }
+      if (previous && previous.view === "login" && auth.currentUser) previous = undefined;
       if (previous) {
         setActiveView(previous.view);
         setSelectedItem(previous.selectedItem ?? null);
@@ -1529,6 +1547,10 @@ const MainApp: React.FC = () => {
     if (localizedPaths[activeView]) {
       targetPath = localizedPaths[activeView][language] || localizedPaths[activeView]["SLO"];
     }
+    // Deutscher Kommentar: Die Startseite (Raster ohne Filter) hat keinen Pfad-Zusatz
+    if (activeView === "grid" && selectedCategories.length === 0 && selectedRegions.length === 0) {
+      targetPath = "/";
+    }
 
     const params = new URLSearchParams();
 
@@ -1567,8 +1589,8 @@ const MainApp: React.FC = () => {
     }
     
     // Add language prefix if needed
-    if (language === "EN") targetPath = "/en" + targetPath;
-    else if (language === "DE") targetPath = "/de" + targetPath;
+    if (language === "EN") targetPath = targetPath === "/" ? "/en/" : "/en" + targetPath;
+    else if (language === "DE") targetPath = targetPath === "/" ? "/de/" : "/de" + targetPath;
 
     const currentUrl = window.location.pathname + window.location.search;
     const newUrl = targetPath + targetSearch;
@@ -1589,6 +1611,16 @@ const MainApp: React.FC = () => {
     })();
 
     const isSessionActive = sessionStorage.getItem("session_tab_active");
+    // Deutscher Kommentar: Aufruf der Anmeldeseite (z. B. nach E-Mail-Bestaetigung) in neuem Tab muss die Anmeldeseite zeigen, nicht die Startseite
+    const initialPathLower = window.location.pathname.toLowerCase().replace(/^\/(de|en|sl)(?=\/|$)/, "");
+    const isLoginDeepLink = initialPathLower.startsWith("/prijava") || initialPathLower.startsWith("/login") || initialPathLower.startsWith("/anmelden");
+    if (!isSessionActive && isLoginDeepLink) {
+      sessionStorage.setItem("session_tab_active", "true");
+      setAuthMode('login'); setAuthNonce((n) => n + 1);
+      setActiveView("login");
+      setTimeout(() => setIsHydrating(false), 50);
+      return;
+    }
     if (!isSessionActive) {
       sessionStorage.setItem("session_tab_active", "true");
       setActiveView("grid");
@@ -1652,7 +1684,7 @@ const MainApp: React.FC = () => {
       // Decode and map category, region, settings tab first so state is fully prepared
       let categoriesToSet: Category[] = [];
       let regionsToSet: Region[] = [];
-      let tabToSet: 'profile' | 'personal' | 'stripe' = 'profile';
+      let tabToSet: 'profile' | 'personal' | 'stripe' | 'promotions' | 'promoadmin' = 'profile';
 
       for (const [key, value] of searchParams.entries()) {
         const lowerKey = key.toLowerCase();
@@ -1882,12 +1914,14 @@ const MainApp: React.FC = () => {
     isPickup?: boolean;
   }>({ isOpen: false, auctionId: "", sellerId: "", isPickup: false });
   // Status fuer Lade- und Erfolgsanimation der Empfangsbestaetigung
+  const [receiptAck, setReceiptAck] = useState<boolean>(false);
   const [receiptConfirmState, setReceiptConfirmState] = useState<'idle' | 'loading' | 'success'>('idle');
   // Ladezustand fuer die API-Anfrage der Empfangsbestaetigung
   const [receiptConfirmLoading, setReceiptConfirmLoading] = useState<boolean>(false);
 
   useEffect(() => {
     if (receiptConfirmModal.isOpen) {
+      setReceiptAck(false);
       setReceiptConfirmState('idle');
       setReceiptConfirmLoading(false);
     }
@@ -1954,7 +1988,7 @@ const MainApp: React.FC = () => {
     if (isAuthLoading || !pendingPrevzemQr) return;
 
     if (!user) {
-      setAuthMode('login');
+      setAuthMode('login'); setAuthNonce((n) => n + 1);
       navigateTo('login');
       return;
     }
@@ -2071,11 +2105,17 @@ const MainApp: React.FC = () => {
   // Behandlung von Klicks auf Benachrichtigungen (DEL E)
   const handleSelectNotification = useCallback((notification: any) => {
     if (!notification) return;
+    // Deutscher Kommentar: Jeder Klick auf eine Benachrichtigung (Glocke oder Toast) markiert sie als gelesen
+    if (notification.id && notification.read !== true) {
+      markNotificationReadRef.current?.(notification.id);
+    }
     if (notification.type === 'lost') {
-      if (notification.id) {
-        markNotificationReadRef.current?.(notification.id);
-      }
       toast.info("Dražba je zaključena.");
+      return;
+    }
+    if (notification.type === 'aml_verification' || notification.target === 'verification') {
+      setSettingsTab('personal');
+      navigateTo("settings", { settingsTab: 'personal' });
       return;
     }
     if (notification.type === 'won' || notification.type === 'second_chance_offer' || notification.target === 'winnings') {
@@ -2198,6 +2238,15 @@ const MainApp: React.FC = () => {
               countryCode: data.countryCode || data.country_code || prev.countryCode || 'SI',
               is_verified: data.is_verified ?? data.isVerified ?? false,
               isVerified: data.is_verified ?? data.isVerified ?? false,
+              terms_version: data.terms_version || null,
+              terms_accepted_at: data.terms_accepted_at || null,
+              profile_loaded: true,
+              founder_number: typeof data.founder_number === 'number' ? data.founder_number : null,
+              founder_since: data.founder_since || null,
+              founder_until: data.founder_until || null,
+              founder_tier: data.founder_tier || null,
+              founder_revoked: data.founder_revoked === true,
+              listing_credits: Array.isArray(data.listing_credits) ? data.listing_credits : [],
               profile_completed: data.profile_completed === true,
               identity_verified: data.identity_verified === true,
               email_verified: data.email_verified === true,
@@ -3516,7 +3565,8 @@ const MainApp: React.FC = () => {
           vat_id: data.vatId ?? '',
           auto_invoice_generation: data.autoInvoiceGeneration !== false,
           email_notifications: data.emailNotifications,
-          profile_picture_url: profilePictureUrl || null
+          profile_picture_url: profilePictureUrl || null,
+          ...(data.birthYear && !(userData as any)?.birth_year ? { birth_year: data.birthYear } : {})
         };
 
         const res = await fetch('/api/profile/update', {
@@ -3721,6 +3771,7 @@ const MainApp: React.FC = () => {
     case "login":
       content = (
         <AuthView
+          key={`auth-${authMode}-${authNonce}`}
           t={t}
           onLoginSuccess={() => {
             setIsLoggedIn(true);
@@ -3734,11 +3785,18 @@ const MainApp: React.FC = () => {
                     sessionStorage.removeItem('pending_prevzem_qr');
                 }
             } catch (e) {}
-            goBack("grid");
+            // Deutscher Kommentar: Nach erfolgreicher Anmeldung immer die Startseite zeigen und Anmelde-Eintraege aus dem Verlauf entfernen
+            navHistoryRef.current = navHistoryRef.current.filter((h) => h.view !== "login");
+            setSelectedItem(null);
+            setSelectedSeller(null);
+            setActiveConversationId(null);
+            setActiveView("grid");
+            window.scrollTo({ top: 0, behavior: "instant" });
           }}
           setIsVerified={setIsVerified}
           setAppLoggedIn={(val) => setIsLoggedIn(val)}
           initialMode={authMode}
+          modeNonce={authNonce}
           onLegal={(type) => setActiveLegal(type)}
           onAcceptTerms={() => navigateTo("acceptTerms")}
         />
@@ -3783,7 +3841,7 @@ const MainApp: React.FC = () => {
                         isCompleted ? 'bg-emerald-100 text-emerald-600' :
                         isActive ? 'bg-[#0A1128] text-white border-2 border-[#FEBA4F]' : 'bg-slate-100 text-slate-400'
                       }`}>
-                        {isCompleted ? <Check size={16} strokeWidth={2.5} /> : idx + 1}
+                        {isCompleted ? '✓' : idx + 1}
                       </div>
                       <span className={`text-xs font-black uppercase tracking-wider ${
                         isCompleted ? 'text-emerald-600' :
@@ -3932,7 +3990,7 @@ const MainApp: React.FC = () => {
                   className={`bg-white p-8 rounded-3xl shadow-lg border-2 border-transparent transition-all group ${limitReached ? "opacity-60 cursor-not-allowed" : "hover:border-blue-500 cursor-pointer hover:-translate-y-1"}`}
                 >
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <FileText size={40} className="text-[#0A1128]" />
+                    <span className="text-4xl">📄</span>
                   </div>
                   <h2 className="text-2xl font-bold mb-4">Enojna dražba</h2>
                   <p className="text-gray-500 line-height-relaxed">
@@ -3946,7 +4004,7 @@ const MainApp: React.FC = () => {
                 >
                   <div className="absolute top-6 right-6 bg-blue-600 text-white text-xs font-bold px-3 py-1 rounded-full">NOVO</div>
                   <div className="bg-blue-50 w-20 h-20 rounded-2xl flex items-center justify-center mb-6 group-hover:scale-110 transition-transform">
-                    <Package size={40} className="text-[#0A1128]" />
+                    <span className="text-4xl">📦</span>
                   </div>
                   <h2 className="text-2xl font-bold mb-4">Večpredmetna dražba</h2>
                   <p className="text-gray-500 line-height-relaxed">
@@ -4138,6 +4196,7 @@ const MainApp: React.FC = () => {
           isVerified={isVerified}
           userType={userType}
           initialData={userData}
+          onParentalConsent={handleConfirmParentalConsent}
           onVerify={async (type, data) => {
             console.log(
               "Starting verification process for type:",
@@ -4170,6 +4229,7 @@ const MainApp: React.FC = () => {
                 city: data.city || data.companyCity || '',
                 postal_code: data.postalCode || data.companyPostalCode || '',
                 tax_id: data.taxNumber || '',
+                ...(data.birthYear ? { birth_year: data.birthYear } : {}),
                 registration_number: data.regNumber || '',
                 company_name: data.companyName || '',
                 representative: data.representative || '',
@@ -4313,7 +4373,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> {t("back")}
           </button>
-          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <Gavel size={40} className="text-[#0A1128]" />
@@ -4410,7 +4470,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
-          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <Trophy size={40} className="text-[#0A1128]" />
@@ -4479,7 +4539,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
-          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <CreditCard size={40} className="text-[#0A1128]" />
@@ -4531,7 +4591,7 @@ const MainApp: React.FC = () => {
                   return (
                     <div
                       key={soldItem.id}
-                      className="grid grid-cols-1 sm:grid-cols-[7rem_minmax(0,1fr)] lg:grid-cols-[8.5rem_minmax(0,1fr)_19rem] items-start gap-4 lg:gap-6 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
+                      className="grid grid-cols-1 sm:grid-cols-[7rem_minmax(0,1fr)] lg:grid-cols-[8.5rem_minmax(0,1fr)_19rem] items-start gap-4 lg:gap-6 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-[#FEBA4F] transition-colors group bg-white shadow-sm"
                     >
                       <div
                         className="w-24 h-24 md:w-32 md:h-32 shrink-0 bg-slate-100 rounded-2xl md:rounded-3xl overflow-hidden shadow-md group-hover:scale-105 transition-transform cursor-pointer"
@@ -4651,7 +4711,7 @@ const MainApp: React.FC = () => {
                         </button>
                         {soldItem.post_auction_status === "failed_1st" && (
                           <>
-                            {(soldItem.has_second_bidder || (soldItem as any).hasSecondBidder) ? (
+                            {(soldItem.has_second_bidder || (soldItem as any).hasSecondBidder || (soldItem as any).second_winner_id) ? (
                               <LoadingButton
                                 onClick={() => openSecondOfferModal(soldItem)}
                                 loadingText="Nalaganje..."
@@ -4659,9 +4719,7 @@ const MainApp: React.FC = () => {
                               >
                                 Ponudi 2. ponudniku
                               </LoadingButton>
-                            ) : (
-                              <p className="text-xs text-red-500 font-bold text-center">Ni 2. ponudnika</p>
-                            )}
+                            ) : null}
                             <LoadingButton
                               onClick={() => handleMoveToArchive(soldItem)}
                               loadingText="Premikam..."
@@ -4893,7 +4951,7 @@ const MainApp: React.FC = () => {
             <ArrowLeft size={16} /> Nazaj
           </button>
 
-          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-slate-100 p-4 rounded-3xl shadow-lg">
                 <MessageSquare size={40} className="text-slate-400" />
@@ -4928,7 +4986,7 @@ const MainApp: React.FC = () => {
                     return (
                       <div
                         key={pkg.package_id}
-                        className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
+                        className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-blue-200 bg-blue-50/30 transition-colors group relative"
                       >
                         <button 
                           onClick={() => setDeleteUnsoldModal({
@@ -4994,7 +5052,7 @@ const MainApp: React.FC = () => {
                   return (
                     <div
                       key={soldItem.id}
-                      className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[1.35rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
+                      className="flex flex-col md:flex-row items-center gap-4 md:gap-8 p-4 sm:p-6 rounded-3xl md:rounded-[2.5rem] border-2 border-slate-100 hover:border-slate-300 transition-colors group relative"
                     >
                       <button 
                         onClick={() => setDeleteUnsoldModal({
@@ -5023,7 +5081,7 @@ const MainApp: React.FC = () => {
                         ) : null}
                         {soldItem.post_auction_status === "failed_1st" && (
                           <div className="mb-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl text-xs font-bold text-amber-900 leading-relaxed">
-                            Čaka na vašo odločitev: zmagovalec ni plačal. Dražbo lahko ponudite 2. ponudniku (ob potrditvi vidite ceno) ali jo objavite ponovno / izbrišete.
+                            {(soldItem.has_second_bidder || (soldItem as any).hasSecondBidder || (soldItem as any).second_winner_id) ? "Čaka na vašo odločitev: zmagovalec ni plačal. Dražbo lahko ponudite 2. ponudniku (ob potrditvi vidite ceno) ali jo objavite ponovno / izbrišete." : "Čaka na vašo odločitev: zmagovalec ni plačal. Dražbo lahko objavite ponovno ali izbrišete."}
                           </div>
                         )}
                         {soldItem.post_auction_status === "failed_2nd" && (
@@ -5059,7 +5117,7 @@ const MainApp: React.FC = () => {
                         </div>
                       </div>
                       <div className="flex flex-col gap-3 w-full md:w-auto mt-4 md:mt-0">
-                        {soldItem.post_auction_status === "failed_1st" && (
+                        {soldItem.post_auction_status === "failed_1st" && (soldItem.has_second_bidder || (soldItem as any).hasSecondBidder || (soldItem as any).second_winner_id) && (
                           <button
                             onClick={() => openSecondOfferModal(soldItem)}
                             className="bg-blue-600 text-white px-4 md:px-8 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-xs md:text-sm hover:bg-blue-700 transition-all shadow-xl flex items-center justify-center gap-2"
@@ -5157,7 +5215,7 @@ const MainApp: React.FC = () => {
           >
             <ArrowLeft size={16} /> Nazaj
           </button>
-          <div className="bg-white rounded-[1.35rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
+          <div className="bg-white rounded-[4rem] p-12 shadow-2xl border border-slate-100 min-h-[500px]">
             <div className="flex items-center gap-6 mb-12">
               <div className="bg-[#FEBA4F] p-4 rounded-3xl shadow-lg shadow-[#FEBA4F]/20">
                 <Eye size={40} className="text-[#0A1128]" />
@@ -5246,8 +5304,8 @@ const MainApp: React.FC = () => {
               className="flex flex-col md:flex-row md:items-center justify-between gap-8 mb-12 scroll-mt-32"
             >
               <div className="flex items-center gap-4 flex-wrap">
-                <span className="w-12 h-12 rounded-full bg-[#0A1128] text-[#FEBA4F] flex items-center justify-center shadow-lg ring-2 ring-offset-2 ring-offset-[#F5EFE2] ring-[#FEBA4F]/60"><Gavel size={22} /></span>
-                <h2 className="text-3xl sm:text-4xl text-[#0A1128]">
+                <div className="bg-[#FEBA4F] w-2.5 h-10 rounded-full shadow-lg"></div>
+                <h2 className="text-3xl font-black text-[#0A1128] uppercase tracking-tighter italic">
                   {activeView === "lastChance"
                     ? t("lastChanceTitle")
                     : selectedRegions.length > 0
@@ -5540,6 +5598,62 @@ const MainApp: React.FC = () => {
   // Banner is active if user is logged in, not verified, auth data has finished loading, and 3s have passed
   const isBannerActive = showBannerDelayPassed && !isAuthLoading && isLoggedIn && !isVerified;
 
+  // Deutscher Kommentar: Stand des Jahreslimits (10.000 EUR) laden und regelmaessig aktualisieren
+  const [amlStatus, setAmlStatus] = useState<AmlStatus | null>(null);
+  const [amlBusy, setAmlBusy] = useState(false);
+  const refreshAmlStatus = useCallback(async () => {
+    const status = await fetchAmlStatus();
+    setAmlStatus(status);
+  }, []);
+  useEffect(() => {
+    if (!isLoggedIn || !isVerified) {
+      setAmlStatus(null);
+      return;
+    }
+    refreshAmlStatus();
+    const timer = setInterval(refreshAmlStatus, 60000);
+    return () => clearInterval(timer);
+  }, [isLoggedIn, isVerified, refreshAmlStatus]);
+
+  async function handleStartIdentityVerification() {
+    if (amlBusy) return;
+    setAmlBusy(true);
+    const res = await startIdentityVerification();
+    setAmlBusy(false);
+    if (res.result === 'submitted') {
+      toast.success("Dokument je oddan. Preverjanje traja nekaj minut, o rezultatu vas obvestimo.");
+      setTimeout(refreshAmlStatus, 8000);
+      setTimeout(refreshAmlStatus, 30000);
+    } else if (res.result === 'error') {
+      toast.error(res.message || "Verifikacije ni bilo mogoče začeti.");
+    }
+  }
+  // Deutscher Kommentar: Zustimmung der Eltern (Nutzer 16 bis 18 Jahre)
+  const [parentalModalOpen, setParentalModalOpen] = useState(false);
+  const isParentalBannerActive = !isAuthLoading && isLoggedIn && isVerified && needsParentalConsent(userData);
+  async function handleConfirmParentalConsent(): Promise<boolean> {
+    try {
+      const res = await fetch('/api/parental-consent', {
+        method: 'POST',
+        headers: await getAuthHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({ accepted: true })
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(friendlyError(data.error, "Soglasja ni bilo mogoče shraniti."));
+        return false;
+      }
+      setUserData((prev: any) => ({ ...prev, parental_consent: true, parental_consent_at: data.parental_consent_at }));
+      setParentalModalOpen(false);
+      toast.success("Soglasje staršev je shranjeno. Oddaja ponudb je odklenjena.");
+      return true;
+    } catch (e: any) {
+      toast.error(friendlyError(e, "Soglasja ni bilo mogoče shraniti."));
+      return false;
+    }
+  }
+  const isAmlBannerActive = showBannerDelayPassed && !isAuthLoading && isLoggedIn && isVerified && amlStatus?.exceeded === true;
+
   // Sync isVerified state with userData as a fallback
   useEffect(() => {
     const userDataVerified = Boolean(userData.profile_completed && (userData.email_verified || auth.currentUser?.emailVerified));
@@ -5570,13 +5684,13 @@ const MainApp: React.FC = () => {
         "Za oddajo ponudbe se morate prijaviti.",
         "Prijava",
         () => {
-          setAuthMode('login');
+          setAuthMode('login'); setAuthNonce((n) => n + 1);
           navigateTo("login");
         },
         {
           label: "Registracija",
           onClick: () => {
-            setAuthMode('register');
+            setAuthMode('register'); setAuthNonce((n) => n + 1);
             navigateTo("login");
           }
         }
@@ -5612,6 +5726,14 @@ const MainApp: React.FC = () => {
           setSettingsTab('personal');
           navigateTo("settings", { settingsTab: 'personal' });
         }
+      );
+      return "error";
+    }
+    if (needsParentalConsent(userData)) {
+      showActionNotice(
+        "Oddaja ponudb je zaklenjena, dokler ne potrdite soglasja staršev (starost 16 do 18 let).",
+        "Potrdi soglasje",
+        () => setParentalModalOpen(true)
       );
       return "error";
     }
@@ -5707,6 +5829,19 @@ const MainApp: React.FC = () => {
                 toast.error(friendlyError(err, "Napaka pri pošiljanju potrditvene e-pošte."));
               }
             }
+          );
+        } else if (response.status === 403 && data.code === 'AML_VERIFICATION_REQUIRED') {
+          showActionNotice(
+            data.error || "Presegli ste letni limit nakupov. Za nove ponudbe opravite verifikacijo z osebnim dokumentom.",
+            "Verificiraj osebni dokument",
+            () => { handleStartIdentityVerification(); }
+          );
+          refreshAmlStatus();
+        } else if (response.status === 403 && data.code === 'PARENTAL_CONSENT_REQUIRED') {
+          showActionNotice(
+            data.error || "Oddaja ponudb je zaklenjena, dokler ne potrdite soglasja staršev.",
+            "Potrdi soglasje",
+            () => setParentalModalOpen(true)
           );
         } else if (response.status === 403 && data.code === 'PROFILE_INCOMPLETE') {
           showActionNotice(
@@ -5912,7 +6047,7 @@ const MainApp: React.FC = () => {
         toast.error("Niste prijavljeni.");
         return;
       }
-      const res = await confirmReceiptAction({ auction_id: receiptConfirmModal.auctionId }, token);
+      const res = await confirmReceiptAction({ auction_id: receiptConfirmModal.auctionId, acknowledged: receiptAck }, token);
       if (res.success) {
         setReceiptConfirmState('success');
         setReceiptConfirmLoading(false);
@@ -6013,6 +6148,23 @@ const MainApp: React.FC = () => {
           }}
           t={t}
         />
+        <ParentalConsentBanner
+          isVisible={isParentalBannerActive}
+          language={language}
+          onAction={() => setParentalModalOpen(true)}
+        />
+        <ParentalConsentModal
+          isOpen={parentalModalOpen}
+          language={language}
+          onConfirm={handleConfirmParentalConsent}
+          onClose={() => setParentalModalOpen(false)}
+        />
+        <AmlLimitBanner
+          isVisible={isAmlBannerActive}
+          busy={amlBusy}
+          onAction={handleStartIdentityVerification}
+          t={t}
+        />
         {isPollingStopped && (
           <div className="bg-red-500 text-white text-center py-2 px-4 shadow-md font-bold text-sm sticky top-0 z-[6000] flex justify-center items-center gap-4 animate-in slide-in-from-top fade-in duration-300">
             <span>Povezava s strežnikom je prekinjena.</span>
@@ -6053,11 +6205,11 @@ const MainApp: React.FC = () => {
             navigateTo("lastChance", { selectedRegions: [], selectedCategories: [] });
           }}
           onLogin={() => {
-            setAuthMode('login');
+            setAuthMode('login'); setAuthNonce((n) => n + 1);
             navigateTo("login");
           }}
           onRegister={() => {
-            setAuthMode('register');
+            setAuthMode('register'); setAuthNonce((n) => n + 1);
             navigateTo("login");
           }}
           onLogout={handleLogout}
@@ -6118,6 +6270,13 @@ const MainApp: React.FC = () => {
           userData={userData}
         />
         <main className="flex-1 flex flex-col">{content}</main>
+        {/* Deutscher Kommentar: Zustimmungsleiste am unteren Rand, solange die aktuellen Bedingungen nicht bestaetigt sind */}
+        <TermsConsentBar
+          userData={userData}
+          ready={showBannerDelayPassed && !isAuthLoading && isLoggedIn}
+          onConfirmed={(updated) => setUserData(updated)}
+          onLegal={setActiveLegal}
+        />
         {activeView !== "login" && (
           <Footer
             t={t}
@@ -6129,7 +6288,7 @@ const MainApp: React.FC = () => {
           <Portal>
             {/* Deutscher Kommentar: Responsives Splosni pogoji poslovanja Modal fuer mobile Geraete */}
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in">
-              <div className="bg-white w-full max-w-xl rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 lg:p-14 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
+              <div className="bg-white w-full max-w-xl rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 lg:p-14 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
                 <button
                   onClick={handleCancelTerms}
                   className="absolute top-4 right-4 sm:top-8 sm:right-8 p-2 text-slate-400 hover:text-[#0A1128] transition-colors min-w-[40px] min-h-[40px] flex items-center justify-center"
@@ -6188,6 +6347,8 @@ const MainApp: React.FC = () => {
             onConfirm={handleConfirmBid}
             userData={userData}
             onOpenTerms={() => setActiveLegal('terms')}
+            amlStatus={amlStatus}
+            onStartVerification={handleStartIdentityVerification}
           />
         )}
         <CookieNotice onOpenPolicy={() => setActiveLegal("cookies")} />
@@ -6258,7 +6419,7 @@ const MainApp: React.FC = () => {
                 className="absolute inset-0 bg-[#0A1128]/80 backdrop-blur-sm animate-in fade-in"
                 onClick={() => setDeleteUnsoldModal(null)}
               />
-              <div className="relative bg-white rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-8 md:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10 max-h-[92dvh] overflow-y-auto">
+              <div className="relative bg-white rounded-3xl sm:rounded-[2.5rem] p-5 sm:p-8 md:p-10 max-w-md w-full shadow-2xl border border-slate-100 animate-in zoom-in-95 z-10 max-h-[92dvh] overflow-y-auto">
                 <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl sm:rounded-3xl bg-red-50 text-red-500 border border-red-100 flex items-center justify-center mb-4 sm:mb-6 mx-auto shadow-inner">
                   <Trash2 size={28} />
                 </div>
@@ -6317,7 +6478,7 @@ const MainApp: React.FC = () => {
           <Portal>
             {/* Deutscher Kommentar: Responsives Versandart-Auswahl-Modal */}
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in">
-              <div className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
+              <div className="bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative max-h-[92dvh] overflow-y-auto">
                 <button
                   onClick={() =>
                     setDeliveryMethodModal({
@@ -6410,7 +6571,7 @@ const MainApp: React.FC = () => {
               }}
             >
               <div 
-                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 {receiptConfirmState !== 'loading' && receiptConfirmState !== 'success' && !receiptConfirmLoading && (
@@ -6443,10 +6604,16 @@ const MainApp: React.FC = () => {
                     : "S potrditvijo prejema potrjujete, da ste predmet pregledali, da je skladen z opisom in vsemi podatki prodajalca ter da ga sprejemate. Posel je s tem zaključen in izplačilo prodajalcu se sprosti takoj. Nadaljujem?"}
                 </p>
                 {receiptConfirmState !== 'success' && (
+                  <label className="flex items-start gap-3 text-left mb-4 cursor-pointer">
+                    <input type="checkbox" checked={receiptAck} onChange={(e) => setReceiptAck(e.target.checked)} className="mt-1 h-5 w-5 shrink-0" />
+                    <span className="text-xs sm:text-sm font-bold text-[#0A1128]">Potrjujem, da sem predmet prejel in pregledal, da je skladen z opisom v oglasu in da sem to potrditev opravil jaz. Razumem, da je posel s tem zaključen.</span>
+                  </label>
+                )}
+                {receiptConfirmState !== 'success' && (
                   <div className="flex flex-col gap-2.5 sm:gap-3">
                     <LoadingButton
                       onClick={handleReceiptConfirmSubmit}
-                      disabled={receiptConfirmLoading}
+                      disabled={receiptConfirmLoading || !receiptAck}
                       loading={receiptConfirmLoading}
                       loadingText="Potrjujem..."
                       className="w-full bg-[#0A1128] text-white py-3.5 sm:py-4 rounded-xl sm:rounded-2xl font-black uppercase tracking-widest text-xs sm:text-sm hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2 min-h-[44px]"
@@ -6479,7 +6646,7 @@ const MainApp: React.FC = () => {
             {/* Deutscher Kommentar: Responsives Timeline-Modal */}
             <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
               <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => setTimelineModalAuctionId(null)}></div>
-              <div className="relative bg-white w-full max-w-4xl rounded-3xl sm:rounded-[1.35rem] p-1 shadow-2xl animate-in border-2 sm:border-2 border-[#FEBA4F] max-h-[92dvh] overflow-hidden flex flex-col">
+              <div className="relative bg-white w-full max-w-4xl rounded-3xl sm:rounded-[3rem] p-1 shadow-2xl animate-in border-2 sm:border-4 border-[#FEBA4F] max-h-[92dvh] overflow-hidden flex flex-col">
                  <div className="p-4 sm:p-8 pb-3 sm:pb-4 flex justify-between items-center border-b border-slate-100">
                     <h3 className="text-lg sm:text-2xl font-black text-[#0A1128] uppercase tracking-tighter">Status plačila in dostave</h3>
                     <button onClick={() => setTimelineModalAuctionId(null)} className="p-2 hover:bg-slate-100 rounded-full transition-colors text-slate-400 min-w-[40px] min-h-[40px] flex items-center justify-center" aria-label="Zapri"><X size={22} /></button>
@@ -6558,7 +6725,7 @@ const MainApp: React.FC = () => {
               }}
             >
               <div
-                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
+                className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto"
                 onClick={(e) => e.stopPropagation()}
               >
                 <button
@@ -6678,7 +6845,7 @@ const MainApp: React.FC = () => {
           <Portal>
             {/* Deutscher Kommentar: Responsives Modal fuer QR-Uebergabebestaetigung */}
             <div className="fixed inset-0 bg-[#0A1128]/80 backdrop-blur-sm z-[2000] flex items-center justify-center p-3 sm:p-6 animate-in" onClick={(e) => e.stopPropagation()}>
-              <div className="bg-white w-full max-w-md rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto">
+              <div className="bg-white w-full max-w-md rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl relative text-center max-h-[92dvh] overflow-y-auto">
                 <div className="bg-amber-100 w-16 h-16 sm:w-20 sm:h-20 rounded-full flex items-center justify-center mx-auto mb-4 sm:mb-6">
                   <Key size={32} className="text-amber-600" />
                 </div>

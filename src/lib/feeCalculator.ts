@@ -1,3 +1,5 @@
+import { getFounderStatus, maxTier } from './promotions';
+
 export type Tier = 'FREE' | 'BASIC' | 'PRO';
 
 const EU_COUNTRIES = new Set([
@@ -8,6 +10,15 @@ const EU_COUNTRIES = new Set([
 
 // Deutscher Kommentar: Ermittelt die effektive Stufe des Benutzers unter Beruecksichtigung der Gueltigkeit
 export function getEffectiveTier(userData: any, nowMs = Date.now()): Tier {
+  if (!userData) return 'FREE';
+  // Deutscher Kommentar: Gruendungsmitglieder erhalten waehrend der Aktionszeit mindestens die Founder-Stufe (PRO)
+  const founder = getFounderStatus(userData, nowMs);
+  const paid = getPaidTier(userData, nowMs);
+  return founder.isActive ? maxTier(paid, founder.tier) : paid;
+}
+
+// Deutscher Kommentar: Bezahlte Stufe ohne Aktionsvorteile
+export function getPaidTier(userData: any, nowMs = Date.now()): Tier {
   if (!userData) return 'FREE';
   const raw = userData.subscription_tier || userData.subscription;
   if (!raw) return 'FREE';

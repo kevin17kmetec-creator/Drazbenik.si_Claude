@@ -1,11 +1,11 @@
 import { normalizeImageFile } from '../../lib/imageConvert';
 import React, { useEffect, useState } from 'react';
-import { CheckCircle2, Clock, Truck, UserCheck, CreditCard, AlertCircle } from '../icons';
+import { CheckCircle2, Clock, Truck, UserCheck, CreditCard, AlertCircle } from 'lucide-react';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { Portal } from '../ui/Portal';
 import { toast } from 'sonner';
 import { compressImage as imageCompression } from '../../lib/imageCompress';
-import { Camera, ImagePlus, X as XIcon } from '../icons';
+import { Camera, ImagePlus, X as XIcon } from 'lucide-react';
 import { CameraCapture, isCameraSupported } from '../ui/CameraCapture';
 
 interface PaymentStatus {
@@ -37,6 +37,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<null | 'buyer' | 'seller'>(null);
   const [text, setText] = useState('');
+  const [difference, setDifference] = useState('');
   const [kind, setKind] = useState<'not_received' | 'other'>('not_received');
   const [busy, setBusy] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -50,7 +51,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
     try {
       const blob = await imageCompression(await normalizeImageFile(file), { maxSizeMB: 0.6, maxWidthOrHeight: 1400, useWebWorker: true, fileType: 'image/jpeg', initialQuality: 0.8 });
       const small = new File([blob], `dokaz-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      setPhotos(prev => (prev.length >= 3 ? prev : [...prev, { file: small, url: URL.createObjectURL(small) }]));
+      setPhotos(prev => (prev.length >= 5 ? prev : [...prev, { file: small, url: URL.createObjectURL(small) }]));
     } catch {
       toast.error('Slike ni bilo mogoče pripraviti.');
     }
@@ -90,6 +91,10 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
       toast.error('Vnesite vsaj 10 znakov.');
       return;
     }
+    if (modal === 'buyer' && kind === 'other') {
+      if (difference.trim().length < 10) { toast.error('Opišite, v čem se predmet razlikuje od oglasa (vsaj 10 znakov).'); return; }
+      if (photos.length < 1) { toast.error('Priložite vsaj eno fotografijo kot dokaz.'); return; }
+    }
     setBusy(true);
     try {
       const isBuyer = modal === 'buyer';
@@ -97,7 +102,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
         method: 'POST',
         headers: await getAuthHeaders(),
         body: JSON.stringify(isBuyer
-          ? { kind, reason: text.trim() }
+          ? { kind, reason: text.trim(), difference: difference.trim(), photos: await Promise.all(photos.map(async p => ({ mime_type: 'image/jpeg', data_base64: await toBase64(p.file) }))) }
           : { note: text.trim(), photos: await Promise.all(photos.map(async p => ({ mime_type: 'image/jpeg', data_base64: await toBase64(p.file) }))) })
       });
       const json = await res.json().catch(() => ({}));
@@ -105,6 +110,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
       toast.success(isBuyer ? 'Prijava je oddana.' : 'Dokaz je oddan.');
       setModal(null);
       setText('');
+      setDifference('');
       setPhotos([]);
       setReloadKey(k => k + 1);
     } catch (e: any) {
@@ -175,7 +181,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
   ];
 
   return (
-    <div className="bg-white rounded-[1.35rem] p-8 md:p-10 border border-slate-100 shadow-xl overflow-hidden relative">
+    <div className="bg-white rounded-[2.5rem] p-8 md:p-10 border border-slate-100 shadow-xl overflow-hidden relative">
       <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-8 relative z-10">
         {steps.map((step, idx) => {
           const isCurrent = !step.isDone && (idx === 0 || steps[idx - 1].isDone);
@@ -203,6 +209,22 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
         })}
       </div>
 
+      {data.role === 'buyer' && (
+        (data.delivery_method === 'pickup' && data.status === 'HELD_IN_ESCROW') ||
+        (data.delivery_method !== 'pickup' && data.status === 'DELIVERED')
+      ) && (
+        <div className="mt-6 pt-6 border-t border-slate-100 relative z-10 space-y-2">
+          <p className="text-[11px] font-bold text-slate-500">
+            {data.delivery_method === 'pickup'
+              ? 'Če predmet ni takšen, kot je opisan, PIN kode ne razkrijte. Težavo prijavite z opisom razlike in fotografijami.'
+              : 'Če predmet ni takšen, kot je opisan, težavo prijavite z opisom razlike in fotografijami.'}
+          </p>
+          <button onClick={() => { setKind('other'); setText(''); setDifference(''); setPhotos([]); setModal('buyer'); }} className="block text-[11px] font-black uppercase tracking-widest text-red-600 underline">
+            Predmet ne ustreza opisu / težava
+          </button>
+        </div>
+      )}
+
       {data.delivery_method !== 'pickup' && data.shipped_at && (
         <div className="mt-8 pt-6 border-t border-slate-100 space-y-3 relative z-10">
           <p className="text-[11px] font-bold text-slate-500">
@@ -222,7 +244,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
                 Če pošiljka ne prispe, lahko težavo prijavite od {new Date(data.not_received_allowed_from).toLocaleDateString('sl-SI')}.
               </p>
             ) : (
-              <button onClick={() => { setKind('not_received'); setText(''); setModal('buyer'); }} className="block text-[11px] font-black uppercase tracking-widest text-red-600 underline">
+              <button onClick={() => { setKind('not_received'); setText(''); setDifference(''); setPhotos([]); setModal('buyer'); }} className="block text-[11px] font-black uppercase tracking-widest text-red-600 underline">
                 Pošiljka ni prispela / težava
               </button>
             )
@@ -252,7 +274,7 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
               <h3 className="font-black text-[#0A1128] uppercase text-sm tracking-tight">
                 {modal === 'buyer' ? 'Prijava težave s pošiljko' : 'Dokaz o oddaji pošiljke'}
               </h3>
-              {modal === 'buyer' && (
+              {modal === 'buyer' && data.delivery_method !== 'pickup' && (
                 <div className="grid grid-cols-2 gap-2">
                   <button type="button" onClick={() => setKind('not_received')} className={`py-2 rounded-xl text-[11px] font-black uppercase border-2 ${kind === 'not_received' ? 'bg-[#0A1128] text-white border-[#0A1128]' : 'border-slate-200 text-slate-500'}`}>Ni prispela</button>
                   <button type="button" onClick={() => setKind('other')} className={`py-2 rounded-xl text-[11px] font-black uppercase border-2 ${kind === 'other' ? 'bg-[#0A1128] text-white border-[#0A1128]' : 'border-slate-200 text-slate-500'}`}>Druga težava</button>
@@ -266,9 +288,19 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
                 placeholder={modal === 'buyer' ? 'Opišite težavo (vsaj 10 znakov).' : 'Datum oddaje, pošta, številka potrdila ... (vsaj 10 znakov)'}
                 className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-base font-bold outline-none focus:ring-2 focus:ring-[#FEBA4F]"
               />
-              {modal === 'seller' && (
+              {modal === 'buyer' && kind === 'other' && (
+                <textarea
+                  value={difference}
+                  onChange={e => setDifference(e.target.value)}
+                  rows={4}
+                  maxLength={1500}
+                  placeholder="V čem se predmet razlikuje od opisa v oglasu? (obvezno, vsaj 10 znakov)"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-2xl p-3 text-base font-bold outline-none focus:ring-2 focus:ring-[#FEBA4F]"
+                />
+              )}
+              {(modal === 'seller' || modal === 'buyer') && (
                 <div className="space-y-2">
-                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Fotografija potrdila ali pošiljke (neobvezno, do 3)</p>
+                  <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">{modal === 'buyer' ? (kind === 'other' ? 'Fotografije dokaza (obvezno, do 5)' : 'Fotografije (neobvezno, do 5)') : 'Fotografija potrdila ali pošiljke (neobvezno, do 3)'}</p>
                   <div className="flex flex-wrap gap-2">
                     {photos.map((p, i) => (
                       <div key={p.url} className="relative">
@@ -277,16 +309,16 @@ export const PaymentTimeline: React.FC<{ auctionId: string }> = ({ auctionId }) 
                       </div>
                     ))}
                   </div>
-                  {photos.length < 3 && (
+                  {photos.length < (modal === 'buyer' ? 5 : 3) && (
                     <div className="flex gap-2">
                       {isCameraSupported() && (
                         <button type="button" onClick={() => setCameraOpen(true)} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[#0A1128] text-white text-[11px] font-black uppercase tracking-wider"><Camera size={14} /> Fotografiraj</button>
                       )}
                       <button type="button" onClick={() => galleryRef.current?.click()} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 border-slate-200 text-[#0A1128] text-[11px] font-black uppercase tracking-wider"><ImagePlus size={14} /> Iz galerije</button>
-                      <input ref={galleryRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" className="hidden" onChange={e => { Array.from(e.target.files || []).slice(0, 3 - photos.length).forEach(queuePhoto); e.target.value = ''; }} />
+                      <input ref={galleryRef} type="file" multiple accept="image/jpeg,image/png,image/webp,image/heic,image/heif,.heic,.heif" className="hidden" onChange={e => { Array.from(e.target.files || []).slice(0, (modal === 'buyer' ? 5 : 3) - photos.length).forEach(queuePhoto); e.target.value = ''; }} />
                     </div>
                   )}
-                  <CameraCapture isOpen={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={queuePhoto} remaining={3 - photos.length} onPickFromGallery={() => galleryRef.current?.click()} />
+                  <CameraCapture isOpen={cameraOpen} onClose={() => setCameraOpen(false)} onCapture={queuePhoto} remaining={(modal === 'buyer' ? 5 : 3) - photos.length} onPickFromGallery={() => galleryRef.current?.click()} />
                 </div>
               )}
               <div className="flex gap-2">

@@ -1,0 +1,64 @@
+
+<!DOCTYPE html>
+<html lang="sl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="preconnect" href="https://firestore.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://identitytoolkit.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://securetoken.googleapis.com" crossorigin>
+    <link rel="preconnect" href="https://0iwzttasbg0fikhu.public.blob.vercel-storage.com" crossorigin>
+    <link rel="preload" as="image" href="https://drazbenik.si/brand/logo.png">
+    <title>Dražbenik.si | Spletne dražbe v Sloveniji</title>
+    <meta name="description" content="Dražbenik.si: spletne dražbe v Sloveniji. Vozila, stroji, oprema, umetnine in več. Varno plačilo z zadržanjem sredstev do prejema predmeta.">
+    <meta name="theme-color" content="#0A1128">
+    <meta name="robots" content="index,follow,max-image-preview:large">
+    <meta property="og:title" content="Dražbenik.si | Spletne dražbe v Sloveniji">
+    <meta property="og:description" content="Kupujte in prodajajte na spletnih dražbah. Pregledno, varno plačilo z zadržanjem sredstev do prejema predmeta.">
+    <meta property="og:type" content="website">
+    <meta property="og:site_name" content="Dražbenik.si">
+    <meta property="og:locale" content="sl_SI">
+    <meta property="og:image" content="https://drazbenik.si/brand/logo.png">
+    <meta name="twitter:card" content="summary">
+    <meta name="twitter:title" content="Dražbenik.si | Spletne dražbe v Sloveniji">
+    <meta name="twitter:description" content="Kupujte in prodajajte na spletnih dražbah. Varno plačilo z zadržanjem sredstev do prejema predmeta.">
+    <script type="application/ld+json">{"@context":"https://schema.org","@type":"Organization","name":"Dražbenik.si","description":"Spletna platforma za dražbe v Sloveniji.","logo":"https://drazbenik.si/brand/logo.png","areaServed":"SI"}</script>
+    <link rel="icon" href="/favicon.ico" sizes="any">
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/favicon-192.png">
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+    <style>
+        body {
+            /* Deutscher Kommentar: Systemschriften statt Google Fonts (keine Datenuebertragung an Dritte ohne Einwilligung) */
+            font-family: Inter, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f8fafc;
+            color: #0A1128;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 4px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: rgba(255, 255, 255, 0.05);
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #FEBA4F;
+            border-radius: 10px;
+        }
+        @keyframes fade-in {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        .animate-in {
+            animation: fade-in 0.5s ease-out forwards;
+        }
+        /* Preprečevanje preskakovanja vsebine pri nalaganju */
+        #root { min-height: 100vh; display: flex; flex-direction: column; }
+    </style>
+<link rel="stylesheet" href="/index.css">
+</head>
+<body class="text-slate-900 overflow-x-hidden">
+    <noscript><h1>Dražbenik.si – spletne dražbe v Sloveniji</h1><p>Za uporabo dražbe potrebujete brskalnik z omogočenim JavaScriptom. Vozila, stroji, oprema, umetnine in več, varno plačilo z zadržanjem sredstev do prejema predmeta.</p></noscript>
+    <div id="root"></div>
+<script type="module" src="/src/main.tsx"></script>
+</body>
+</html>

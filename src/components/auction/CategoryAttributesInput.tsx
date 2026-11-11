@@ -1,7 +1,7 @@
 import React from 'react';
 import { Category } from '../../types';
 import { getAttributeDefinitionsForCategory, getFieldOptions, AttributeFieldDef } from '../../lib/categoryAttributes';
-import { SlidersHorizontal, Sparkles } from '../icons';
+import { SlidersHorizontal, Sparkles } from 'lucide-react';
 
 interface CategoryAttributesInputProps {
   category: Category | string;
@@ -48,6 +48,32 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
       updated[key] = selectedValue;
     }
 
+    // Deutscher Kommentar: Abhaengige Felder (Marke nach Typ, Modell nach Marke) zuruecksetzen, wenn der Katalogwert nicht mehr passt
+    let changed = true;
+    while (changed) {
+      changed = false;
+      definitions.forEach((d) => {
+        const value = updated[d.key];
+        if (!value || !(d.filterByType || d.optionsByParent)) return;
+        const parentKey = d.filterByType?.parentKey === key || d.optionsByParent?.parentKey === key ? key : null;
+        const dependsOnChanged = parentKey !== null || (d.optionsByParent && !updated[d.optionsByParent.parentKey]);
+        if (!dependsOnChanged) return;
+        const nowValid = getFieldOptions(d, updated);
+        const isCatalogValue = d.options.includes(value);
+        if (isCatalogValue && !nowValid.includes(value)) {
+          delete updated[d.key];
+          changed = true;
+        }
+      });
+      // Modell haengt an der Marke: ist die Marke weg, faellt auch ein Katalogmodell weg
+      definitions.forEach((d) => {
+        if (d.optionsByParent && updated[d.key] && !updated[d.optionsByParent.parentKey] && d.options.includes(updated[d.key])) {
+          delete updated[d.key];
+          changed = true;
+        }
+      });
+    }
+
     onChange(updated);
   };
 
@@ -72,7 +98,7 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
         </span>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-6 items-start">
         {definitions.map((def) => {
           const currentValue = specifications[def.key] || '';
           const defOptions = getFieldOptions(def, specifications);
@@ -83,9 +109,9 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
 
           return (
             <div key={def.key} className="space-y-2 flex flex-col justify-start">
-              <div className="flex items-center justify-between">
+              <div className="flex items-end justify-between gap-2 md:min-h-[2.5rem]">
                 {/* Kategoriespezifische Merkmale sind alle optional */}
-                <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-1">
+                <label className="text-xs font-black uppercase tracking-widest text-[#0A1128] ml-1 leading-snug">
                   {def.label} <span className="normal-case font-bold text-slate-400">(neobvezno)</span>
                 </label>
                 {currentValue && (
@@ -96,7 +122,7 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
                       delete updated[def.key];
                       onChange(updated);
                     }}
-                    className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors"
+                    className="text-[10px] font-bold text-slate-400 hover:text-red-500 uppercase tracking-wider transition-colors shrink-0"
                   >
                     Počisti
                   </button>
@@ -105,6 +131,7 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
 
               <select
                 value={selectValue}
+                title={selectValue === 'Drugo' ? currentValue : selectValue}
                 disabled={waitsForParent}
                 onChange={(e) => {
                   const val = e.target.value;
@@ -112,7 +139,7 @@ export const CategoryAttributesInput: React.FC<CategoryAttributesInputProps> = (
                 }}
                 className="w-full bg-white border-2 border-slate-200 rounded-2xl py-3.5 px-4 font-bold text-sm text-[#0A1128] focus:ring-0 focus:border-[#FEBA4F] transition-all outline-none appearance-none cursor-pointer shadow-sm hover:border-slate-300"
               >
-                <option value="">{waitsForParent ? '-- Najprej izberite znamko --' : `-- Izberite (${def.label.toLowerCase()}) --`}</option>
+                <option value="">{waitsForParent ? '-- Najprej izberite znamko --' : '-- Izberite --'}</option>
                 {defOptions.map((opt) => (
                   <option key={opt} value={opt}>
                     {opt}

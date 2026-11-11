@@ -5,6 +5,10 @@ import App from './App.tsx';
 import { ConfirmEmailPage } from './components/auth/ConfirmEmailPage';
 import { GoogleReCaptchaProvider } from 'react-google-recaptcha-v3';
 import { installTermsInterceptor } from './lib/termsInterceptor';
+import { captureReferralFromUrl, installReferralInterceptor } from './lib/referral';
+
+// Deutscher Kommentar: Einladungscode aus dem Link merken, bevor Routen bereinigt werden
+captureReferralFromUrl();
 
 // Deutscher Kommentar: Synchrones Erfassen der QR-Abholparameter vor jeder Routen-Bereinigung
 try {
@@ -29,6 +33,7 @@ try {
 }
 
 installTermsInterceptor();
+installReferralInterceptor();
 
 // =========================================================================
 // GLOBAL ERROR HANDLERS & SENTRY NOISE REDUCTION

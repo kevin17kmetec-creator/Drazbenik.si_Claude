@@ -2,6 +2,11 @@ import { Region } from '../types';
 import { getAuthHeaders } from './authFetch';
 
 export { getIncrement } from './bidIncrement';
+import { getFounderStatus, getActiveListingCredits } from './promotions';
+
+// Deutscher Kommentar: Wer das Basislimit erreicht hat, aber noch Bonus-Inserate besitzt, darf weiter inserieren
+const applyBonus = (count: number, baseLimit: number, credits: number): number =>
+    (credits > 0 && count >= baseLimit) ? count + credits : baseLimit;
 
 export const formatSeconds = (totalSeconds: number) => {
   if (totalSeconds <= 0) return "00:00";
@@ -20,6 +25,9 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
     const subValidUntil = userData?.subscription_valid_until;
     const isCanceled = !!userData?.subscription_canceled;
     const now = Date.now();
+    // Deutscher Kommentar: Gruendungsmitglieder und Bonus-Inserate beruecksichtigen
+    const founderInfo = getFounderStatus(userData, now);
+    const bonusCredits = getActiveListingCredits(userData, now);
 
     // Če je naročnina potekla in je bila preklicana ali neaktivna, preidemo na FREE
     if (subValidUntil && now > new Date(subValidUntil).getTime() && (isCanceled || userData?.subscription_active === false)) {
@@ -27,6 +35,16 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
     }
 
     // 1. NAPREDNI PAKET (PRO, 50€) - Brez omejitve, štetje ni potrebno
+    if (founderInfo.isActive && founderInfo.tier === 'PRO' && subTier !== 'PRO') {
+        return {
+            count: 0,
+            userLimit: Infinity,
+            isUnlimited: true,
+            resetDate: new Date(founderInfo.until as string),
+            tier: 'PRO' as const,
+            isCanceled: false
+        };
+    }
     if (subTier === 'PRO') {
         const nextBillingOrEnd = subValidUntil ? new Date(subValidUntil) : null;
         return {
@@ -63,7 +81,7 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
 
         return {
             count: basicAuctions.length,
-            userLimit: 20,
+            userLimit: applyBonus(basicAuctions.length, 20, bonusCredits),
             isUnlimited: false,
             resetDate: cycleEndDate,
             tier: 'BASIC' as const,
@@ -90,7 +108,7 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
     if (freeAuctions.length === 0) {
         return {
             count: 0,
-            userLimit: 5,
+            userLimit: applyBonus(0, 5, bonusCredits),
             isUnlimited: false,
             resetDate: null,
             tier: 'FREE' as const,
@@ -116,7 +134,7 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
     if (now >= currentCycleEndTime) {
         return {
             count: 0,
-            userLimit: 5,
+            userLimit: applyBonus(0, 5, bonusCredits),
             isUnlimited: false,
             resetDate: null,
             tier: 'FREE' as const,
@@ -127,7 +145,7 @@ export const getUserAuctionCycle = (auctions: any[], userId: string, userData?: 
     const countInCycle = freeAuctions.filter(time => time >= currentCycleStart && time < currentCycleEndTime).length;
     return {
         count: countInCycle,
-        userLimit: 5,
+        userLimit: applyBonus(countInCycle, 5, bonusCredits),
         isUnlimited: false,
         resetDate: currentCycleEnd,
         tier: 'FREE' as const,

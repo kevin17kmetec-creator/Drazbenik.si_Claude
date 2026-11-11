@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Search, ChevronDown } from '../icons';
+import { Search, ChevronDown } from 'lucide-react';
 
 const COUNTRY_CODES = [
   { code: 'SI', name: 'Slovenija', dial_code: '+386', flag: '🇸🇮' },

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { alertDialog } from '../../lib/dialog';
-import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from '../icons';
+import { Lock, Calendar, AlertTriangle, ArrowLeft, Clock, CheckCircle2, FileText, Download, Loader2 } from 'lucide-react';
 import { SubscriptionTier } from "../../types";
 import { auth } from "../../lib/firebase";
 import { getAuthHeaders } from "../../lib/authFetch";
@@ -26,7 +26,6 @@ export const SubscriptionsView: React.FC<{
   const [downloadingNo, setDownloadingNo] = useState<string | null>(null);
   const [loadingAction, setLoadingAction] = useState<SubscriptionTier | null>(null);
   // Deutscher Kommentar: Ausdrueckliche Zustimmung zu Preis, automatischer Verlaengerung und sofortigem Leistungsbeginn vor kostenpflichtigem Abo
-  const [subConsent, setSubConsent] = useState(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -135,7 +134,7 @@ export const SubscriptionsView: React.FC<{
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-8">
         {plans.map(plan => (
-          <div key={plan.tier} className={`rounded-3xl md:rounded-[1.35rem] p-5 md:p-10 flex flex-col ${plan.color} ${currentPlan === plan.tier ? 'ring-4 ring-offset-4 ring-[#FEBA4F]' : ''}`}>
+          <div key={plan.tier} className={`rounded-3xl md:rounded-[3rem] p-5 md:p-10 flex flex-col ${plan.color} ${currentPlan === plan.tier ? 'ring-4 ring-offset-4 ring-[#FEBA4F]' : ''}`}>
             {currentPlan === plan.tier && (
               <div className="text-[10px] font-black uppercase tracking-widest mb-4 opacity-80 flex items-center gap-1.5">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -169,7 +168,7 @@ export const SubscriptionsView: React.FC<{
               }}
               loading={loadingAction === plan.tier}
               loadingText="Odpiram plačilo..."
-              disabled={currentPlan === plan.tier || (!isVerified && plan.tier !== SubscriptionTier.FREE) || (plan.tier !== SubscriptionTier.FREE && !subConsent)}
+              disabled={currentPlan === plan.tier || (!isVerified && plan.tier !== SubscriptionTier.FREE)}
               className={`w-full py-4 rounded-2xl font-black uppercase tracking-widest transition-all flex items-center justify-center gap-2 ${currentPlan === plan.tier ? 'bg-black/10 opacity-50 cursor-not-allowed' : (!isVerified && plan.tier !== SubscriptionTier.FREE ? 'bg-slate-200 text-slate-500 cursor-not-allowed' : 'bg-white text-[#0A1128] hover:scale-105 shadow-xl')}`}
             >
               {!isVerified && plan.tier !== SubscriptionTier.FREE ? (
@@ -183,12 +182,6 @@ export const SubscriptionsView: React.FC<{
           </div>
         ))}
       </div>
-      <label className="flex items-start gap-3 max-w-3xl mx-auto mt-8 p-4 bg-slate-50 rounded-2xl text-xs font-bold text-slate-600 cursor-pointer">
-        <input type="checkbox" checked={subConsent} onChange={(e) => setSubConsent(e.target.checked)} className="mt-0.5 w-4 h-4 shrink-0" />
-        <span>
-          Za plačljive pakete: seznanjen/a sem, da se naročnina plačuje vnaprej in se vsak mesec samodejno obnovi z bremenitvijo plačilnega sredstva, dokler je ne prekličem (Basic 20 €, Pro 50 € na mesec, z DDV). Zahtevam, da se izvajanje storitve začne takoj. Potrošnik ima pravico do odstopa od pogodbe v 14 dneh pod pogoji iz točke 6.6 Pogojev uporabe.
-        </span>
-      </label>
       <div className="text-center mt-6">
         <p className="text-xs font-bold text-slate-500">
           Minimalna provizija: 1,00 € na plačilo, brez DDV (pokriva stroške plačilnega sistema). Velja za vse pakete.
@@ -209,7 +202,7 @@ export const SubscriptionsView: React.FC<{
       )}
 
       {/* RAČUNI ZA NAROČNINE */}
-      <div className="mt-8 md:mt-16 bg-white border border-slate-200 rounded-3xl md:rounded-[1.35rem] p-4 sm:p-10 shadow-sm">
+      <div className="mt-8 md:mt-16 bg-white border border-slate-200 rounded-3xl md:rounded-[3rem] p-4 sm:p-10 shadow-sm">
         <div className="flex items-center justify-between mb-6">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-2xl bg-amber-50 border border-amber-200 flex items-center justify-center text-[#FEBA4F]">

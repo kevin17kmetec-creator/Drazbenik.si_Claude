@@ -434,7 +434,7 @@ export async function generateInvoicePDF(
       const docTitle = (relationship === 'C2B')
         ? 'KUPOPRODAJNA POGODBA'
         : (relationship === 'C2C' || !isSellerBusiness)
-          ? 'KUPOPRODAJNA POGODBA / RAČUN'
+          ? 'KUPOPRODAJNA POGODBA'
           : 'RAČUN / INVOICE';
 
       // Deutscher Kommentar: Akzentstreifen in Markenfarbe #FEBA4F

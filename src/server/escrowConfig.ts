@@ -13,3 +13,6 @@ export const HOLD_HARD_LIMIT_DAYS = 75;
 export const MIN_PAYOUT_CENTS = 1000;
 export const PAYOUT_AUTO_DAYS = 30;
 
+
+// Deutscher Kommentar: Mindestalter (Geburtsjahr-Pruefung) fuer Bieten und Inserieren
+export const MIN_USER_AGE = 16;

@@ -1,11 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, CheckCheck } from '../icons';
+import { Bell, CheckCheck } from 'lucide-react';
 import { translateText, normalizeLang } from '../../lib/translateUi';
 
 export interface NotificationItem {
   id: string;
   user_id: string;
-  type: 'outbid' | 'ending_soon' | 'won' | 'lost' | 'review_received' | 'seller_decision' | 'second_chance_offer' | 'second_chance_failed' | 'second_chance_accepted' | 'shipping_dispute' | 'shipping_required' | 'shipping_reminder' | 'item_shipped';
+  type: 'outbid' | 'ending_soon' | 'won' | 'lost' | 'review_received' | 'seller_decision' | 'second_chance_offer' | 'second_chance_failed' | 'second_chance_accepted' | 'shipping_dispute' | 'shipping_required' | 'shipping_reminder' | 'item_shipped' | 'aml_verification';
   message?: string;
   target?: string;
   auction_id: string;
@@ -28,6 +28,8 @@ export function getNotificationText(type: string, price: number): string {
       return `Čestitamo, zmagali ste! Končna cena: €${p}. Plačajte v 48 urah.`;
     case 'lost':
       return `Dražba je zaključena in je niste zmagali. Končna cena: €${p}.`;
+    case 'aml_verification':
+      return 'Presegli ste letni limit nakupov (10.000 €). Opravite verifikacijo z osebnim dokumentom.';
     default:
       return `Sprememba pri dražbi. Cena: €${p}.`;
   }
@@ -111,7 +113,7 @@ export const NotificationBell: React.FC<NotificationBellProps> = ({
       <button
         type="button"
         onClick={() => setIsOpen(!isOpen)}
-        className={`relative bg-white/5 p-3 rounded-xl border border-white/10 transition-all text-white flex items-center justify-center ${
+        className={`relative bg-white/5 p-3 min-w-[40px] min-h-[40px] rounded-xl border border-white/10 transition-all text-white flex items-center justify-center ${
           isOpen ? 'bg-[#FEBA4F] text-[#0A1128] border-transparent' : 'hover:bg-white/10 hover:text-[#FEBA4F]'
         }`}
         title={tr('Obvestila')}

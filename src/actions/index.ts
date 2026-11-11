@@ -442,6 +442,7 @@ export async function cancelSubscriptionAction(token: string): Promise<ActionRes
  */
 export async function confirmReceiptAction(params: {
   auction_id: string;
+  acknowledged: boolean;
 }, token?: string): Promise<ActionResponse> {
   'use server';
   return safeApiCall('/api/auctions/confirm-receipt', {

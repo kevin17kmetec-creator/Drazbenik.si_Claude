@@ -1,5 +1,10 @@
 
 export const BANK_TRANSFER_MIN_AMOUNT_CENTS = 1000;
+// Deutscher Kommentar: Kartenzahlung nur bis zu diesem Gesamtbetrag (Kaeufer zahlt), darueber ausschliesslich Banküberweisung
+export const CARD_MAX_AMOUNT_CENTS = 50000;
+export function isCardAllowed(totalCents: number): boolean {
+    return totalCents <= CARD_MAX_AMOUNT_CENTS;
+}
 export const FINAL_CHANCE_MIN_MS = 24 * 60 * 60 * 1000;
 
 // Deutscher Kommentar: Hilfsfunktion zur Addition von Arbeitstagen (ohne Wochenende)
@@ -30,9 +35,11 @@ export function isBankTransferAvailable(params: {
     alreadyUsed: boolean;
 }): boolean {
     const { amountCents, paymentDeadlineMs, nowMs, alreadyUsed } = params;
+    // Deutscher Kommentar: Ueber dem Kartenlimit ist die Ueberweisung der einzige Weg und darf wiederholt werden
+    const bankOnly = !isCardAllowed(amountCents);
     return amountCents >= BANK_TRANSFER_MIN_AMOUNT_CENTS &&
            paymentDeadlineMs > nowMs &&
-           !alreadyUsed;
+           (bankOnly || !alreadyUsed);
 }
 
 // Deutscher Kommentar: Gemeinsame Hilfsfunktion zum Abbrechen einer anstehenden Bankueberweisung ueber die API

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, AlertCircle } from '../icons';
+import { X, Clock, Lock, CreditCard as CardIcon, ShieldCheck, AlertCircle, Tag } from 'lucide-react';
+import { getAuthHeaders } from '../../lib/authFetch';
 import { createCheckoutSessionAction, confirmCheckoutSessionAction } from '@/src/actions/index';
 import { auth } from "../../lib/firebase";
 import { Portal } from '../ui/Portal';
 import { LoadingButton } from '../ui/Common';
-import { isBankTransferAvailable, resolvePaymentDeadlineMs } from '@/src/lib/bankTransfer';
+import { isBankTransferAvailable, resolvePaymentDeadlineMs, isCardAllowed } from '@/src/lib/bankTransfer';
 import { toast } from 'sonner';
 import { openCenteredPopup } from '@/src/lib/popup';
 
@@ -25,6 +26,13 @@ export const CheckoutModal: React.FC<{
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [paymentMethod, setPaymentMethod] = useState<'card' | 'bank_transfer'>('card');
   const [bankTransferBlocked, setBankTransferBlocked] = useState(false);
+  const [cardLimitHit, setCardLimitHit] = useState(false);
+  // Deutscher Kommentar: Aktionscode (nur fuer Dražba-Zahlungen), Server prueft und berechnet den Betrag verbindlich
+  const [promoOpen, setPromoOpen] = useState(false);
+  const [promoInput, setPromoInput] = useState('');
+  const [promoChecking, setPromoChecking] = useState(false);
+  const [promoError, setPromoError] = useState<string | null>(null);
+  const [promoApplied, setPromoApplied] = useState<{ code: string; discountCents: number; totalCents: number } | null>(null);
   const pollTimerRef = useRef<any>(null);
   const popupRef = useRef<Window | null>(null);
 
@@ -63,6 +71,11 @@ export const CheckoutModal: React.FC<{
       setErrorMessage(null);
       setPaymentMethod('card');
       setBankTransferBlocked(false);
+      setCardLimitHit(false);
+      setPromoOpen(false);
+      setPromoInput('');
+      setPromoError(null);
+      setPromoApplied(null);
     } else {
       resetModalState();
     }
@@ -70,14 +83,46 @@ export const CheckoutModal: React.FC<{
 
   const isSub = metadata?.type === 'subscription';
   const isAuction = !isSub;
+  const promoAuctionId: string | undefined = metadata?.auction_id || metadata?.auctionId;
+  // Deutscher Kommentar: Angezeigter Betrag beruecksichtigt den vom Server berechneten Rabatt
+  const displayAmount = promoApplied ? promoApplied.totalCents / 100 : amount;
+
+  const applyPromo = async () => {
+    const code = promoInput.trim();
+    if (!code || !promoAuctionId) return;
+    setPromoChecking(true);
+    setPromoError(null);
+    try {
+      const resp = await fetch('/api/fees/preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(await getAuthHeaders()) },
+        body: JSON.stringify({ auction_id: promoAuctionId, promo_code: code })
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data.error || 'Kode ni bilo mogoče preveriti.');
+      if (data.promoError) {
+        setPromoApplied(null);
+        setPromoError(data.promoError);
+      } else if (data.promoCode) {
+        setPromoApplied({ code: data.promoCode, discountCents: data.promoDiscountCents || 0, totalCents: data.totalCents });
+      }
+    } catch (e: any) {
+      setPromoError(e?.message || 'Kode ni bilo mogoče preveriti.');
+    } finally {
+      setPromoChecking(false);
+    }
+  };
   
   const paymentDeadlineMs = resolvePaymentDeadlineMs({
       payment_deadline: metadata?.payment_deadline,
       endTime: metadata?.endTime || metadata?.end_time
   });
   
+  // Deutscher Kommentar: Ueber 1.000 EUR ist nur die Ueberweisung moeglich (Server ist massgebend)
+  const bankOnly = isAuction && (cardLimitHit || !isCardAllowed(Math.round(displayAmount * 100)));
+  useEffect(() => { if (bankOnly) setPaymentMethod('bank_transfer'); }, [bankOnly]);
   const showBankTransferOption = isAuction && !bankTransferBlocked && isBankTransferAvailable({
-      amountCents: Math.round(amount * 100),
+      amountCents: Math.round(displayAmount * 100),
       paymentDeadlineMs,
       nowMs: Date.now(),
       alreadyUsed: !!metadata?.bank_transfer_used
@@ -95,10 +140,12 @@ export const CheckoutModal: React.FC<{
           closePopup();
           setIsLoading(false);
           setIsWaitingForPopup(false);
+          toast.success("Plačilo je uspešno izvedeno. Račun prejmete po e-pošti.");
           onSuccess();
           onClose();
         } else if (status === 'cancel') {
           resetModalState();
+          toast.info("Plačilo je bilo preklicano. Znesek ni bil zaračunan.");
           setErrorMessage("Plačilo je bilo preklicano.");
         }
       }
@@ -133,6 +180,7 @@ export const CheckoutModal: React.FC<{
             closePopup();
             setIsWaitingForPopup(false);
             setIsLoading(false);
+            toast.success("Plačilo je uspešno izvedeno. Račun prejmete po e-pošti.");
             onSuccess();
             onClose();
             return;
@@ -151,6 +199,7 @@ export const CheckoutModal: React.FC<{
         }
         setIsWaitingForPopup(false);
         setIsLoading(false);
+        toast.error("Plačilo ni bilo zaključeno, okno je bilo zaprto. Znesek ni bil zaračunan.");
         setErrorMessage("Plačilo je bilo prekinjeno.");
         return;
       }
@@ -165,6 +214,7 @@ export const CheckoutModal: React.FC<{
           closePopup();
           setIsWaitingForPopup(false);
           setIsLoading(false);
+          toast.success("Plačilo je uspešno izvedeno. Račun prejmete po e-pošti.");
           onSuccess();
           onClose();
           return;
@@ -213,6 +263,7 @@ export const CheckoutModal: React.FC<{
         title,
         ...(metadata || {}),
         payment_method: paymentMethod,
+        ...(isAuction && promoApplied ? { promo_code: promoApplied.code } : {}),
         ...(determinedPlan ? { 
           planId: determinedPlan, 
           package_id: String(determinedPlan).toUpperCase(), 
@@ -259,9 +310,13 @@ export const CheckoutModal: React.FC<{
       setIsWaitingForPopup(false);
       setErrorMessage(err.message || "Napaka pri preusmeritvi na plačilo");
       // Deutscher Kommentar: Bei abgelehnter Bankueberweisung auf Karte zurueckschalten und Option ausblenden
-      if (paymentMethod === 'bank_transfer') {
+      if (paymentMethod === 'bank_transfer' && !bankOnly) {
         setPaymentMethod('card');
         setBankTransferBlocked(true);
+      }
+      if (paymentMethod === 'card' && /nad 500/.test(String(err?.message || ''))) {
+        setCardLimitHit(true);
+        setPaymentMethod('bank_transfer');
       }
     }
   };
@@ -271,7 +326,7 @@ export const CheckoutModal: React.FC<{
       <div className="fixed inset-0 z-[2000] flex items-center justify-center p-2.5 sm:p-4">
         <div className="absolute inset-0 bg-[#0A1128]/95 backdrop-blur-md" onClick={() => { resetModalState(); onClose(); }}></div>
         {/* Deutscher Kommentar: Das Kassenmodal erhaelt max-h-[92dvh] overflow-y-auto und responsive Abstaende fuer Mobilgeraete */}
-        <div className="relative bg-white w-full max-w-lg rounded-3xl sm:rounded-[1.35rem] p-5 sm:p-10 shadow-2xl animate-in border-2 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
+        <div className="relative bg-white w-full max-w-lg rounded-3xl sm:rounded-[3rem] p-5 sm:p-10 shadow-2xl animate-in border-4 border-[#FEBA4F] max-h-[92dvh] overflow-y-auto">
           <button 
             type="button" 
             onClick={() => { resetModalState(); onClose(); }} 
@@ -285,8 +340,43 @@ export const CheckoutModal: React.FC<{
           
           <div className="bg-slate-50 rounded-2xl p-4 sm:p-6 mb-4 sm:mb-6 border border-slate-100 text-center">
             <p className="text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">{t('totalAmount') || 'ZA PLAČILO'}</p>
-            <p className="text-2xl sm:text-4xl font-black text-[#FEBA4F]">€{amount.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            <p className="text-2xl sm:text-4xl font-black text-[#FEBA4F]">€{displayAmount.toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+            {promoApplied && promoApplied.discountCents > 0 && (
+              <p className="mt-1 text-xs font-bold text-emerald-600">Koda {promoApplied.code}: popust na provizijo €{(promoApplied.discountCents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2 })} (z DDV nekoliko več)</p>
+            )}
           </div>
+
+          {isAuction && promoAuctionId && !isWaitingForPopup && (
+            <div className="mb-4 sm:mb-6">
+              {!promoOpen && !promoApplied ? (
+                <button type="button" onClick={() => setPromoOpen(true)} className="mx-auto flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-[#0A1128] cursor-pointer min-h-[36px]">
+                  <Tag size={14} /> Imam promocijsko kodo
+                </button>
+              ) : promoApplied ? (
+                <div className="flex items-center justify-between gap-3 bg-emerald-50 border border-emerald-200 rounded-2xl px-4 py-3">
+                  <span className="text-xs font-black uppercase tracking-wider text-emerald-700 flex items-center gap-2"><Tag size={14} /> {promoApplied.code}</span>
+                  <button type="button" onClick={() => { setPromoApplied(null); setPromoInput(''); setPromoError(null); }} className="text-[11px] font-bold text-slate-500 hover:text-red-500 cursor-pointer">Odstrani</button>
+                </div>
+              ) : (
+                <div>
+                  <div className="flex gap-2">
+                    <input
+                      value={promoInput}
+                      onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); applyPromo(); } }}
+                      placeholder="Vnesite kodo"
+                      maxLength={32}
+                      className="flex-1 min-w-0 px-4 py-3 rounded-2xl border-2 border-slate-100 focus:border-[#FEBA4F] outline-none text-sm font-bold uppercase tracking-wider"
+                    />
+                    <button type="button" onClick={applyPromo} disabled={promoChecking || !promoInput.trim()} className="px-5 py-3 rounded-2xl bg-[#0A1128] text-white text-xs font-black uppercase tracking-wider disabled:opacity-50 cursor-pointer">
+                      {promoChecking ? '...' : 'Uporabi'}
+                    </button>
+                  </div>
+                  {promoError && <p className="mt-2 text-xs font-bold text-red-500 text-center">{promoError}</p>}
+                </div>
+              )}
+            </div>
+          )}
 
           {isWaitingForPopup ? (
             <div className="py-6 flex flex-col items-center text-center">
@@ -316,7 +406,7 @@ export const CheckoutModal: React.FC<{
                 <div className="mb-4 sm:mb-6">
                   <p className="text-xs font-black uppercase tracking-wider text-[#0A1128] mb-3 text-center">Način plačila</p>
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <button
+                    {!bankOnly && <button
                       type="button"
                       onClick={() => setPaymentMethod('card')}
                       className={`p-3.5 sm:p-4 rounded-2xl border-2 text-left transition-all flex flex-col justify-between cursor-pointer min-h-[44px] ${
@@ -330,7 +420,7 @@ export const CheckoutModal: React.FC<{
                         <span className="text-sm font-black uppercase tracking-tight">Kartica</span>
                       </div>
                       <span className="text-[11px] font-medium leading-tight text-slate-500">Takojšnje plačilo in potrditev</span>
-                    </button>
+                    </button>}
 
                     <button
                       type="button"
@@ -349,7 +439,9 @@ export const CheckoutModal: React.FC<{
                     </button>
                   </div>
                   <p className="mt-2.5 text-[10px] sm:text-[11px] font-medium leading-snug text-slate-500 text-center">
-                    Po potrditvi imate za nakazilo do 3 delovne dni. Nakazilo lahko izberete samo enkrat; če ne uspe, imate še eno priložnost za plačilo s kartico.
+                    {bankOnly
+                      ? 'Za zneske nad 500 € je plačilo mogoče samo z bančnim nakazilom (varnost kupca in prodajalca). Po potrditvi imate za nakazilo do 3 delovne dni.'
+                      : 'Po potrditvi imate za nakazilo do 3 delovne dni. Nakazilo lahko izberete samo enkrat; če ne uspe, imate še eno priložnost za plačilo s kartico.'}
                   </p>
                 </div>
               )}

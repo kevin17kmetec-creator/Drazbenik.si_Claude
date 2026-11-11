@@ -1,0 +1,130 @@
+rules_version = '2';
+
+// Drazbenik.si - Firestore security rules (production design).
+// Principle: the browser may READ only what it needs and may WRITE almost nothing.
+// All money, bidding, profile, review, delivery and chat writes go through the
+// server (Admin SDK bypasses these rules). Everything not listed is denied.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------------------------------------------------------------
+    // Private user document: only the owner can read it, nobody writes
+    // from the browser (server routes /api/profile/*).
+    // ---------------------------------------------------------------
+    match /users/{uid} {
+      allow read: if isOwner(uid);
+      allow write: if false;
+
+      // Watchlist: tiny documents the owner manages directly.
+      match /watched/{auctionId} {
+        allow read: if isOwner(uid);
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['auction_id', 'created_at'])
+          && request.resource.data.auction_id == auctionId
+          && request.resource.data.created_at is string
+          && request.resource.data.created_at.size() < 40;
+        allow delete: if isOwner(uid);
+      }
+
+      // The user's own maximum bids (written by the server only).
+      match /my_bids/{auctionId} {
+        allow read: if isOwner(uid);
+        allow write: if false;
+      }
+    }
+
+    // Safe public profile (no e-mail, address, phone, tax data).
+    match /public_profiles/{uid} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Auctions: public read, written only by the server.
+    match /auctions/{auctionId} {
+      allow read: if true;
+      allow write: if false;
+
+      // Public bid history (masked alias + visible price only).
+      match /bids/{bidId} {
+        allow read: if true;
+        allow write: if false;
+      }
+    }
+
+    match /packages/{packageId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    match /reviews/{reviewId} {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Package draft: private to its owner (document id = user id).
+    match /package_drafts/{uid} {
+      allow read: if isOwner(uid);
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().size() < 40;
+      allow delete: if isOwner(uid);
+    }
+
+    // Chat: only the two participants can read; all writes via /api/messages/*.
+    match /conversations/{conversationId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow write: if false;
+    }
+
+    match /messages/{messageId} {
+      allow read: if signedIn() && request.auth.uid in resource.data.participants;
+      allow write: if false;
+    }
+
+    // ---------------------------------------------------------------
+    // Server-only collections (explicitly denied for documentation;
+    // the catch-all below would deny them anyway).
+    // ---------------------------------------------------------------
+    match /transaction_secrets/{id} {
+      allow read, write: if false;
+    }
+
+    match /identity_locks/{id} {
+      allow read, write: if false;
+    }
+
+    // Evidence of terms acceptance (append-only, written by the server).
+    match /terms_acceptances/{id} {
+      allow read, write: if false;
+    }
+
+    // Accounting archive for invoices (server only).
+    match /accounting_documents/{id} {
+      allow read, write: if false;
+    }
+
+    // Private auction data incl. bid_log evidence subcollection (server only).
+    match /auctions_private/{auctionId} {
+      allow read, write: if false;
+
+      match /{subpath=**} {
+        allow read, write: if false;
+      }
+    }
+
+    // Everything else (transactions, wallet_transactions, aml_reservations,
+    // aml_spend_log, usernames, seller_strikes, invoice_counters,
+    // email_verification_limits, ...) is server-only.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

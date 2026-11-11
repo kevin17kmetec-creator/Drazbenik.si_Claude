@@ -16,7 +16,7 @@ import {
   Preview,
 } from '@react-email/components';
 
-export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller' | 'shipping_cancelled_buyer' | 'shipping_cancelled_seller' | 'review_received_seller' | 'seller_decision_needed' | 'second_chance_offer' | 'second_chance_failed_seller' | 'shipping_dispute_seller' | 'shipping_reminder_seller';
+export type EmailType = 'outbid' | 'ending_soon' | 'won' | 'payment_reminder' | 'payment_success' | 'review_reminder' | 'payment_received_seller' | 'item_shipped_buyer' | 'item_delivered_buyer' | 'item_delivered_seller' | 'shipping_cancelled_buyer' | 'shipping_cancelled_seller' | 'review_received_seller' | 'seller_decision_needed' | 'second_chance_offer' | 'second_chance_failed_seller' | 'shipping_dispute_seller' | 'shipping_reminder_seller' | 'aml_verification_required';
 
 export interface AuctionEmailProps {
   type: EmailType;
@@ -144,6 +144,19 @@ export const AuctionEmailTemplate: React.FC<AuctionEmailProps> = ({
       ctaUrl = auctionUrl || 'https://drazbe.eu';
       priceLabel = 'Prejeti znesek:';
       highlightNote = `Rok za odpremo: ${paymentDeadline || '7 dni'}.${Number(currentPrice) > 20 ? ' Ker je znesek nad 20 €, pošljite predmet s sledenjem (paket ali priporočena pošiljka), še preden ga odnesete na pošto, in shranite potrdilo o oddaji. Sledilno številko vpišete pri označbi pošiljke.' : ' Pošiljka brez sledenja je dovoljena samo do 20 €; tveganje izgube nosite sami. Shranite potrdilo o oddaji.'}`;
+      break;
+
+    case 'aml_verification_required':
+      previewText = `Za plačilo dražbe "${auctionTitle}" je potrebna verifikacija z osebnim dokumentom.`;
+      badgeText = 'POTREBNA VERIFIKACIJA';
+      badgeBg = '#F59E0B';
+      badgeColor = '#FFFFFF';
+      headline = 'Potrebna je verifikacija identitete';
+      subheadline = `Z zmago na dražbi "${auctionTitle}" ste presegli letno mejo nakupov 10.000 € brez identifikacije (zakonodaja EU o preprečevanju pranja denarja, ZPPDFT-2). Da lahko dražbo plačate in oddajate nove ponudbe, opravite kratko verifikacijo z osebnim dokumentom.`;
+      ctaText = 'Opravi verifikacijo';
+      ctaUrl = paymentUrl || auctionUrl;
+      priceLabel = 'Zmagovalna cena:';
+      highlightNote = 'Do verifikacije oddajanje novih ponudb ni mogoče. Rok za plačilo dražbe je 48 ur po koncu dražbe.';
       break;
 
     case 'shipping_reminder_seller':

@@ -1,0 +1,50 @@
+name: E2E spori (emulator + Stripe test)
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'tests/e2e/**'
+      - '.github/workflows/e2e-disputes.yml'
+permissions:
+  contents: write
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Namestitev in test (samo emulator, nikoli produkcija)
+        env:
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          FIREBASE_PROJECT_ID: demo-drazbe
+          FIREBASE_STORAGE_BUCKET: demo-drazbe.appspot.com
+          NODE_ENV: test
+        run: |
+          set +e
+          {
+            npm install --no-audit --no-fund --legacy-peer-deps
+            npm install --no-save --no-audit --no-fund --legacy-peer-deps @google-cloud/firestore @google-cloud/storage
+            npm install -g firebase-tools tsx
+            ls node_modules/@google-cloud
+            npx esbuild tests/e2e/disputes.ts --bundle --platform=node --format=cjs --packages=external --outfile=tests/e2e/.build.cjs
+            firebase emulators:exec --config tests/e2e/firebase.json --project demo-drazbe --only auth,firestore,storage "node tests/e2e/.build.cjs"
+          } > e2e-log.txt 2>&1
+          true
+      - name: Rezultati v vejo test-results
+        if: always()
+        run: |
+          mkdir -p /tmp/res && cp e2e-report.txt /tmp/res/ 2>/dev/null || echo "poročilo manjka" > /tmp/res/e2e-report.txt
+          tail -n 150 e2e-log.txt > /tmp/res/e2e-log.txt
+          git config user.name "e2e-bot"; git config user.email "e2e-bot@users.noreply.github.com"
+          git checkout --orphan "results-${{ github.run_number }}"
+          git rm -rf . >/dev/null 2>&1 || true
+          cp /tmp/res/* .
+          git add e2e-report.txt e2e-log.txt
+          git commit -m "E2E rezultati ${{ github.sha }}"
+          git push -f origin "HEAD:refs/heads/results-${{ github.run_number }}"

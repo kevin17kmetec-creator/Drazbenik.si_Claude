@@ -1,7 +1,7 @@
 // Deutscher Kommentar: Englische Fassung der rechtlichen Texte (nur die slowenische Fassung ist verbindlich)
 import { PLATFORM_COMPANY } from './platformCompany';
 
-const LAST_UPDATE = '13. 10. 2026';
+const LAST_UPDATE = '22. 10. 2026';
 
 export const IMPRINT_TEXT_EN = `SERVICE PROVIDER INFORMATION
 
@@ -40,14 +40,14 @@ The controller of personal data is ${PLATFORM_COMPANY.name}, ${PLATFORM_COMPANY.
 2. Which data we process, why and on what legal basis
 
 a) Registration and user account
-Data: email address, username, password (in a form we cannot read) or sign-in with a Google account, first and last name, address, phone number, type of user (private person / company), for companies the company name, registration and tax number, profile picture.
+Data: email address, username, password (in a form we cannot read) or sign-in with a Google account, first and last name, address, phone number, year of birth, type of user (at launch private persons only), profile picture.
 Purpose: creating and managing the account, sign-in, communication with you.
 Legal basis: performance of a contract (Article 6(1)(b) GDPR).
 
 b) Identity verification and prevention of abuse
-Data: data for identity verification, tax number (to prevent abuse we only store a hashed, irreversibly encrypted value), data on unpaid auctions, blocks and the total amount of purchases.
+Data: data for identity verification (the result and the year of birth to check the minimum age of 16), tax number (to prevent abuse we only store a hashed, irreversibly encrypted value), data on unpaid auctions, blocks and the total amount of purchases.
 Purpose: prevention of fraud, abuse and multiple registrations, fulfilment of legal obligations (e.g. tax reporting under DAC7, point i).
-Legal basis: legitimate interest (point f) and legal obligation (point c). If an account is blocked because of repeated unpaid auctions, we also keep the hashed value of the tax number after the account is deleted, for a maximum of 5 years from the block.
+We do not receive or store images of ID documents or faces; the verification is performed by the payment service provider (Stripe Identity) as an independent controller and we receive only the result. Legal basis: legitimate interest (point f) and legal obligation (point c). If an account is blocked because of repeated unpaid auctions, we also keep the hashed value of the tax number after the account is deleted, for a maximum of 5 years from the block.
 
 c) Auctions, bids, messages and orders
 Data: published items (images, descriptions), bids, bid history, messages between users, choice of handover method, delivery data, reviews.
@@ -72,13 +72,23 @@ If you yourself choose the "enhance image" function or automatic reading of a sh
 
 h) Security and operation of the site
 Data: technical data (IP address, device and browser type, access time), security logs, risk assessment by the reCAPTCHA service at registration.
-Purpose: ensuring security, fixing errors, protection against abuse.
+Purpose: ensuring security, fixing errors, protection against abuse, and providing evidence in a dispute or bank chargeback (the IP address and device are recorded at the first bid, payment, confirmation of receipt and pick-up; retention 18 months).
 Legal basis: legitimate interest (point f).
 
 i) Tax reporting by the platform operator (DAC7)
 Data: data identifying the seller (e.g. name, address, tax number), payments the seller receives through the platform, commissions, number of sales and the account to which payments are paid out.
 Purpose: fulfilment of the platform operator's legal obligation to report to the Financial Administration of the Republic of Slovenia (DAC7 Directive), which may exchange the data with the tax authorities of other EU Member States.
 Legal basis: legal obligation (Article 6(1)(c) GDPR).
+
+j) Real estate inquiries
+Data: type, location, price, phone number and description you enter in the inquiry form, and your basic account data.
+Purpose: handling the inquiry and contacting you.
+Legal basis: steps at your request prior to entering into a contract (point b).
+
+k) Disputes and evidence
+Data: description of the dispute, your texts and photos, proof of shipping, outcome of the dispute, event log (time, IP address and device at the first bid, payment, confirmation of receipt and pick-up) and the number of disputes per user.
+Purpose: resolving disputes between users, establishing and defending legal claims, responding to a card chargeback with the payment service provider and detecting abuse.
+Legal basis: legitimate interest (point f) and performance of a contract (point b).
 
 3. Cookies and similar technologies
 We only use necessary and functional technologies. Details are in the Cookie Policy.
@@ -97,6 +107,9 @@ Some contractors have their headquarters or servers outside the EU/EEA (e.g. in 
 - data collected for DAC7 reporting: 5 years after the end of the reporting year;
 - hashed value of the tax number for blocked accounts: for a maximum of 5 years from the block;
 - messages and auction history: until the account is deleted or as long as necessary to defend legal claims;
+- event log for evidence (IP address, device, time): 18 months;
+- real estate inquiries: as long as needed to handle the inquiry;
+- dispute evidence: as long as needed to establish or defend legal claims;
 - security logs: only as long as strictly necessary to ensure security and fix errors.
 
 7. Your rights
@@ -104,10 +117,10 @@ You have the right to: access your data, rectification, erasure, restriction of 
 You also have the right to lodge a complaint with the supervisory authority: Information Commissioner, Dunajska cesta 22, 1000 Ljubljana, www.ip-rs.si, gp.ip@ip-rs.si.
 
 8. Mandatory data and automated decisions
-Data marked as mandatory at registration is necessary to conclude the contract; without it we cannot open an account. We do not make decisions based solely on automated processing that would have legal effects for you (profiling). Automatic restrictions (e.g. blocking an account after several unpaid auctions) are based on clear rules in the Terms of Use, and you may request human review at info@drazbenik.si.
+Data marked as mandatory at registration is necessary to conclude the contract; without it we cannot open an account. We do not make decisions based solely on automated processing that would have legal effects for you (profiling). Automatic restrictions (e.g. blocking an account after several unpaid auctions, minimum age, limits for new sellers, dispute counters) are based on clear rules in the Terms of Use, and you may request human review at info@drazbenik.si.
 
 9. Minors
-The platform is intended for adults. If we learn that an account was opened without the appropriate legal capacity, we may close it.
+The platform is intended for persons aged 16 or over. Persons between 16 and 18 need the consent of their parents or guardians. We only collect the year of birth. If we learn that an account was opened by a user under 16, we will close it.
 
 10. Security
 We use technical and organisational measures: encrypted transmission (HTTPS), access control, separation of sensitive data, irreversible storage of sensitive identifiers. We notify the competent authority and affected persons of personal data breaches in accordance with the GDPR.
@@ -129,7 +142,7 @@ Overview
 - reCAPTCHA (Google service, www.google.com / www.gstatic.com): protects registration against bots. It may set a cookie for risk assessment. Duration is determined by the service provider. More: policies.google.com/privacy.
 
 2) Payments (necessary, only when paying)
-- Cookies of the payment service provider: executing the payment and preventing fraud. They are set only when you open the payment window.
+- Cookies of the payment service provider: executing the payment, identity verification and preventing fraud. They are set only when you open the payment window.
 
 3) Operation and convenience (functional)
 - Local browser storage (IndexedDB, Firestore): cache for faster loading of the profile and auctions.
@@ -138,6 +151,11 @@ Overview
 - drazbenik_show_filters, last_seen_winnings, dontShowTermsAgain: display of filters and notices. Duration: until deleted.
 - drazbe_package_draft_*: draft of the package you are writing. Duration: until published or deleted.
 - cookie_notice_ack: stores that you have read this notice. Duration: 12 months.
+- language: selected interface language. Duration: until deleted.
+- pending_prevzem_qr (sessionStorage): temporary record of the pick-up code so it is not lost after sign-in. Duration: until the end of the session.
+
+Camera access
+We use the camera only if you choose "Take a photo". Pictures are not stored until you send them yourself. You grant or refuse access in your browser.
 
 How to delete or block them
 You can delete the storage at any time in your browser settings (e.g. "Clear browsing data"). If you block necessary technologies, you will not be able to sign in or pay.

@@ -1,10 +1,15 @@
+import { AdminAlertsPanel } from './AdminAlertsPanel';
+import { AdminResetPanel } from './AdminResetPanel';
+import { useServerAdmin } from '../../lib/useServerAdmin';
 import React, { useState, useEffect } from 'react';
 import { confirmDialog } from '../../lib/dialog';
-import { FileText, Download, RefreshCw, Calendar, Filter, AlertCircle, ArrowLeft, CheckCircle2 } from '../icons';
+import { FileText, Download, RefreshCw, Calendar, Filter, AlertCircle, ArrowLeft, CheckCircle2 } from 'lucide-react';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from '../../lib/toast';
 import { LoadingButton } from '../ui/Common';
 import { AdminDisputesPanel } from './AdminDisputesPanel';
+import { CommissionInvoicesPanel } from './CommissionInvoicesPanel';
+import { PromotionsAdminPanel } from './PromotionsAdminPanel';
 import { AdminUsersPanel, AdminAuctionsPanel } from './AdminLookupPanels';
 
 interface AccountingDoc {
@@ -42,7 +47,7 @@ export const AccountingView: React.FC<AccountingViewProps> = ({ user, userData, 
   const [selectedYear, setSelectedYear] = useState<number>(currentDate.getFullYear());
   const [selectedMonth, setSelectedMonth] = useState<string>(String(currentDate.getMonth() + 1).padStart(2, '0'));
   const [selectedType, setSelectedType] = useState<string>('ALL');
-  const [adminTab, setAdminTab] = useState<'accounting' | 'disputes' | 'users' | 'auctions'>('accounting');
+  const [adminTab, setAdminTab] = useState<'accounting' | 'disputes' | 'alerts' | 'users' | 'auctions' | 'promotions' | 'commission' | 'reset'>('accounting');
   const [lookupUserId, setLookupUserId] = useState<string | null>(null);
 
   const [documents, setDocuments] = useState<AccountingDoc[]>([]);
@@ -54,7 +59,8 @@ export const AccountingView: React.FC<AccountingViewProps> = ({ user, userData, 
 
   // Deutscher Kommentar: Pruefung auf Administratorberechtigung
   const envAdminUids = ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).filter(Boolean);
-  const isAdmin = envAdminUids.includes(user?.uid) || userData?.role === 'admin' || userData?.isAdmin === true;
+  const serverAdmin = useServerAdmin(user?.uid);
+  const isAdmin = serverAdmin || envAdminUids.includes(user?.uid) || userData?.role === 'admin' || userData?.isAdmin === true;
 
   const months = [
     { value: '01', label: 'Januar (01)' },
@@ -216,15 +222,19 @@ export const AccountingView: React.FC<AccountingViewProps> = ({ user, userData, 
     return (cents / 100).toLocaleString('sl-SI', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   };
 
-  const tabBtn = (id: 'accounting' | 'disputes' | 'users' | 'auctions', label: string) => (
+  const tabBtn = (id: 'accounting' | 'disputes' | 'alerts' | 'users' | 'auctions' | 'promotions' | 'commission' | 'reset', label: string) => (
     <button key={id} onClick={() => { setLookupUserId(null); setAdminTab(id); }} className={`px-5 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${adminTab === id ? 'bg-[#0A1128] text-white border-[#0A1128]' : 'border-slate-200 text-slate-500'}`}>{label}</button>
   );
   const tabBar = (
     <div className="flex flex-wrap gap-2 mb-6">
       {tabBtn('accounting', 'Računovodstvo')}
       {tabBtn('disputes', 'Spori')}
+      {tabBtn('alerts', 'Opozorila')}
       {tabBtn('users', 'Uporabniki')}
       {tabBtn('auctions', 'Dražbe')}
+      {tabBtn('commission', 'Provizijski računi')}
+      {tabBtn('promotions', 'Promocije in kode')}
+      {tabBtn('reset', 'Ponastavitev')}
     </div>
   );
 
@@ -233,6 +243,10 @@ export const AccountingView: React.FC<AccountingViewProps> = ({ user, userData, 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-8">
         {tabBar}
         {adminTab === 'disputes' && <AdminDisputesPanel />}
+        {adminTab === 'alerts' && <AdminAlertsPanel />}
+        {adminTab === 'reset' && <AdminResetPanel />}
+        {adminTab === 'commission' && <CommissionInvoicesPanel />}
+        {adminTab === 'promotions' && <PromotionsAdminPanel />}
         {adminTab === 'users' && <AdminUsersPanel key={lookupUserId || 'list'} initialId={lookupUserId} />}
         {adminTab === 'auctions' && <AdminAuctionsPanel onOpenUser={(id) => { setLookupUserId(id); setAdminTab('users'); }} />}
       </div>

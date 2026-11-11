@@ -3,9 +3,11 @@ import { confirmDialog } from '../../lib/dialog';
 import { PayoutSetupView } from './PayoutSetupView';
 import { PreferredLanguageSelect } from '../ui/PreferredLanguageSelect';
 import { InvoicesView } from './InvoicesView';
+import { PromotionsView } from './PromotionsView';
 import React, { useState, useRef, useMemo, useEffect } from 'react';
-import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2, FileText } from '../icons';
+import { User, Camera, CheckCircle2, AlertCircle, Shield, CreditCard, Building, MapPin, Key, Bell, X, Eye, EyeOff, ShieldAlert, AlertTriangle, ArrowLeft, Trash2, FileText, Gift } from 'lucide-react';
 import { toast } from 'sonner';
+import { startIdentityVerification } from '../../lib/identityVerification';
 import { compressImage as imageCompression } from '../../lib/imageCompress';
 import { PhoneInput } from "@/src/components/ui/PhoneInput";
 import { checkStripeAccountStatusAction, deleteAccountAction } from '@/src/actions/index';
@@ -505,8 +507,8 @@ export const SettingsView: React.FC<{
   onOpenLegal?: (type: 'terms' | 'privacy' | 'how') => void;
   onNavigateToCreateAuction?: () => void;
   onRefreshUser?: () => Promise<void>;
-  activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices';
-  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices') => void;
+  activeTab?: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices' | 'promotions' | 'promoadmin';
+  setActiveTab?: (tab: 'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices' | 'promotions' | 'promoadmin') => void;
   onBack?: () => void;
   onLanguageChange?: (l: string) => void;
 }> = ({ 
@@ -525,7 +527,7 @@ export const SettingsView: React.FC<{
   setActiveTab: propSetActiveTab,
   onBack
 }) => {
-  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices'>('profile');
+  const [localActiveTab, setLocalActiveTab] = useState<'profile' | 'personal' | 'stripe' | 'notifications' | 'invoices' | 'promotions' | 'promoadmin'>('profile');
   const [isWithdrawing, setIsWithdrawing] = useState(false);
   const [withdrawModalOpen, setWithdrawModalOpen] = useState(false);
   const [withdrawAmount, setWithdrawAmount] = useState<number | ''>('');
@@ -558,9 +560,6 @@ export const SettingsView: React.FC<{
   const handleLinkGoogle = async () => {
     const currentUser = auth.currentUser;
     if (!currentUser) return;
-
-    const proceed = await confirmDialog("Priporočamo Google račun z enakim e-poštnim naslovom kot ga uporabljate pri nas.", { title: 'Povezava z Googlom', confirmLabel: 'Nadaljuj' });
-    if (!proceed) return;
 
     setIsLinkingGoogle(true);
     try {
@@ -670,6 +669,7 @@ export const SettingsView: React.FC<{
     street: user?.street || '',
     city: user?.city || '',
     postalCode: user?.postal_code || user?.postalCode || '',
+    birthYear: String(user?.birth_year || user?.birthYear || ''),
 
     // Business data
     companyName: user?.company_name || user?.companyName || '',
@@ -710,6 +710,7 @@ export const SettingsView: React.FC<{
             street: user.street || '',
             city: user.city || '',
             postalCode: user.postal_code || user.postalCode || '',
+            birthYear: String(user.birth_year || user.birthYear || ''),
             companyName: user.company_name || user.companyName || '',
             taxNumber: user.tax_number || user.tax_id || user.taxNumber || user.taxId || '',
             regNumber: user.registration_number || user.regNumber || '',
@@ -735,6 +736,7 @@ export const SettingsView: React.FC<{
             street: prev.street || user.street || '',
             city: prev.city || user.city || '',
             postalCode: prev.postalCode || user.postal_code || user.postalCode || '',
+            birthYear: user.birth_year ? String(user.birth_year) : prev.birthYear,
             companyName: prev.companyName || user.company_name || user.companyName || '',
             taxNumber: prev.taxNumber || user.tax_number || user.tax_id || user.taxNumber || user.taxId || '',
             regNumber: prev.regNumber || user.registration_number || user.regNumber || '',
@@ -814,6 +816,15 @@ export const SettingsView: React.FC<{
       }
     }
 
+    if (!user?.birth_year && formData.birthYear) {
+      const by = parseInt(formData.birthYear, 10);
+      const cy = new Date().getFullYear();
+      if (!Number.isInteger(by) || by < cy - 110 || cy - by < 16) {
+        toast.error('Neveljavna letnica rojstva (najnižja starost je 16 let).');
+        return;
+      }
+    }
+
     setIsSaving(true);
     setErrorMessage(null);
     try {
@@ -850,7 +861,7 @@ export const SettingsView: React.FC<{
       <div className="flex flex-col lg:flex-row gap-4 md:gap-8">
         {/* Left Sidebar Navigation */}
         <div className="w-full lg:w-80 flex-shrink-0">
-          <div className="bg-white rounded-2xl md:rounded-[1.35rem] p-2 md:p-4 shadow-xl border border-slate-100 flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible">
+          <div className="bg-white rounded-2xl md:rounded-[2rem] p-2 md:p-4 shadow-xl border border-slate-100 flex flex-row lg:flex-col gap-2 overflow-x-auto lg:overflow-visible">
             <button 
                 onClick={() => setActiveTab('profile')}
                 className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'profile' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
@@ -881,12 +892,18 @@ export const SettingsView: React.FC<{
             >
                 <FileText size={18} /> Računi
             </button>
+            <button 
+                onClick={() => setActiveTab('promotions')}
+                className={`flex items-center gap-2 md:gap-4 px-4 md:px-6 py-3 md:py-4 rounded-2xl font-black uppercase tracking-widest text-[11px] md:text-xs transition-all shrink-0 lg:shrink lg:w-full whitespace-nowrap lg:whitespace-normal text-left ${activeTab === 'promotions' ? 'bg-[#0A1128] text-white shadow-lg' : 'text-slate-400 hover:bg-slate-50 hover:text-[#0A1128]'}`}
+            >
+                <Gift size={18} /> Ugodnosti
+            </button>
           </div>
         </div>
 
         {/* Right Content Area */}
         <div className="flex-1">
-          <form onSubmit={handleSave} className="bg-white rounded-3xl md:rounded-[1.35rem] p-4 md:p-10 shadow-xl md:shadow-2xl border border-slate-100">
+          <form onSubmit={handleSave} className="bg-white rounded-3xl md:rounded-[3rem] p-4 md:p-10 shadow-xl md:shadow-2xl border border-slate-100">
             {errorMessage && (
               <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-2xl text-red-600 text-sm font-bold flex items-center gap-3">
                 <AlertCircle size={20} className="shrink-0 text-red-500" />
@@ -951,7 +968,7 @@ export const SettingsView: React.FC<{
                   const strikesCount = Number(user?.unpaidStrikes ?? user?.unpaid_strikes ?? 0);
                   const isBlocked = !!user?.isBlocked || strikesCount >= 3;
                   return (
-                    <div className="mb-10 p-6 sm:p-8 bg-slate-50 border-2 border-slate-200 rounded-[1.35rem] shadow-sm">
+                    <div className="mb-10 p-6 sm:p-8 bg-slate-50 border-2 border-slate-200 rounded-[2.5rem] shadow-sm">
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                         <div>
                           <div className="flex items-center gap-2">
@@ -1028,6 +1045,19 @@ export const SettingsView: React.FC<{
                           ? t('annualLimitVerified')
                           : t('annualLimitUnverified')}
                       </p>
+                      {!isIdentityVerified && (
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const res = await startIdentityVerification();
+                            if (res.result === 'submitted') toast.success('Dokument je oddan. Preverjanje traja nekaj minut, o rezultatu vas obvestimo.');
+                            else if (res.result === 'error') toast.error(res.message || 'Verifikacije ni bilo mogoče začeti.');
+                          }}
+                          className="mt-3 bg-[#0A1128] text-white px-4 py-2 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all"
+                        >
+                          {t('amlVerifyButton')}
+                        </button>
+                      )}
                     </div>
                     <div className="bg-white px-5 py-3 rounded-2xl border border-slate-200 text-left sm:text-right w-full sm:w-auto">
                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-400 mb-0.5">{t('spendingInYear')} {new Date().getFullYear()}</p>
@@ -1093,7 +1123,7 @@ export const SettingsView: React.FC<{
                 </div>
 
                 {/* Načini prijave (Povezani računi) */}
-                <div className="p-4 md:p-8 bg-slate-50 rounded-3xl md:rounded-[1.35rem] border border-slate-100 mb-6 md:mb-8">
+                <div className="p-4 md:p-8 bg-slate-50 rounded-3xl md:rounded-[2rem] border border-slate-100 mb-6 md:mb-8">
                   <h3 className="text-sm font-black uppercase tracking-widest text-[#0A1128] mb-6 flex items-center gap-2">
                     <Shield size={16} className="text-[#FEBA4F]"/> Načini prijave
                   </h3>
@@ -1168,7 +1198,7 @@ export const SettingsView: React.FC<{
                   </div>
                 </div>
 
-                <div className="p-4 md:p-8 bg-slate-50 rounded-3xl md:rounded-[1.35rem] border border-slate-100 mb-6 md:mb-8">
+                <div className="p-4 md:p-8 bg-slate-50 rounded-3xl md:rounded-[2rem] border border-slate-100 mb-6 md:mb-8">
                   <h3 className="text-sm font-black uppercase tracking-widest text-[#0A1128] mb-6 flex items-center gap-2"><Key size={16} className="text-[#FEBA4F]"/> {t('changePassword')}</h3>
                   <div className="space-y-4">
                     <div>
@@ -1243,7 +1273,7 @@ export const SettingsView: React.FC<{
                   </div>
                 </div>
 
-                <button type="submit" disabled={isSaving} className="w-full bg-[#0A1128] text-white py-4 md:py-5 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
+                <button type="submit" disabled={isSaving} className="w-full bg-[#0A1128] text-white py-4 md:py-5 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
                   {isSaving ? (
                     <>
                       <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -1256,7 +1286,7 @@ export const SettingsView: React.FC<{
 
                 {/* IZBRIS RAČUNA */}
                 <div className="mt-14 pt-10 border-t border-slate-200">
-                  <div className="bg-red-50/70 border-2 border-red-200 rounded-[1.35rem] p-6 sm:p-8">
+                  <div className="bg-red-50/70 border-2 border-red-200 rounded-[2.5rem] p-6 sm:p-8">
                     <div className="flex flex-col sm:flex-row items-start gap-5">
                       <div className="w-12 h-12 rounded-2xl bg-red-100 border border-red-200 flex items-center justify-center text-red-600 shrink-0">
                         <Trash2 size={24} />
@@ -1288,7 +1318,7 @@ export const SettingsView: React.FC<{
             {activeTab === 'personal' && (
               <div id="verification-section" className="animate-in fade-in slide-in-from-right-4">
                 {!isProfileCompleted ? (
-                    <div className="text-center py-20 bg-slate-50 rounded-[1.35rem] border-2 border-dashed border-slate-200">
+                    <div className="text-center py-20 bg-slate-50 rounded-[2rem] border-2 border-dashed border-slate-200">
                         <div className="w-20 h-20 bg-red-100 rounded-full flex flex-col items-center justify-center mx-auto mb-6 text-red-500">
                             <AlertCircle size={32} />
                         </div>
@@ -1308,7 +1338,7 @@ export const SettingsView: React.FC<{
                             {userType === 'business' ? <Building size={16} className="text-[#FEBA4F]"/> : <User size={16} className="text-[#FEBA4F]"/>} 
                             {t('verificationData')} ({userType === 'business' ? t('business') : t('individual')})
                         </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-slate-50 p-4 md:p-8 rounded-3xl md:rounded-[1.35rem] border border-slate-100">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 md:gap-6 bg-slate-50 p-4 md:p-8 rounded-3xl md:rounded-[2rem] border border-slate-100">
                             {userType === 'individual' ? (
                                 <>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('firstName')}</label><input type="text" value={formData.firstName} onChange={e => setFormData({...formData, firstName: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
@@ -1316,6 +1346,7 @@ export const SettingsView: React.FC<{
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('street')}</label><input type="text" value={formData.street} onChange={e => setFormData({...formData, street: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('city')}</label><input type="text" value={formData.city} onChange={e => setFormData({...formData, city: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('postalCode')}</label><input type="text" value={formData.postalCode} onChange={e => setFormData({...formData, postalCode: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
+                                    <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">Letnica rojstva (min. 16 let, po prvem shranjevanju je ni mogoče spremeniti)</label><input type="text" inputMode="numeric" maxLength={4} placeholder="npr. 1990" disabled={Boolean(user?.birth_year)} value={formData.birthYear} onChange={e => setFormData({...formData, birthYear: e.target.value.replace(/\D/g, '')})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F] disabled:opacity-60 disabled:cursor-not-allowed" /></div>
                                     <div className="md:col-span-2"><label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('taxNumber')}</label><input type="text" value={formData.taxNumber} onChange={e => setFormData({...formData, taxNumber: e.target.value})} className="w-full bg-white border border-slate-200 rounded-xl px-4 py-3 font-bold outline-none focus:border-[#FEBA4F]" /></div>
                                     <div>
                                         <label className="block text-[10px] font-black uppercase tracking-widest text-slate-400 mb-2">{t('country')}</label>
@@ -1378,7 +1409,7 @@ export const SettingsView: React.FC<{
                                 </>
                             )}
                         </div>
-                        <button type="submit" disabled={isSaving} className="w-full mt-8 bg-[#0A1128] text-white py-5 rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
+                        <button type="submit" disabled={isSaving} className="w-full mt-8 bg-[#0A1128] text-white py-5 rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl flex items-center justify-center gap-3">
                             {isSaving ? (
                                 <>
                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
@@ -1510,6 +1541,7 @@ export const SettingsView: React.FC<{
             )}
 
             {activeTab === 'invoices' && <InvoicesView />}
+            {activeTab === 'promotions' && <PromotionsView />}
             {activeTab === 'notifications' && (
               <div className="animate-in fade-in slide-in-from-right-4">
                 <div className="mb-6">
@@ -1614,7 +1646,7 @@ export const SettingsView: React.FC<{
 
 
                     <div className="flex justify-end mt-8">
-                        <button type="submit" disabled={isSaving} className="bg-[#FEBA4F] text-[#0A1128] px-6 md:px-12 py-4 rounded-2xl md:rounded-[1.35rem] w-full sm:w-auto font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-white transition-all shadow-xl flex items-center justify-center min-w-[250px]">
+                        <button type="submit" disabled={isSaving} className="bg-[#FEBA4F] text-[#0A1128] px-6 md:px-12 py-4 rounded-2xl md:rounded-[2rem] w-full sm:w-auto font-black uppercase tracking-widest text-sm hover:bg-[#0A1128] hover:text-white transition-all shadow-xl flex items-center justify-center min-w-[250px]">
                             {isSaving ? (
                                 <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
                             ) : (
@@ -1635,7 +1667,7 @@ export const SettingsView: React.FC<{
         <Portal>
           {/* Deutscher Kommentar: Responsives Modal fuer Kontoloeschung mit max-h und Touch-Zielen */}
           <div className="fixed inset-0 z-[2000] bg-black/60 backdrop-blur-sm flex items-center justify-center p-3 sm:p-4 animate-in fade-in">
-            <div className="bg-white rounded-3xl sm:rounded-[1.35rem] max-w-lg w-full p-5 sm:p-8 shadow-2xl border border-red-100 relative max-h-[92dvh] overflow-y-auto">
+            <div className="bg-white rounded-3xl sm:rounded-[2.5rem] max-w-lg w-full p-5 sm:p-8 shadow-2xl border border-red-100 relative max-h-[92dvh] overflow-y-auto">
               <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl sm:rounded-3xl bg-red-100 border-2 border-red-200 flex items-center justify-center text-red-600 mx-auto mb-4 sm:mb-6">
                 <AlertTriangle size={26} />
               </div>

@@ -1,0 +1,6 @@
+{
+  "name": "Drazba.si(Novi)",
+  "description": "A high-performance auction platform for industrial machinery, vehicles, and IT equipment with real-time bidding and countdowns.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

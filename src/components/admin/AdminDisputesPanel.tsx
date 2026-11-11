@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { confirmDialog } from '../../lib/dialog';
-import { RefreshCw, AlertTriangle, CheckCircle2 } from '../icons';
+import { RefreshCw, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { getAuthHeaders } from '../../lib/authFetch';
 import { toast } from '../../lib/toast';
 
@@ -37,6 +37,11 @@ interface DisputeItem {
   seller_proof_note: string | null;
   seller_proof_at: string | null;
   seller_proof_photo_urls?: string[];
+  buyer_photo_urls?: string[];
+  difference?: string | null;
+  delivery_method?: string | null;
+  chargeback_open?: boolean;
+  chargeback_status?: string | null;
   buyer: UserInfo | null;
   seller: UserInfo | null;
 }
@@ -60,14 +65,18 @@ const StatsLine: React.FC<{ label: string; u: UserInfo | null }> = ({ label, u }
 export const AdminDisputesPanel: React.FC = () => {
   const [items, setItems] = useState<DisputeItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showResolved, setShowResolved] = useState(false);
+  const [statusFilter, setStatusFilter] = useState<'OPEN' | 'RESOLVED' | 'ALL'>('OPEN');
+  const [kindFilter, setKindFilter] = useState<'' | 'not_received' | 'other'>('');
+  const [query, setQuery] = useState('');
+  const [onlySuspicious, setOnlySuspicious] = useState(false);
+  const [onlyNoProof, setOnlyNoProof] = useState(false);
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [busyId, setBusyId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/admin/disputes?status=${showResolved ? 'RESOLVED' : 'OPEN'}`, { headers: await getAuthHeaders() });
+      const res = await fetch(`/api/admin/disputes?status=${statusFilter}${kindFilter ? `&kind=${kindFilter}` : ''}`, { headers: await getAuthHeaders() });
       const json = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(json.error || 'Napaka pri nalaganju sporov.');
       setItems(json.items || []);
@@ -76,7 +85,7 @@ export const AdminDisputesPanel: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  }, [showResolved]);
+  }, [statusFilter, kindFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -101,22 +110,41 @@ export const AdminDisputesPanel: React.FC = () => {
     }
   };
 
+  const q = query.trim().toLowerCase();
+  const visible = items.filter(it => {
+    if (onlySuspicious && !it.suspicious_buyer) return false;
+    if (onlyNoProof && !(it.kind === 'not_received' && !it.seller_proof_at)) return false;
+    if (!q) return true;
+    return [it.auction_title, it.order_id, it.reason, it.buyer?.name, it.buyer?.email, it.seller?.name, it.seller?.email, it.tracking_number]
+      .some(v => String(v || '').toLowerCase().includes(q));
+  });
+
   const fmt = (iso?: string | null) => (iso ? new Date(iso).toLocaleString('sl-SI') : '/');
 
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex gap-2">
-          <button onClick={() => setShowResolved(false)} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${!showResolved ? 'bg-[#0A1128] text-white border-[#0A1128]' : 'border-slate-200 text-slate-500'}`}>Odprti</button>
-          <button onClick={() => setShowResolved(true)} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${showResolved ? 'bg-[#0A1128] text-white border-[#0A1128]' : 'border-slate-200 text-slate-500'}`}>Razrešeni</button>
+        <div className="flex flex-wrap gap-2">
+          {(['OPEN', 'RESOLVED', 'ALL'] as const).map(v => (
+            <button key={v} onClick={() => setStatusFilter(v)} className={`px-4 py-2 rounded-xl text-xs font-black uppercase tracking-wider border-2 ${statusFilter === v ? 'bg-[#0A1128] text-white border-[#0A1128]' : 'border-slate-200 text-slate-500'}`}>{v === 'OPEN' ? 'Odprti' : v === 'RESOLVED' ? 'Razrešeni' : 'Vsi'}</button>
+          ))}
+          <select value={kindFilter} onChange={e => setKindFilter(e.target.value as any)} className="px-3 py-2 rounded-xl text-xs font-black uppercase border-2 border-slate-200 text-slate-600 bg-white">
+            <option value="">Vse vrste</option>
+            <option value="not_received">Ni prispelo</option>
+            <option value="other">Druga težava / ne ustreza opisu</option>
+          </select>
+          <input value={query} onChange={e => setQuery(e.target.value)} placeholder="Iskanje (predmet, uporabnik, sledenje)" className="px-3 py-2 rounded-xl text-base font-bold border-2 border-slate-200 outline-none min-w-[220px]" />
+          <label className="flex items-center gap-1 text-xs font-black uppercase text-slate-500"><input type="checkbox" checked={onlySuspicious} onChange={e => setOnlySuspicious(e.target.checked)} /> Sumljivi kupci</label>
+          <label className="flex items-center gap-1 text-xs font-black uppercase text-slate-500"><input type="checkbox" checked={onlyNoProof} onChange={e => setOnlyNoProof(e.target.checked)} /> Brez dokaza prodajalca</label>
         </div>
         <button onClick={load} className="flex items-center gap-2 text-xs font-black uppercase tracking-wider text-slate-500 hover:text-[#0A1128]"><RefreshCw size={14} /> Osveži</button>
       </div>
 
       {loading && <div className="h-24 animate-pulse bg-slate-50 rounded-3xl" />}
-      {!loading && items.length === 0 && <p className="text-sm font-bold text-slate-400 py-8 text-center">Ni sporov.</p>}
+      {!loading && visible.length === 0 && <p className="text-sm font-bold text-slate-400 py-8 text-center">Ni sporov.</p>}
 
-      {items.map(it => (
+      {!loading && <p className="text-[11px] font-bold text-slate-400">Prikazano: {visible.length} od {items.length}</p>}
+      {visible.map(it => (
         <div key={it.dispute_id} className="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-3">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
@@ -134,6 +162,15 @@ export const AdminDisputesPanel: React.FC = () => {
           <div className="grid md:grid-cols-2 gap-4 text-xs text-slate-600">
             <div className="space-y-1">
               <p><span className="font-black text-slate-400 uppercase">Razlog kupca:</span> {it.reason}</p>
+              {it.difference && <p><span className="font-black text-slate-400 uppercase">Razlika od oglasa:</span> {it.difference}</p>}
+              {it.buyer_photo_urls && it.buyer_photo_urls.length > 0 && (
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {it.buyer_photo_urls.map((u, i) => (
+                    <a key={i} href={u} target="_blank" rel="noopener noreferrer"><img src={u} alt={`Dokaz kupca ${i + 1}`} className="h-20 w-20 object-cover rounded-xl border border-slate-200" /></a>
+                  ))}
+                </div>
+              )}
+              {it.chargeback_open && <p className="font-black text-red-600 uppercase">Hkrati odprt spor pri banki</p>}
               <p><span className="font-black text-slate-400 uppercase">Znesek:</span> {it.item_price ?? '/'} € (skupaj {it.amount_total ?? '/'} €) · status {it.tx_status} / {it.payout_status}</p>
               <p><span className="font-black text-slate-400 uppercase">Odprema:</span> {fmt(it.shipped_at)} · {it.carrier_name || '/'} {it.tracking_number ? `· ${it.tracking_number}` : ''}
                 {it.tracking_url && <> · <a className="underline" href={it.tracking_url} target="_blank" rel="noopener noreferrer">sledenje</a></>}

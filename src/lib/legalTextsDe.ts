@@ -1,7 +1,7 @@
 // Deutscher Kommentar: Deutsche Fassung der rechtlichen Texte (nur die slowenische Fassung ist verbindlich)
 import { PLATFORM_COMPANY } from './platformCompany';
 
-const LAST_UPDATE = '13. 10. 2026';
+const LAST_UPDATE = '22. 10. 2026';
 
 export const IMPRINT_TEXT_DE = `ANBIETERINFORMATIONEN
 
@@ -40,14 +40,14 @@ Verantwortlicher für die personenbezogenen Daten ist ${PLATFORM_COMPANY.name}, 
 2. Welche Daten wir verarbeiten, wozu und auf welcher Rechtsgrundlage
 
 a) Registrierung und Benutzerkonto
-Daten: E-Mail-Adresse, Benutzername, Passwort (in einer für uns nicht lesbaren Form) oder Anmeldung mit einem Google-Konto, Vor- und Nachname, Adresse, Telefonnummer, Art des Nutzers (Privatperson / Unternehmen), bei Unternehmen Firmenname, Register- und Steuernummer, Profilbild.
+Daten: E-Mail-Adresse, Benutzername, Passwort (in einer für uns nicht lesbaren Form) oder Anmeldung mit einem Google-Konto, Vor- und Nachname, Adresse, Telefonnummer, Geburtsjahr, Art des Nutzers (beim Start nur Privatpersonen), Profilbild.
 Zweck: Erstellung und Verwaltung des Kontos, Anmeldung, Kommunikation mit Ihnen.
 Rechtsgrundlage: Vertragserfüllung (Art. 6 Abs. 1 lit. b DSGVO).
 
 b) Identitätsprüfung und Missbrauchsprävention
-Daten: Daten zur Identitätsprüfung, Steuernummer (zur Missbrauchsprävention speichern wir nur einen gehashten, nicht umkehrbar verschlüsselten Wert), Daten zu unbezahlten Auktionen, Sperren und zur Gesamtsumme der Käufe.
+Daten: Daten zur Identitätsprüfung (das Ergebnis und das Geburtsjahr zur Prüfung des Mindestalters von 16 Jahren), Steuernummer (zur Missbrauchsprävention speichern wir nur einen gehashten, nicht umkehrbar verschlüsselten Wert), Daten zu unbezahlten Auktionen, Sperren und zur Gesamtsumme der Käufe.
 Zweck: Verhinderung von Betrug, Missbrauch und Mehrfachregistrierungen, Erfüllung gesetzlicher Pflichten (z. B. steuerliche Meldung nach DAC7, Punkt i).
-Rechtsgrundlage: berechtigtes Interesse (lit. f) und rechtliche Verpflichtung (lit. c). Wird ein Konto wegen wiederholter unbezahlter Auktionen gesperrt, bewahren wir den gehashten Wert der Steuernummer auch nach der Kontolöschung auf, höchstens 5 Jahre ab der Sperre.
+Bilder von Ausweisdokumenten und Gesichtern erhalten und speichern wir nicht; die Prüfung führt der Zahlungsdienstleister (Stripe Identity) als eigenständiger Verantwortlicher durch, wir erhalten nur das Ergebnis. Rechtsgrundlage: berechtigtes Interesse (lit. f) und rechtliche Verpflichtung (lit. c). Wird ein Konto wegen wiederholter unbezahlter Auktionen gesperrt, bewahren wir den gehashten Wert der Steuernummer auch nach der Kontolöschung auf, höchstens 5 Jahre ab der Sperre.
 
 c) Auktionen, Gebote, Nachrichten und Bestellungen
 Daten: veröffentlichte Artikel (Bilder, Beschreibungen), Gebote, Gebotsverlauf, Nachrichten zwischen Nutzern, Wahl der Übergabeart, Lieferdaten, Bewertungen.
@@ -72,13 +72,23 @@ Wenn Sie selbst die Funktion „Bild verbessern" oder das automatische Auslesen 
 
 h) Sicherheit und Betrieb der Seite
 Daten: technische Daten (IP-Adresse, Geräte- und Browsertyp, Zugriffszeit), Sicherheitsprotokolle, Risikobewertung durch den Dienst reCAPTCHA bei der Registrierung.
-Zweck: Gewährleistung der Sicherheit, Fehlerbehebung, Schutz vor Missbrauch.
+Zweck: Gewährleistung der Sicherheit, Fehlerbehebung, Schutz vor Missbrauch sowie Beweissicherung bei Streitfällen oder Rückbuchungen (bei erstem Gebot, Zahlung, Empfangsbestätigung und Abholung werden IP-Adresse und Gerät erfasst; Aufbewahrung 18 Monate).
 Rechtsgrundlage: berechtigtes Interesse (lit. f).
 
 i) Steuerliche Meldung des Plattformbetreibers (DAC7)
 Daten: Daten zur Identifizierung des Verkäufers (z. B. Name, Anschrift, Steuernummer), über die Plattform erhaltene Zahlungen, Provisionen, Anzahl der Verkäufe und das Konto, auf das die Zahlungen ausgezahlt werden.
 Zweck: Erfüllung der gesetzlichen Pflicht des Plattformbetreibers zur Meldung an die Finanzverwaltung der Republik Slowenien (DAC7-Richtlinie), die die Daten mit den Steuerbehörden anderer EU-Mitgliedstaaten austauschen kann.
 Rechtsgrundlage: rechtliche Verpflichtung (Art. 6 Abs. 1 lit. c DSGVO).
+
+j) Immobilienanfragen
+Daten: Art, Lage, Preis, Telefonnummer und Beschreibung, die Sie im Anfrageformular eingeben, sowie Ihre Basisdaten aus dem Konto.
+Zweck: Bearbeitung der Anfrage und Kontaktaufnahme mit Ihnen.
+Rechtsgrundlage: vorvertragliche Maßnahmen auf Ihre Anfrage (lit. b).
+
+k) Streitfälle und Beweise
+Daten: Beschreibung des Streitfalls, Ihre Texte und Fotos, Versandnachweise, Ergebnis des Streitfalls, Ereignisprotokoll (Zeit, IP-Adresse und Gerät beim ersten Gebot, bei Zahlung, Empfangsbestätigung und Abholung) sowie die Anzahl der Streitfälle je Nutzer.
+Zweck: Klärung von Streitigkeiten zwischen Nutzern, Geltendmachung und Verteidigung von Rechtsansprüchen, Beantwortung einer Kartenrückbuchung (Chargeback) beim Zahlungsdienstleister und Erkennung von Missbrauch.
+Rechtsgrundlage: berechtigtes Interesse (lit. f) und Vertragserfüllung (lit. b).
 
 3. Cookies und ähnliche Technologien
 Wir verwenden nur notwendige und funktionale Technologien. Einzelheiten finden Sie in der Cookie-Richtlinie.
@@ -97,6 +107,9 @@ Einige Auftragnehmer haben ihren Sitz oder ihre Server außerhalb der EU/des EWR
 - für die DAC7-Meldung erhobene Daten: 5 Jahre nach Ende des Meldejahres;
 - gehashter Wert der Steuernummer bei gesperrten Konten: höchstens 5 Jahre ab der Sperre;
 - Nachrichten und Auktionsverlauf: bis zur Löschung des Kontos bzw. solange es zur Abwehr von Rechtsansprüchen erforderlich ist;
+- Ereignisprotokoll zu Beweiszwecken (IP-Adresse, Gerät, Zeit): 18 Monate;
+- Immobilienanfragen: so lange, wie zur Bearbeitung der Anfrage nötig;
+- Streitfall-Beweise: so lange, wie zur Geltendmachung oder Verteidigung von Rechtsansprüchen nötig;
 - Sicherheitsprotokolle: nur so lange, wie es zur Gewährleistung der Sicherheit und Fehlerbehebung unbedingt notwendig ist.
 
 7. Ihre Rechte
@@ -104,10 +117,10 @@ Sie haben das Recht auf: Auskunft, Berichtigung, Löschung, Einschränkung der V
 Sie haben außerdem das Recht auf Beschwerde bei der Aufsichtsbehörde: Informationsbeauftragter (Informacijski pooblaščenec), Dunajska cesta 22, 1000 Ljubljana, www.ip-rs.si, gp.ip@ip-rs.si.
 
 8. Pflichtangaben und automatisierte Entscheidungen
-Die bei der Registrierung als Pflichtangaben gekennzeichneten Daten sind für den Vertragsschluss erforderlich; ohne sie können wir kein Konto eröffnen. Wir treffen keine ausschließlich auf automatisierter Verarbeitung beruhenden Entscheidungen, die für Sie rechtliche Wirkung hätten (Profiling). Automatische Einschränkungen (z. B. die Sperre eines Kontos nach mehreren unbezahlten Auktionen) beruhen auf klaren Regeln der Nutzungsbedingungen; Sie können unter info@drazbenik.si eine menschliche Überprüfung verlangen.
+Die bei der Registrierung als Pflichtangaben gekennzeichneten Daten sind für den Vertragsschluss erforderlich; ohne sie können wir kein Konto eröffnen. Wir treffen keine ausschließlich auf automatisierter Verarbeitung beruhenden Entscheidungen, die für Sie rechtliche Wirkung hätten (Profiling). Automatische Einschränkungen (z. B. die Sperre eines Kontos nach mehreren unbezahlten Auktionen, Mindestalter, Limits für neue Verkäufer, Streitfall-Zähler) beruhen auf klaren Regeln der Nutzungsbedingungen; Sie können unter info@drazbenik.si eine menschliche Überprüfung verlangen.
 
 9. Minderjährige
-Die Plattform richtet sich an volljährige Personen. Erfahren wir, dass ein Konto ohne die erforderliche Geschäftsfähigkeit eröffnet wurde, können wir es schließen.
+Die Plattform richtet sich an Personen ab 16 Jahren. Personen zwischen 16 und 18 Jahren benötigen die Einwilligung ihrer Eltern oder Erziehungsberechtigten. Wir erheben nur das Geburtsjahr. Erfahren wir, dass ein Konto von einem Nutzer unter 16 Jahren eröffnet wurde, schließen wir es.
 
 10. Sicherheit
 Wir setzen technische und organisatorische Maßnahmen ein: verschlüsselte Übertragung (HTTPS), Zugriffskontrolle, Trennung sensibler Daten, nicht umkehrbare Speicherung sensibler Kennungen. Über Datenschutzverletzungen informieren wir die zuständige Behörde und die betroffenen Personen gemäß DSGVO.
@@ -129,7 +142,7 @@ Dražbenik.si verwendet nur Technologien, die für den Betrieb der Seite notwend
 - reCAPTCHA (Google-Dienst, www.google.com / www.gstatic.com): schützt die Registrierung vor Bots. Kann ein Cookie zur Risikobewertung setzen. Die Dauer bestimmt der Dienstanbieter. Mehr: policies.google.com/privacy.
 
 2) Zahlungen (notwendig, nur bei der Zahlung)
-- Cookies des Zahlungsdienstleisters: Durchführung der Zahlung und Betrugsprävention. Sie werden erst gesetzt, wenn Sie das Zahlungsfenster öffnen.
+- Cookies des Zahlungsdienstleisters: Durchführung der Zahlung, Identitätsprüfung und Betrugsprävention. Sie werden erst gesetzt, wenn Sie das Zahlungsfenster öffnen.
 
 3) Betrieb und Komfort (funktional)
 - Lokaler Browser-Speicher (IndexedDB, Firestore): Zwischenspeicher für schnelleres Laden von Profil und Auktionen.
@@ -138,6 +151,11 @@ Dražbenik.si verwendet nur Technologien, die für den Betrieb der Seite notwend
 - drazbenik_show_filters, last_seen_winnings, dontShowTermsAgain: Anzeige von Filtern und Hinweisen. Dauer: bis zur Löschung.
 - drazbe_package_draft_*: Entwurf des Pakets, das Sie gerade erstellen. Dauer: bis zur Veröffentlichung oder Löschung.
 - cookie_notice_ack: speichert, dass Sie diesen Hinweis gelesen haben. Dauer: 12 Monate.
+- language: gewählte Oberflächensprache. Dauer: bis zur Löschung.
+- pending_prevzem_qr (sessionStorage): vorübergehender Eintrag des Abholcodes, damit er nach der Anmeldung nicht verloren geht. Dauer: bis zum Sitzungsende.
+
+Kamerazugriff
+Die Kamera nutzen wir nur, wenn Sie „Foto aufnehmen“ wählen. Aufnahmen werden erst gespeichert, wenn Sie sie selbst senden. Den Zugriff erlauben oder verweigern Sie im Browser.
 
 Wie Sie sie löschen oder blockieren
 Den Speicher können Sie jederzeit in den Browsereinstellungen löschen (z. B. „Browserdaten löschen"). Wenn Sie notwendige Technologien blockieren, können Sie sich nicht anmelden oder bezahlen.

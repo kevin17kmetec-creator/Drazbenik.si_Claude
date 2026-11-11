@@ -1,9 +1,13 @@
+import { toast } from '../../lib/toast';
+import { isMinorByBirthYear } from '../../lib/minorConsent';
+import { ParentalConsentModal } from '../modals/ParentalConsentModal';
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, User, Building2, CheckCircle2, AlertCircle } from '../icons';
+import { ArrowLeft, User, Building2, CheckCircle2, AlertCircle } from 'lucide-react';
 import { LoadingButton } from '../ui/Common';
+import { BUSINESS_USERS_ENABLED } from '../../lib/featureFlags';
 import { PreferredLanguageSelect } from '../ui/PreferredLanguageSelect';
 
-export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: (type: 'individual' | 'business', data: any) => void; isVerified: boolean; userType: any; initialData?: any; language?: string; onLanguageChange?: (l: string) => void }> = ({ onBack, t, onVerify, isVerified, userType, initialData, language = 'SLO', onLanguageChange }) => {
+export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: (type: 'individual' | 'business', data: any) => void; onParentalConsent?: () => Promise<boolean>; isVerified: boolean; userType: any; initialData?: any; language?: string; onLanguageChange?: (l: string) => void }> = ({ onBack, t, onVerify, isVerified, userType, initialData, language = 'SLO', onLanguageChange, onParentalConsent }) => {
     const [type, setType] = useState<'individual' | 'business'>(userType || 'individual');
     const [step, setStep] = useState(isVerified ? 2 : 1);
     const [isVerifying, setIsVerifying] = useState(false);
@@ -16,7 +20,8 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         street: initialData?.street || '',
         city: initialData?.city || '',
         postalCode: initialData?.postal_code || initialData?.postalCode || '',
-        taxNumber: initialData?.tax_number || initialData?.tax_id || initialData?.taxNumber || initialData?.taxId || ''
+        taxNumber: initialData?.tax_number || initialData?.tax_id || initialData?.taxNumber || initialData?.taxId || '',
+        birthYear: String(initialData?.birth_year || initialData?.birthYear || '')
     });
 
     const [businessData, setBusinessData] = useState({
@@ -48,7 +53,8 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                 street: prev.street || initialData.street || '',
                 city: prev.city || initialData.city || '',
                 postalCode: prev.postalCode || initialData.postal_code || initialData.postalCode || '',
-                taxNumber: prev.taxNumber || initialData.tax_number || initialData.tax_id || initialData.taxNumber || initialData.taxId || ''
+                taxNumber: prev.taxNumber || initialData.tax_number || initialData.tax_id || initialData.taxNumber || initialData.taxId || '',
+                birthYear: prev.birthYear || String(initialData.birth_year || initialData.birthYear || '')
             }));
             setBusinessData(prev => ({
                 companyName: prev.companyName || initialData.company_name || initialData.companyName || '',
@@ -72,19 +78,39 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
         return /^\d{8,9}$/.test(tax);
     };
 
+    // Deutscher Kommentar: Fehler als Meldung im Seitenkopf (Toast) und zusaetzlich im Formular anzeigen
+    const fail = (msg: string) => {
+        setError(msg);
+        toast.error(msg);
+    };
+    const [parentalOpen, setParentalOpen] = useState(false);
+
     const handleVerify = async (e: React.FormEvent) => {
         e.preventDefault();
         const data = type === 'individual' ? individualData : businessData;
         
         // Client-side validation
         if (!validateEmail(data.email)) {
-            setError("Prosimo, vnesite veljaven e-poštni naslov.");
+            fail("Prosimo, vnesite veljaven e-poštni naslov.");
             return;
         }
 
         if (!validateTaxNumber(data.taxNumber)) {
-            setError("Davčna številka mora vsebovati 8 ali 9 številk.");
+            fail("Davčna številka mora vsebovati 8 ali 9 številk.");
             return;
+        }
+
+        if (type === 'individual') {
+            const by = parseInt((data as any).birthYear, 10);
+            const cy = new Date().getFullYear();
+            if (!Number.isInteger(by) || by < cy - 110 || by > cy) {
+                fail("Vnesite veljavno letnico rojstva (štiri števke).");
+                return;
+            }
+            if (cy - by < 16) {
+                fail("Za sodelovanje na dražbah morate biti stari vsaj 16 let.");
+                return;
+            }
         }
 
         setIsVerifying(true);
@@ -92,10 +118,16 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
 
         try {
             await onVerify(type, data);
+            // Deutscher Kommentar: Zwischen 16 und 18 Jahren zuerst die Zustimmung der Eltern abfragen
+            const byNow = parseInt(String((data as any).birthYear || initialData?.birth_year || ''), 10);
+            if (type === 'individual' && onParentalConsent && isMinorByBirthYear(byNow) && initialData?.parental_consent !== true) {
+                setParentalOpen(true);
+                return;
+            }
             onBack();
         } catch (error: any) {
             console.error("Verification failed:", error);
-            setError(error.message || "Prišlo je do napake pri shranjevanju podatkov.");
+            setError(error.message || "Prišlo je do napake pri shranjevanju podatkov."); // Deutscher Kommentar: Toast kommt bereits aus onVerify
         } finally {
             setIsVerifying(false);
         }
@@ -103,8 +135,19 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
 
     return (
         <div className="max-w-4xl mx-auto py-16 px-6 animate-in">
+            <ParentalConsentModal
+                isOpen={parentalOpen}
+                language={language}
+                onConfirm={async () => {
+                    if (onParentalConsent && await onParentalConsent()) {
+                        setParentalOpen(false);
+                        onBack();
+                    }
+                }}
+                onClose={() => { setParentalOpen(false); onBack(); }}
+            />
             <button onClick={onBack} className="flex items-center gap-2 text-slate-400 mb-10 font-black uppercase text-[10px] tracking-widest hover:text-[#0A1128] transition-colors"><ArrowLeft size={16}/> {t('back')}</button>
-            <div className="bg-white rounded-3xl md:rounded-[1.35rem] p-5 md:p-12 shadow-xl md:shadow-2xl border border-slate-100">
+            <div className="bg-white rounded-3xl md:rounded-[4rem] p-5 md:p-12 shadow-xl md:shadow-2xl border border-slate-100">
                 <h2 className="text-2xl md:text-4xl font-black mb-4 uppercase tracking-tighter italic">{t('identityVerification')}</h2>
                 <p className="text-slate-400 font-bold mb-12">V skladu z 18. členom SP je za sodelovanje na dražbi obvezna verifikacija podatkov.</p>
 
@@ -121,44 +164,45 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             currentLanguage={language}
                             onLanguageChange={onLanguageChange}
                         />
-                        <div className="flex gap-2 md:gap-4 p-2 bg-slate-50 rounded-3xl md:rounded-[1.35rem]">
+                        <div className="flex gap-2 md:gap-4 p-2 bg-slate-50 rounded-3xl md:rounded-[2.5rem]">
                             <button 
                                 type="button"
                                 disabled={isVerified}
                                 onClick={() => setType('individual')} 
-                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'individual' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
+                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'individual' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
                                 <User size={18} /> {t('individual')}
                             </button>
-                            <button 
+                            {BUSINESS_USERS_ENABLED && <button 
                                 type="button"
                                 disabled={isVerified}
                                 onClick={() => setType('business')} 
-                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'business' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
+                                className={`flex-1 flex items-center justify-center gap-2 md:gap-3 py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase text-xs tracking-widest transition-all ${type === 'business' ? 'bg-[#0A1128] text-white shadow-xl' : 'text-slate-400 hover:text-[#0A1128]'}`}>
                                 <Building2 size={18} /> {t('business')}
-                            </button>
+                            </button>}
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             {type === 'individual' ? (
                                 <>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('firstName')}</label><input type="text" required value={individualData.firstName} onChange={e => setIndividualData({...individualData, firstName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('lastName')}</label><input type="text" required value={individualData.lastName} onChange={e => setIndividualData({...individualData, lastName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">E-poštni naslov</label><input type="email" required value={individualData.email} onChange={e => setIndividualData({...individualData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('streetAddress')}</label><input type="text" required value={individualData.street} onChange={e => setIndividualData({...individualData, street: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('city')}</label><input type="text" required value={individualData.city} onChange={e => setIndividualData({...individualData, city: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('postalCode')}</label><input type="text" required value={individualData.postalCode} onChange={e => setIndividualData({...individualData, postalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('taxNumber')}</label><input type="text" required value={individualData.taxNumber} onChange={e => setIndividualData({...individualData, taxNumber: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('firstName')}</label><input type="text" required value={individualData.firstName} onChange={e => setIndividualData({...individualData, firstName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('lastName')}</label><input type="text" required value={individualData.lastName} onChange={e => setIndividualData({...individualData, lastName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">E-poštni naslov</label><input type="email" required value={individualData.email} onChange={e => setIndividualData({...individualData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('streetAddress')}</label><input type="text" required value={individualData.street} onChange={e => setIndividualData({...individualData, street: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('city')}</label><input type="text" required value={individualData.city} onChange={e => setIndividualData({...individualData, city: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('postalCode')}</label><input type="text" required value={individualData.postalCode} onChange={e => setIndividualData({...individualData, postalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">Letnica rojstva (min. 16 let, po vnosu je ni mogoče spremeniti)</label><input type="text" inputMode="numeric" maxLength={4} required disabled={Boolean(initialData?.birth_year)} placeholder="npr. 1990" value={individualData.birthYear} onChange={e => setIndividualData({...individualData, birthYear: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold disabled:opacity-60" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('taxNumber')}</label><input type="text" required value={individualData.taxNumber} onChange={e => setIndividualData({...individualData, taxNumber: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                 </>
                             ) : (
                                 <>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('companyName')}</label><input type="text" required value={businessData.companyName} onChange={e => setBusinessData({...businessData, companyName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">E-poštni naslov podjetja</label><input type="email" required value={businessData.email} onChange={e => setBusinessData({...businessData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('taxNumber')}</label><input type="text" required value={businessData.taxNumber} onChange={e => setBusinessData({...businessData, taxNumber: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Matična številka</label><input type="text" required value={businessData.regNumber} onChange={e => setBusinessData({...businessData, regNumber: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka (Sedež podjetja)</label><input type="text" required value={businessData.companyStreet} onChange={e => setBusinessData({...businessData, companyStreet: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('companyCity')}</label><input type="text" required value={businessData.companyCity} onChange={e => setBusinessData({...businessData, companyCity: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">{t('companyPostalCode')}</label><input type="text" required value={businessData.companyPostalCode} onChange={e => setBusinessData({...businessData, companyPostalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
-                                    <div className="space-y-3 md:col-span-2"><label className="text-[10px] font-black uppercase text-slate-400 ml-2">Zastopnik (Ime in priimek)</label><input type="text" required value={businessData.representative} onChange={e => setBusinessData({...businessData, representative: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('companyName')}</label><input type="text" required value={businessData.companyName} onChange={e => setBusinessData({...businessData, companyName: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">E-poštni naslov podjetja</label><input type="email" required value={businessData.email} onChange={e => setBusinessData({...businessData, email: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('taxNumber')}</label><input type="text" required value={businessData.taxNumber} onChange={e => setBusinessData({...businessData, taxNumber: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">Matična številka</label><input type="text" required value={businessData.regNumber} onChange={e => setBusinessData({...businessData, regNumber: e.target.value.replace(/\D/g, '')})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">Ulica in hišna številka (Sedež podjetja)</label><input type="text" required value={businessData.companyStreet} onChange={e => setBusinessData({...businessData, companyStreet: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('companyCity')}</label><input type="text" required value={businessData.companyCity} onChange={e => setBusinessData({...businessData, companyCity: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">{t('companyPostalCode')}</label><input type="text" required value={businessData.companyPostalCode} onChange={e => setBusinessData({...businessData, companyPostalCode: e.target.value})} className="w-full bg-slate-50 border border-slate-200 rounded-2xl py-4 px-6 font-bold" /></div>
+                                    <div className="space-y-3 md:col-span-2"><label className="block text-[10px] font-black uppercase text-slate-400 ml-2">Zastopnik (Ime in priimek)</label><input type="text" required value={businessData.representative} onChange={e => setBusinessData({...businessData, representative: e.target.value})} className="w-full bg-slate-50 border border-slate-100 rounded-2xl py-4 px-6 font-bold" /></div>
                                 </>
                             )}
                         </div>
@@ -167,7 +211,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             type="submit" 
                             loading={isVerifying}
                             loadingText="Pošiljam..."
-                            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
+                            className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] hover:text-[#0A1128] transition-all shadow-xl"
                         >
                             Potrdi verifikacijo
                         </LoadingButton>
@@ -183,7 +227,7 @@ export const VerificationView: React.FC<{ onBack: () => void; t: any; onVerify: 
                             <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('verificationDate')}</p><p className="font-bold">{new Date().toLocaleDateString(window.localStorage.getItem('language') === 'SLO' ? 'sl-SI' : window.localStorage.getItem('language') === 'EN' ? 'en-US' : 'de-DE')}</p></div>
                             <div className="bg-slate-50 p-6 rounded-3xl text-left"><p className="text-[9px] font-black text-slate-400 uppercase mb-1">{t('statusText')}</p><p className="font-bold text-green-600">{t('statusActive')}</p></div>
                         </div>
-                        <button onClick={onBack} className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[1.35rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all">{t('backToAuctions')}</button>
+                        <button onClick={onBack} className="w-full bg-[#0A1128] text-white py-4 md:py-6 rounded-2xl md:rounded-[2rem] font-black uppercase tracking-widest hover:bg-[#FEBA4F] transition-all">{t('backToAuctions')}</button>
                     </div>
                 )}
             </div>

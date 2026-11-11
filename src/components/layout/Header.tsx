@@ -1,11 +1,13 @@
+import { useServerAdmin } from '../../lib/useServerAdmin';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
-import { Check, Star, Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare, FileText, Menu, X, MapPin, Tag } from '../icons';
+import { Star, Search, Globe, ChevronDown, User, PlusCircle, Trophy, Eye, CreditCard, Settings, LogOut, ChevronRight, Gavel, MessageSquare, FileText, Menu, X, MapPin, Tag } from 'lucide-react';
 import { ViewState, Region, Category, AuctionItem } from "../../types";
 import { Portal } from '../ui/Portal';
 import { useChat } from "../../context/ChatContext";
 import { SloveniaMap } from "@/src/components/ui/SloveniaMap";
 import { getCategoryTranslation } from "../../lib/translations";
 import { getUserAuctionCycle, normalizeRegionName } from "../../lib/utils";
+import { getFounderStatus } from "../../lib/promotions";
 import { TERMS_VERSION } from '../../lib/termsVersion';
 import { NotificationBell, NotificationItem } from './NotificationBell';
 
@@ -51,6 +53,7 @@ export const Header: React.FC<{
   userProfilePicture?: string;
   userData?: any;
 }> = ({ isTermsBarReady = false, notifications = [], onMarkNotificationRead, onSelectNotification, onHome, onSearch, onRegionSelect, onRegionsChange, selectedRegions = [], onCategorySelect, onLastChance, onLogin, onRegister, onLogout, onSettings, onSubscriptions, onCreateAuction, onMyWinnings, onMyBids, onMySold, onMyUnsold, onMyReviews, onWatchlist, onMessages, onAcceptTerms, activeView, selectedRegion, selectedCategory, isLoggedIn, isAuthLoading, isVerified, language, onLanguageChange, t, auctions, newWinningsCount, userEmail, userProfilePicture, userData, onAdminAccounting }) => {
+  const serverAdmin = useServerAdmin(userData?.id);
   const { unreadMessageCount } = useChat();
 
   const [isRegOpen, setIsRegOpen] = useState(false);
@@ -129,6 +132,10 @@ export const Header: React.FC<{
   let isUnlimited = false;
   let activeTier = "FREE";
   let isTierCanceled = false;
+  // Deutscher Kommentar: Gruendungsmitglied-Status fuer Badge und Beschriftung
+  const founderInfo = getFounderStatus(userData);
+  const paidTierRaw = String(userData?.subscription_tier || userData?.subscription || 'FREE').toUpperCase();
+  const isFounderOnly = founderInfo.isActive && paidTierRaw !== 'PRO';
 
   if (userData && auctions) {
       const cycleInfo = getUserAuctionCycle(auctions, userData.id, userData);
@@ -224,28 +231,9 @@ export const Header: React.FC<{
     return counts;
   }, [auctions]);
 
-  // Leiste fuer aktualisierte Bedingungen nur anzeigen, wenn ein registrierter Benutzer die alten Bedingungen akzeptiert hat
-  const showTermsUpdateBar = isTermsBarReady && isLoggedIn && userData && (
-    (typeof userData.terms_version === 'string' && userData.terms_version.length > 0 && userData.terms_version !== TERMS_VERSION) ||
-    ((!userData.terms_version) && userData.terms_accepted_at)
-  );
 
   return (
-    <header ref={headerRef} className="bg-[#0A1128] text-white shadow-2xl border-b-2 border-[#FEBA4F] sticky top-0 z-[500]">
-      {showTermsUpdateBar && (
-        <div className="bg-[#FEBA4F] text-[#0A1128] px-4 sm:px-6 py-2.5 sm:py-3 flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-4 animate-in fade-in slide-in-from-top duration-500">
-          {/* Leiste fuer aktualisierte Bedingungen beim Laden */}
-          <p className="text-xs sm:text-sm font-black uppercase tracking-tight text-center sm:text-left">
-            Pogoje uporabe smo posodobili. Prosimo, preberite in potrdite jih za nadaljevanje.
-          </p>
-          <button 
-            onClick={onAcceptTerms}
-            className="bg-[#0A1128] text-white px-4 py-1.5 sm:px-6 sm:py-2 rounded-xl font-black text-xs uppercase tracking-widest hover:bg-slate-800 transition-colors shadow-lg min-h-[40px] flex items-center justify-center"
-          >
-            Preberi in potrdi
-          </button>
-        </div>
-      )}
+    <header ref={headerRef} className="bg-[#0A1128] text-white shadow-2xl border-b border-white/10 sticky top-0 z-[500]">
 
       {/* Haupt-Kopfzeile: Hoehe maximal 56px (h-14) auf Smartphones, h-28 auf Desktop */}
       <div className="max-w-[1600px] mx-auto px-3 sm:px-6 h-16 md:h-28 flex items-center justify-between gap-2 sm:gap-4">
@@ -274,6 +262,30 @@ export const Header: React.FC<{
 
         {/* Desktop-Aktionen (Sprache, Benachrichtigungen, Profil / Login) */}
         <div className="hidden md:flex items-center gap-3">
+          {/* Deutscher Kommentar: Schnellzugriff auf wichtige Aktionen direkt in der Kopfzeile */}
+          {!isAuthLoading && isLoggedIn && (
+            <button
+              onClick={onCreateAuction}
+              title={t('createAuction')}
+              className={`flex items-center gap-2 px-3 xl:px-5 py-2.5 rounded-xl font-black text-[11px] uppercase tracking-wider transition-all min-h-[40px] shadow-lg whitespace-nowrap ${activeView === 'createAuction' ? 'bg-white text-[#0A1128]' : 'bg-[#FEBA4F] text-[#0A1128] hover:bg-white'}`}
+            >
+              <PlusCircle size={16} />
+              <span className="hidden lg:inline">{t('createAuction')}</span>
+            </button>
+          )}
+          {isLoggedIn && (
+            <button
+              onClick={onMyWinnings}
+              title={t('myWinnings')}
+              className={`relative flex items-center gap-2 px-3 xl:px-4 py-2.5 rounded-xl border font-black text-[11px] uppercase tracking-wider transition-all min-h-[40px] whitespace-nowrap ${activeView === 'winnings' ? 'bg-[#FEBA4F] text-[#0A1128] border-transparent' : 'bg-white/5 border-white/10 text-white hover:bg-white/10'}`}
+            >
+              <Trophy size={16} className={activeView === 'winnings' ? '' : 'text-[#FEBA4F]'} />
+              <span className="hidden xl:inline">{t('myWinnings')}</span>
+              {wonAuctionsBadge > 0 && (
+                <span className="absolute -top-2 -right-2 bg-red-600 text-white text-[10px] font-extrabold min-w-[20px] h-5 px-1 flex items-center justify-center rounded-full border-2 border-[#0A1128] animate-pulse shadow-lg">{wonAuctionsBadge > 9 ? '9+' : wonAuctionsBadge}</span>
+              )}
+            </button>
+          )}
           {isLoggedIn && (
             <>
               <NotificationBell
@@ -332,7 +344,7 @@ export const Header: React.FC<{
               <div className="relative" ref={userMenuRef}>
                 <button 
                   onClick={() => setIsUserMenuOpen(!isUserMenuOpen)} 
-                  className="flex items-center gap-3 bg-white text-[#0A1128] px-6 py-2.5 rounded-2xl font-black text-sm shadow-xl hover:bg-slate-50 transition-colors min-h-[40px]"
+                  className="flex items-center gap-3 bg-white text-[#0A1128] px-6 py-2.5 rounded-xl font-black text-sm shadow-xl hover:bg-slate-50 transition-colors min-h-[40px]"
                 >
                 {wonAuctionsBadge > 0 && (
                   <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full animate-pulse">{wonAuctionsBadge > 9 ? '9+' : wonAuctionsBadge}</span>
@@ -355,9 +367,15 @@ export const Header: React.FC<{
                 <ChevronDown size={14} className={isUserMenuOpen ? 'rotate-180 transition-transform' : 'transition-transform'}/>
               </button>
               {isUserMenuOpen && (
-                <div className="absolute top-full right-0 mt-3 w-max min-w-[16rem] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-[1.35rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in [&_button]:whitespace-nowrap">
+                <div className="absolute top-full right-0 mt-3 w-max min-w-[16rem] max-w-[calc(100vw-1.5rem)] bg-white border border-slate-200 rounded-[2rem] shadow-2xl py-4 text-[#0A1128] overflow-hidden z-[100] animate-in [&_button]:whitespace-nowrap">
                     {userData && (
                       <div className="px-6 py-4 border-b border-slate-100 mb-2 bg-slate-50">
+                          {founderInfo.isActive && (
+                              <div className="mb-3 rounded-xl bg-gradient-to-r from-[#FEBA4F]/25 to-amber-100 border border-[#FEBA4F]/60 px-3 py-2">
+                                  <p className="text-[10px] font-black uppercase tracking-wider text-[#0A1128]">★ Ustanovni član #{founderInfo.number}</p>
+                                  <p className="text-[10px] font-bold text-slate-600 mt-0.5">Paket PRO do {new Date(founderInfo.until as string).toLocaleDateString('sl-SI')} · še {founderInfo.daysLeft} dni</p>
+                              </div>
+                          )}
                           <div className="flex items-center justify-between mb-1">
                               <p className="text-[10px] font-black text-slate-400 uppercase">Objave v ciklu</p>
                               {isUnlimited ? (
@@ -380,8 +398,8 @@ export const Header: React.FC<{
                           )}
                           {cycleResetDate && (
                               <p className="text-[10px] text-slate-500 mt-2 font-medium">
-                                  {activeTier !== 'FREE' 
-                                      ? (isTierCanceled ? 'Velja do: ' : 'Naslednja bremenitev: ') 
+ {activeTier !== 'FREE' 
+                                      ? (isFounderOnly ? 'Ugodnost velja do: ' : (isTierCanceled ? 'Velja do: ' : 'Naslednja bremenitev: ')) 
                                       : 'Ponastavitev: '}
                                   <span className="font-bold text-[#0A1128]">{cycleResetDate.toLocaleDateString('sl-SI')}</span>
                               </p>
@@ -432,9 +450,9 @@ export const Header: React.FC<{
                     <button onClick={() => { onWatchlist(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Eye size={18} /> {t('watchlist')}</button>
                     <button onClick={() => { onSubscriptions(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><CreditCard size={18} /> {t('subscriptions')}</button>
                     <button onClick={() => { onSettings(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest"><Settings size={18} /> {t('settings')}</button>
-                    {((userData?.role === 'admin' || userData?.isAdmin === true || ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).includes(userData?.id))) && onAdminAccounting && (
+                    {(serverAdmin || userData?.role === 'admin' || userData?.isAdmin === true || ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).includes(userData?.id)) && onAdminAccounting && (
                       <button onClick={() => { onAdminAccounting(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-slate-50 transition-colors text-xs font-black uppercase tracking-widest text-[#0A1128] border-t border-slate-100">
-                        <FileText size={18} className="text-[#FEBA4F]" /> Računovodstvo
+                        <Settings size={18} className="text-[#FEBA4F]" /> Admin
                       </button>
                     )}
                     <button onClick={() => { onLogout(); setIsUserMenuOpen(false); }} className="w-full flex items-center gap-3 px-6 py-4 hover:bg-red-50 text-red-600 transition-colors text-xs font-black uppercase tracking-widest border-t border-slate-100"><LogOut size={18} /> {t('logout')}</button>
@@ -443,14 +461,15 @@ export const Header: React.FC<{
               </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center gap-1">
+            <div className="flex items-center gap-2">
+              {/* Deutscher Kommentar: Registrierung und Anmeldung stehen nebeneinander, gleich hoch wie der Sprachwaehler */}
               <button 
                 onClick={onRegister || onLogin} 
-                className="text-[#FEBA4F] underline underline-offset-2 text-[11px] font-black uppercase tracking-widest hover:text-white transition-colors"
+                className="px-4 xl:px-5 py-2.5 rounded-xl border border-[#FEBA4F]/60 text-[#FEBA4F] font-black text-xs uppercase tracking-wider hover:bg-[#FEBA4F]/10 hover:text-white transition-colors min-h-[40px] whitespace-nowrap flex items-center justify-center"
               >
                 Registracija
               </button>
-              <button onClick={onLogin} className="bg-[#FEBA4F] text-[#0A1128] px-8 py-2.5 rounded-2xl font-black text-sm uppercase tracking-widest hover:bg-white transition-all shadow-xl min-h-[40px]">{t('login')}</button>
+              <button onClick={onLogin} className="bg-[#FEBA4F] text-[#0A1128] px-5 xl:px-7 py-2.5 rounded-xl font-black text-xs uppercase tracking-wider hover:bg-white transition-all shadow-xl min-h-[40px] whitespace-nowrap flex items-center justify-center">{t('login')}</button>
             </div>
           )}
         </div>
@@ -706,12 +725,12 @@ export const Header: React.FC<{
                     <Settings size={16} className="text-[#FEBA4F]" /> {t('settings')}
                   </button>
 
-                  {((userData?.role === 'admin' || userData?.isAdmin === true || ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).includes(userData?.id))) && onAdminAccounting && (
+                  {(serverAdmin || userData?.role === 'admin' || userData?.isAdmin === true || ((import.meta.env.VITE_ADMIN_UIDS as string) || '').split(',').map((s: string) => s.trim()).includes(userData?.id)) && onAdminAccounting && (
                     <button 
                       onClick={() => { onAdminAccounting(); setIsMobileDrawerOpen(false); }} 
                       className="flex items-center gap-2.5 px-3 py-2.5 rounded-xl hover:bg-white/5 text-xs font-black uppercase tracking-wider text-[#FEBA4F] min-h-[40px]"
                     >
-                      <FileText size={16} /> Računovodstvo
+                      <Settings size={16} /> Admin
                     </button>
                   )}
 
@@ -779,7 +798,7 @@ export const Header: React.FC<{
                       onClick={() => { toggleRegion(r); }} 
                       className={`text-left py-1.5 px-2 text-[11px] font-bold hover:text-[#FEBA4F] flex items-center justify-between ${activeRegions.some(x => x === r) ? 'text-[#FEBA4F]' : 'text-slate-300'}`}
                     >
-                      <span className="flex items-center gap-1.5">{activeRegions.some(x => x === r) ? <Check size={12} strokeWidth={2.5} /> : null}{r}</span>
+                      <span>{activeRegions.some(x => x === r) ? '✓ ' : ''}{r}</span>
                       {regionCounts[r] > 0 && <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-slate-300">{regionCounts[r]}</span>}
                     </button>
                   ))}

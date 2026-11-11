@@ -160,6 +160,37 @@ export async function sendAuctionWonNotification(params: {
 }
 
 /**
+ * Triggered when a won auction pushes the buyer over the annual 10,000 EUR limit without identity verification
+ */
+export async function sendAmlVerificationRequiredNotification(params: {
+  toEmail: string;
+  recipientName?: string;
+  auctionId: string;
+  auctionTitle: string;
+  auctionImageUrl?: string;
+  amountEur: number;
+  totalEur?: number;
+}): Promise<{ success: boolean; error?: string }> {
+  const baseUrl = getBaseAppUrl();
+  const auctionUrl = `${baseUrl}/?drazba=${params.auctionId}`;
+  // Deutscher Kommentar: Link fuehrt in die Einstellungen (Osebni podatki), dort liegt der Verifizierungs-Button
+  const verifyUrl = `${baseUrl}/nastavitve?zavihek=osebno`;
+
+  const subject = `Potrebna je verifikacija identitete: ${params.auctionTitle} - dražbenik.si`;
+
+  return sendAuctionEmail(params.toEmail, subject, {
+    type: 'aml_verification_required',
+    recipientName: params.recipientName || 'Spoštovani kupec',
+    auctionTitle: params.auctionTitle,
+    auctionImageUrl: params.auctionImageUrl,
+    currentPrice: params.amountEur,
+    auctionUrl,
+    paymentUrl: verifyUrl,
+    settingsUrl: `${baseUrl}/?tab=settings`,
+  });
+}
+
+/**
  * Triggered 2 hours before 48h payment deadline expires
  */
 export async function sendPaymentReminderNotification(params: {

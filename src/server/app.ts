@@ -20,6 +20,7 @@ import {
   AUTO_RELEASE_AFTER_SHIPPED_DAYS_CROSS_BORDER,
   AUTO_COMPLETE_AFTER_DELIVERED_DAYS,
   PICKUP_AUTO_RELEASE_DAYS,
+  MIN_USER_AGE,
   PRE_RELEASE_BUYER_REMINDER_HOURS,
   PAYOUT_MAX_ATTEMPTS,
   HOLD_HARD_LIMIT_DAYS,
@@ -29,6 +30,19 @@ import {
 } from './escrowConfig';
 import { getEffectiveTier, calculateTotals, calculatePlatformFeeCents } from '../lib/feeCalculator';
 import { authenticateFirebaseUser } from './authHelper';
+import {
+  registerPromotionRoutes,
+  grantFounderIfEligible,
+  attachReferralOnSignup,
+  recordSignupFingerprint,
+  buildFingerprint,
+  processReferralOnSale,
+  resolvePromoForPurchase,
+  markPromoRedeemed,
+  consumeListingCredit,
+  PromoError
+} from './promotions';
+import { getActiveListingCredits } from '../lib/promotions';
 import {
   formatStripeError,
   ensurePlatformTestBalance,
@@ -59,6 +73,8 @@ import {
 } from './emailService';
 import { syncPublicProfile } from './publicProfile';
 import { TERMS_VERSION } from '../lib/termsVersion';
+import { BUSINESS_USERS_ENABLED, NEW_SELLER_MAX_PRICE_EUR, NEW_SELLER_SALES_THRESHOLD } from '../lib/featureFlags';
+import { isRealEstateCategory, isRegisteredVehicle } from '../lib/restrictedListings';
 import { translations } from '../lib/translations';
 
 // Deutscher Kommentar: Speichert einen unveraenderlichen Nachweis ueber die Zustimmung zu den AGB
@@ -93,9 +109,11 @@ async function recordTermsAcceptance(params: {
     console.error("Fehler beim Speichern des AGB-Nachweises:", err);
   }
 }
-import { isBankTransferAvailable, resolvePaymentDeadlineMs, addWorkingDays } from '../lib/bankTransfer';
+import { isBankTransferAvailable, resolvePaymentDeadlineMs, addWorkingDays, isCardAllowed } from '../lib/bankTransfer';
 import { cancelAuctionBankTransfer } from './bankTransferCancel';
 import { PLATFORM_COMPANY } from '../lib/platformCompany';
+import { isMinorByBirthYear, needsParentalConsent, PARENTAL_CONSENT_VERSION } from '../lib/minorConsent';
+import { computeAmlExposure } from './amlExposure';
 import { claimIdentityLock, releaseIdentityLock, markIdentityBlocked, normalizeTaxId, lockKey } from './identityLock';
 // Benachrichtigungs- und Anwesenheitshelfer
 import { getIncrement } from '../lib/bidIncrement';
@@ -188,6 +206,29 @@ async function assertVerifiedUser(userId: string, userData: any): Promise<void> 
     const err: any = new Error("Za to dejanje morate najprej potrditi svoj e-poštni naslov.");
     err.statusCode = 403;
     err.code = 'EMAIL_NOT_VERIFIED';
+    throw err;
+  }
+
+  // Deutscher Kommentar: Altersgrenze anhand des Geburtsjahres (nur Jahr, kein volles Datum)
+  const by = Number(userData?.birth_year);
+  if (!Number.isInteger(by) || by < 1900) {
+    const err: any = new Error("Za to dejanje morate najprej vnesti letnico rojstva (Nastavitve, Osebni podatki).");
+    err.statusCode = 403;
+    err.code = 'BIRTH_YEAR_REQUIRED';
+    throw err;
+  }
+  if (new Date().getFullYear() - by < MIN_USER_AGE) {
+    const err: any = new Error(`Za ponujanje in objavo dražb morate biti stari vsaj ${MIN_USER_AGE} let.`);
+    err.statusCode = 403;
+    err.code = 'AGE_RESTRICTED';
+    throw err;
+  }
+
+  // Deutscher Kommentar: Nutzer zwischen 16 und 18 Jahren duerfen ohne gespeicherte Zustimmung der Eltern weder bieten noch inserieren
+  if (needsParentalConsent(userData)) {
+    const err: any = new Error("Za oddajo ponudb in objavo dražb morate potrditi soglasje staršev oziroma zakonitih zastopnikov (Verifikacija).");
+    err.statusCode = 403;
+    err.code = 'PARENTAL_CONSENT_REQUIRED';
     throw err;
   }
 
@@ -315,7 +356,7 @@ async function getBuyerTaxContext(userId: string, userData: any): Promise<{ coun
   };
 }
 
-async function computeBuyerTotals(buyerId: string, buyerData: any, itemPriceCents: number) {
+async function computeBuyerTotals(buyerId: string, buyerData: any, itemPriceCents: number, promoCode?: any) {
   const tier = getEffectiveTier(buyerData);
   const taxCtx = await getBuyerTaxContext(buyerId, buyerData);
   const totals = calculateTotals({
@@ -325,9 +366,26 @@ async function computeBuyerTotals(buyerId: string, buyerData: any, itemPriceCent
     isBusiness: taxCtx.isBusiness,
     hasValidVatId: taxCtx.hasValidVatId
   });
+
+  // Deutscher Kommentar: Aktionscode senkt die Provision; MwSt und Gesamtbetrag werden danach neu berechnet
+  let promoApplied: { code: string; discountCents: number; description: string } | null = null;
+  if (promoCode && String(promoCode).trim()) {
+    promoApplied = await resolvePromoForPurchase(promoCode, buyerId, itemPriceCents, totals.feeCents);
+    if (promoApplied.discountCents > 0) {
+      const newFee = totals.feeCents - promoApplied.discountCents;
+      const newVat = Math.round((newFee * totals.vatRate) / 100);
+      totals.feeCents = newFee;
+      totals.bracketFeeCents = newFee;
+      totals.vatCents = newVat;
+      totals.totalCents = itemPriceCents + newFee + newVat;
+      totals.feePercent = itemPriceCents > 0 ? Math.round((newFee / itemPriceCents) * 10000) / 100 : 0;
+    }
+  }
   return {
     ...totals,
-    tier
+    tier,
+    promoCode: promoApplied?.code || null,
+    promoDiscountCents: promoApplied?.discountCents || 0
   };
 }
 
@@ -1449,6 +1507,14 @@ async function completeTransactionAndPayout(txRef: any, txId: string, reason: st
   } catch (payErr: any) {
     console.error('[completeTransactionAndPayout] fund release failed:', payErr?.message);
   }
+  // Deutscher Kommentar: Erster abgeschlossener Verkauf eines eingeladenen Nutzers loest die Einladungsbelohnung aus
+  try {
+    const txSnap = await txRef.get();
+    const txData: any = getDocSnapshotData(txSnap) || {};
+    if (txData.seller_id) await processReferralOnSale(txData.seller_id, txData.buyer_id);
+  } catch (refErr: any) {
+    console.warn('[completeTransactionAndPayout] referral reward skipped:', refErr?.message);
+  }
 }
 
 // Zufaellige 6-stellige PIN (kryptografisch sicher, nicht fortlaufend)
@@ -1465,6 +1531,17 @@ async function executeSellerBatchPayout(sellerId: string, trigger: 'manual' | 'a
   const stripeAccountId = user.stripe_account_id || user.stripeAccountId;
   if (!stripeAccountId || !user.stripe_onboarding_complete) {
     return { success: false, error: 'Račun za izplačila ni urejen.' };
+  }
+
+  // Deutscher Kommentar: Keine Auszahlung bei offener Rueckbuchungsschuld oder laufendem Kartenstreit des Verkaeufers
+  if (Number(user.chargeback_debt_cents || 0) > 0) {
+    return { success: false, error: 'Izplačila so zadržana zaradi neporavnanega dolga iz spora pri banki. Kontaktirajte podporo.' };
+  }
+  const openCbSnap = await safeGetDocs(
+    adminDb.collection('transactions').where('seller_id', '==', sellerId).where('chargeback_open', '==', true).limit(1)
+  );
+  if (!openCbSnap.empty) {
+    return { success: false, error: 'Izplačila so začasno zadržana zaradi odprtega spora pri banki.' };
   }
 
   // Deutscher Kommentar: Sperre bei automatischem Aufruf setzen
@@ -2135,7 +2212,9 @@ async function finalizeAuctionPayment(params: {
       }
     }
 
-    const autoReleaseAtIso = deliveryMethod === 'pickup'
+    // Deutscher Kommentar: Fahrzeuge werden nie automatisch freigegeben, nur per PIN, Streitfall oder Admin
+    const isVehicleAuction = isRegisteredVehicle(auction.category, auction.specifications);
+    const autoReleaseAtIso = (deliveryMethod === 'pickup' && !isVehicleAuction)
       ? new Date(Date.now() + PICKUP_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString()
       : null;
 
@@ -2237,6 +2316,11 @@ async function finalizeAuctionPayment(params: {
     await adminDb.collection('auctions').doc(auctionId).update(auctionFinalUpdate);
 
     await recordSaleCompletion(auctionId, sellerId);
+
+    // Deutscher Kommentar: Verwendeten Aktionscode nach erfolgreicher Zahlung verbuchen
+    if (meta && meta.promo_code) {
+      await markPromoRedeemed(String(meta.promo_code), buyerId, auctionId, Number(meta.promo_discount_cents) || 0);
+    }
 
     try {
       await recordAmlSpend({
@@ -3009,6 +3093,22 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
           patch.frozen_reason = 'chargeback';
         }
         await txDoc.ref.update(patch);
+        // Deutscher Kommentar: Nachweispaket automatisch vorbereiten und als Entwurf bei Stripe hinterlegen (nicht einreichen)
+        try {
+          const packet = await buildChargebackEvidence(txDoc.id);
+          if (packet) {
+            let draftUploaded = false;
+            try {
+              await getStripe().disputes.update(dispute.id, { evidence: packet.evidence as any, submit: false });
+              draftUploaded = true;
+            } catch (upErr: any) {
+              console.warn('[webhook] Entwurf bei Stripe nicht gespeichert:', upErr?.message);
+            }
+            await txDoc.ref.update({ chargeback_evidence_packet: { built_at: nowIso, draft_uploaded: draftUploaded, summary: packet.summary } });
+          }
+        } catch (packErr: any) {
+          console.warn('[webhook] Nachweispaket fehlgeschlagen:', packErr?.message);
+        }
       }
       await adminDb.collection('admin_alerts').doc('chargeback_' + dispute.id).set({
         type: 'CHARGEBACK_OPENED',
@@ -3023,6 +3123,56 @@ app.post('/api/webhook', express.raw({ type: 'application/json' }), async (req, 
     } catch (err: any) {
       console.error('[webhook] Error processing charge.dispute.created:', err?.message || err);
       res.status(500).json({ error: 'dispute handling failed' });
+      return;
+    }
+    res.json({ received: true });
+    return;
+  } else if (event.type === 'charge.dispute.closed') {
+    // Deutscher Kommentar: Kartenstreit abgeschlossen - bei Gewinn Auszahlung wieder freigeben, bei Verlust Schuld des Verkaeufers erfassen
+    const dispute = event.data.object as Stripe.Dispute;
+    try {
+      const piId = typeof dispute.payment_intent === 'string' ? dispute.payment_intent : (dispute.payment_intent as any)?.id;
+      const chargeId = typeof dispute.charge === 'string' ? dispute.charge : (dispute.charge as any)?.id;
+      const txDoc = await findTransactionByStripeRefs(piId, chargeId);
+      const nowIso = new Date().toISOString();
+      const won = dispute.status === 'won';
+      const lost = dispute.status === 'lost';
+      if (txDoc) {
+        const tx: any = txDoc.data() || {};
+        const patch: any = { chargeback_open: false, chargeback_status: dispute.status, chargeback_closed_at: nowIso };
+        if (won && tx.payout_status === 'frozen' && tx.frozen_reason === 'chargeback') {
+          patch.payout_status = tx.status === 'COMPLETED' ? 'releasable' : 'held';
+          patch.frozen_reason = null;
+        }
+        if (lost) {
+          if (tx.payout_status === 'paid_out' || tx.payout_status === 'payout_pending') {
+            const sellerId = tx.seller_id;
+            if (sellerId) {
+              await adminDb.collection('users').doc(sellerId).set({
+                chargeback_debt_cents: FieldValue.increment(dispute.amount || 0)
+              }, { merge: true });
+            }
+            patch.chargeback_debt_recorded = true;
+          } else {
+            patch.payout_status = 'refunded';
+            patch.status = 'REFUNDED';
+            patch.refunded_at = nowIso;
+            patch.refund_reason = 'chargeback_lost';
+          }
+        }
+        await txDoc.ref.update(patch);
+      }
+      await adminDb.collection('admin_alerts').doc('chargeback_closed_' + dispute.id).set({
+        type: lost ? 'CHARGEBACK_LOST' : (won ? 'CHARGEBACK_WON' : 'CHARGEBACK_CLOSED'),
+        transaction_id: txDoc ? txDoc.id : null,
+        dispute_id: dispute.id,
+        status: dispute.status,
+        amount_cents: dispute.amount || 0,
+        created_at: nowIso
+      }, { merge: true });
+    } catch (err: any) {
+      console.error('[webhook] Error processing charge.dispute.closed:', err?.message || err);
+      res.status(500).json({ error: 'dispute close handling failed' });
       return;
     }
     res.json({ received: true });
@@ -3203,6 +3353,107 @@ const handleCronCheck = async (req: express.Request, res: express.Response) => {
   }
 };
 
+// Deutscher Kommentar: Taeglicher Admin-Hinweis auf offene Kartenstreitfaelle und Schulden von Verkaeufern
+const handleChargebackReminders = async (req: express.Request, res: express.Response) => {
+  if (!requireCronSecret(req, res)) return;
+  try {
+    // Deutscher Kommentar: Abgelaufene Beweisprotokolle loeschen (Aufbewahrung 18 Monate)
+    try {
+      const expSnap = await safeGetDocs(adminDb.collection('evidence_log').where('expires_at', '<', new Date().toISOString()).limit(300));
+      for (const d of expSnap.docs) { await d.ref.delete(); }
+    } catch (cleanErr: any) {
+      console.warn('[evidence-cleanup]', cleanErr?.message);
+    }
+    const openSnap = await safeGetDocs(adminDb.collection('transactions').where('chargeback_open', '==', true));
+    const debtSnap = await safeGetDocs(adminDb.collection('users').where('chargeback_debt_cents', '>', 0));
+    if (openSnap.empty && debtSnap.empty) {
+      return res.json({ success: true, open: 0, debts: 0 });
+    }
+    const esc = (x: any) => String(x ?? '').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    const rows = openSnap.docs.map((d: any) => {
+      const t = d.data() || {};
+      const due = t.chargeback_evidence_due_by ? new Date(t.chargeback_evidence_due_by) : null;
+      const daysLeft = due ? Math.ceil((due.getTime() - Date.now()) / 86400000) : null;
+      const urgent = daysLeft !== null && daysLeft <= 3;
+      return `<li>${urgent ? '<b>NUJNO </b>' : ''}Transakcija ${esc(d.id)}, znesek ${((t.chargeback_amount_cents || 0) / 100).toFixed(2)} €, razlog ${esc(t.chargeback_reason)}, rok za dokaze ${due ? due.toLocaleDateString('sl-SI') : 'neznan'}${daysLeft !== null ? ` (še ${daysLeft} dni)` : ''}, izplačilo prodajalcu: ${esc(t.payout_status)}</li>`;
+    }).join('');
+    const debtRows = debtSnap.docs.map((d: any) => {
+      const u = d.data() || {};
+      return `<li>Prodajalec ${esc(d.id)} (${esc(u.email)}): dolg ${((u.chargeback_debt_cents || 0) / 100).toFixed(2)} €</li>`;
+    }).join('');
+    if (resendClient) {
+      await resendClient.emails.send({
+        from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+        to: adminEmailAddress,
+        subject: `Opomnik: odprti spori pri banki (${openSnap.size}), dolgovi prodajalcev (${debtSnap.size})`,
+        html: `<p>Odprti spori pri banki (chargebacki):</p><ul>${rows || '<li>ni</li>'}</ul><p>Neporavnani dolgovi prodajalcev:</p><ul>${debtRows || '<li>ni</li>'}</ul><p>Dokaze oddajte v Stripe pred rokom.</p>`
+      });
+    }
+    return res.json({ success: true, open: openSnap.size, debts: debtSnap.size });
+  } catch (err: any) {
+    console.error('[chargeback-reminders]', err?.message || err);
+    return res.status(500).json({ error: 'reminder failed' });
+  }
+};
+app.get("/api/cron/chargeback-reminders", handleChargebackReminders);
+app.post("/api/cron/chargeback-reminders", handleChargebackReminders);
+
+// Deutscher Kommentar: Client fragt, ob der angemeldete Nutzer Administrator ist (ADMIN_UIDS gilt nur serverseitig)
+registerPromotionRoutes(app, { isAdminUser });
+
+app.get("/api/admin/me", async (req, res) => {
+  try {
+    const uid = await authenticateFirebaseUser(req);
+    return res.json({ isAdmin: await isAdminUser(uid) });
+  } catch (_) {
+    return res.json({ isAdmin: false });
+  }
+});
+
+// Deutscher Kommentar: Admin reicht das Nachweispaket bei Stripe ein (baut es vorher neu aus den aktuellen Daten)
+app.post("/api/admin/chargebacks/:disputeId/submit-evidence", async (req, res) => {
+  let adminUid: string;
+  try {
+    adminUid = await authenticateFirebaseUser(req);
+  } catch (e: any) {
+    return res.status(401).json({ error: e.message || 'Unauthorized' });
+  }
+  if (!(await isAdminUser(adminUid))) return res.status(403).json({ error: 'Forbidden' });
+  try {
+    const disputeId = req.params.disputeId;
+    const q = await safeGetDocs(adminDb.collection('transactions').where('chargeback_id', '==', disputeId).limit(1));
+    if (q.empty) return res.status(404).json({ error: 'Transakcija za ta spor ne obstaja.' });
+    const txDoc = q.docs[0];
+    const packet = await buildChargebackEvidence(txDoc.id);
+    if (!packet) return res.status(404).json({ error: 'Podatkov ni mogoče sestaviti.' });
+    const submit = (req.body || {}).submit === true;
+    await getStripe().disputes.update(disputeId, { evidence: packet.evidence as any, submit });
+    const nowIso = new Date().toISOString();
+    await txDoc.ref.update(submit
+      ? { chargeback_evidence_submitted_at: nowIso, chargeback_evidence_packet: { built_at: nowIso, draft_uploaded: true, submitted: true, summary: packet.summary } }
+      : { chargeback_evidence_packet: { built_at: nowIso, draft_uploaded: true, summary: packet.summary } });
+    await adminDb.collection('admin_logs').add({ action: submit ? 'SUBMIT_CHARGEBACK_EVIDENCE' : 'REFRESH_CHARGEBACK_DRAFT', admin_uid: adminUid, dispute_id: disputeId, created_at: nowIso });
+    return res.json({ success: true, submitted: submit, summary: packet.summary });
+  } catch (err: any) {
+    console.error('[submit-evidence]', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Oddaja dokazov ni uspela.' });
+  }
+});
+
+// Deutscher Kommentar: Admin loescht eine beglichene Rueckbuchungsschuld eines Verkaeufers
+app.post("/api/admin/users/:id/clear-chargeback-debt", async (req, res) => {
+  let adminUid: string;
+  try {
+    adminUid = await authenticateFirebaseUser(req);
+  } catch (e: any) {
+    return res.status(401).json({ error: e.message || 'Unauthorized' });
+  }
+  if (!(await isAdminUser(adminUid))) return res.status(403).json({ error: 'Forbidden' });
+  await adminDb.collection('users').doc(req.params.id).set({ chargeback_debt_cents: 0 }, { merge: true });
+  await adminDb.collection('admin_logs').add({ action: 'CLEAR_CHARGEBACK_DEBT', admin_uid: adminUid, target_uid: req.params.id, created_at: new Date().toISOString() });
+  return res.json({ success: true });
+});
+
 app.get("/api/cron/check-auctions", handleCronCheck);
 app.post("/api/cron/check-auctions", handleCronCheck);
 app.get("/api/cron-auctions", handleCronCheck);
@@ -3266,6 +3517,27 @@ app.get("/api/cron/reconcile-bank-transfers", async (req, res) => {
   }
 });
 
+// Deutscher Kommentar: Stand des Jahreslimits (bezahlt + gewonnen/unbezahlt) fuer Banner und Bietwarnung
+app.get("/api/aml-status", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+  try {
+    const userSnap = await safeGetDoc(adminDb.collection('users').doc(userId));
+    if (!userSnap.exists()) {
+      return res.status(404).json({ error: "Uporabnik ne obstaja." });
+    }
+    const exposure = await computeAmlExposure(userId, userSnap.data() || {});
+    res.json(exposure);
+  } catch (e: any) {
+    console.error('[aml-status] Error:', e?.message || e);
+    res.status(500).json({ error: "Stanja limita ni bilo mogoče pridobiti." });
+  }
+});
+
 // Dedicated endpoint for placing bids with instant outbid email triggers
 app.post("/api/place-bid", async (req, res) => {
   // Nutzer-ID ausschliesslich aus dem verifizierten Token
@@ -3317,6 +3589,20 @@ app.post("/api/place-bid", async (req, res) => {
       return res.status(403).json({ error: verErr.message, code: verErr.code });
     }
 
+    // Deutscher Kommentar: Wer das Jahreslimit (bezahlt + gewonnen, noch unbezahlt) ueberschritten hat, darf erst nach Identitaetspruefung wieder bieten
+    try {
+      const amlExposure = await computeAmlExposure(userId, userData);
+      if (amlExposure.exceeded) {
+        return res.status(403).json({
+          error: "Presegli ste letni limit nakupov (10.000 €). Za oddajo novih ponudb najprej opravite verifikacijo z osebnim dokumentom.",
+          code: 'AML_VERIFICATION_REQUIRED',
+        });
+      }
+    } catch (amlErr: any) {
+      // Deutscher Kommentar: Bei Fehler der Pruefung nicht blockieren; die Zahlung prueft das Limit ohnehin erneut
+      console.error('[place-bid] AML exposure check failed:', amlErr?.message || amlErr);
+    }
+
     let outbidUserToNotify: { userId: string; newPrice: number; auctionTitle: string; auctionImageUrl?: string } | null = null;
     let finalWinnerId = userId;
     let finalPrice = amount;
@@ -3338,6 +3624,10 @@ app.post("/api/place-bid", async (req, res) => {
       const myBidData = isDocSnapshotExists(myBidDoc) ? (getDocSnapshotData(myBidDoc) || {}) : {};
       const isFirstBidOnAuction = !isDocSnapshotExists(myBidDoc) || !myBidData.updated_at;
       wasFirstBidOnAuction = isFirstBidOnAuction;
+
+      if (data.new_seller_cap === true && amount > NEW_SELLER_MAX_PRICE_EUR) {
+        throw new Error(`Prodajalec je nov na platformi, zato je najvišja ponudba omejena na ${NEW_SELLER_MAX_PRICE_EUR} €.`);
+      }
 
       if (isFirstBidOnAuction && req.body.accepted_bid_terms !== true) {
         throw new Error("BID_TERMS_REQUIRED");
@@ -3528,6 +3818,7 @@ app.post("/api/place-bid", async (req, res) => {
     });
 
     if (wasFirstBidOnAuction) {
+      await logEvidence(req, { type: 'first_bid', userId, role: 'buyer', auctionId: auction_id, extra: { amount } });
       await recordTermsAcceptance({
         uid: userId,
         context: 'first_bid',
@@ -3642,8 +3933,18 @@ app.post('/api/fees/preview', async (req, res) => {
     const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
     const userData = userDoc.exists ? (userDoc.data() || {}) : {};
 
-    const result = await computeBuyerTotals(userId, userData, itemPriceCents);
-    return res.json(result);
+    // Deutscher Kommentar: Ungueltiger Aktionscode bricht die Vorschau nicht ab, der Fehler wird mitgeliefert
+    const previewPromo = (req.body || {}).promo_code;
+    try {
+      const result = await computeBuyerTotals(userId, userData, itemPriceCents, previewPromo);
+      return res.json(result);
+    } catch (promoErr: any) {
+      if (promoErr instanceof PromoError) {
+        const base = await computeBuyerTotals(userId, userData, itemPriceCents);
+        return res.json({ ...base, promoError: promoErr.message });
+      }
+      throw promoErr;
+    }
   } catch (err: any) {
     console.error('[fees/preview]', err);
     return res.status(500).json({ error: 'Izračuna provizije ni bilo mogoče pridobiti.' });
@@ -3828,8 +4129,19 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
 
       const effectiveSellerId = auction.seller_id || auction.sellerId || '';
-      const buyerTotals = await computeBuyerTotals(userId, buyer, authoritativePriceInCents);
+      let buyerTotals: Awaited<ReturnType<typeof computeBuyerTotals>>;
+      try {
+        buyerTotals = await computeBuyerTotals(userId, buyer, authoritativePriceInCents, (req.body || {}).promo_code);
+      } catch (promoErr: any) {
+        if (promoErr instanceof PromoError) return res.status(400).json({ error: promoErr.message, code: 'PROMO_INVALID' });
+        throw promoErr;
+      }
       finalAmountCents = buyerTotals.totalCents;
+
+      // Deutscher Kommentar: Ueber dem Kartenlimit nur Ueberweisung; bei Ueberweisung ueber dem Limit entfaellt die Einmal-Sperre
+      if (!isBankTransfer && !isCardAllowed(finalAmountCents)) {
+        return res.status(400).json({ error: "Za zneske nad 500 € je mogoče plačati samo z bančnim nakazilom.", code: 'CARD_LIMIT_EXCEEDED' });
+      }
 
       let sellerAccountId = '';
       try {
@@ -3900,6 +4212,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
         vat_rate: String(buyerTotals.vatRate),
         reverse_charge: buyerTotals.isReverseCharge ? '1' : '0',
         tier: buyerTotals.tier,
+        ...(buyerTotals.promoCode ? { promo_code: buyerTotals.promoCode, promo_discount_cents: String(buyerTotals.promoDiscountCents) } : {}),
         ...(isBankTransfer ? { payment_method: 'bank_transfer' } : {})
       };
 
@@ -4017,7 +4330,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
       payment_intent_data: {
         metadata: sessionMetadata,
         ...(type === 'auction' && (req as any)._sellerAccountId ? {
-          application_fee_amount: (req as any)._buyerTotals.feeCents + (req as any)._buyerTotals.vatCents,
+          ...(((req as any)._buyerTotals.feeCents + (req as any)._buyerTotals.vatCents) > 0 ? { application_fee_amount: (req as any)._buyerTotals.feeCents + (req as any)._buyerTotals.vatCents } : {}),
           transfer_data: { destination: (req as any)._sellerAccountId },
           transfer_group: 'auction_' + (req as any)._auctionId,
         } : {}),
@@ -4028,6 +4341,11 @@ app.post("/api/create-checkout-session", async (req, res) => {
       success_url: successUrl,
       cancel_url: cancelUrl,
     };
+
+    if (!isBankTransfer) {
+      // Deutscher Kommentar: 3D Secure bei jeder Kartenzahlung anfordern (Haftungsverschiebung auf die Bank)
+      sessionParams.payment_method_options = { card: { request_three_d_secure: 'any' } };
+    }
 
     if (isBankTransfer) {
       sessionParams.payment_method_options = {
@@ -4058,6 +4376,10 @@ app.post("/api/create-checkout-session", async (req, res) => {
       }
     } else if (buyer?.email) {
       sessionParams.customer_email = buyer.email;
+    }
+
+    if (type === 'auction' && (req as any)._auctionId) {
+      await logEvidence(req, { type: 'checkout_started', userId, role: 'buyer', auctionId: (req as any)._auctionId, extra: { payment_method: isBankTransfer ? 'bank_transfer' : 'card', amount_cents: finalAmountCents } });
     }
 
     let session: Stripe.Checkout.Session;
@@ -4484,8 +4806,19 @@ app.post("/api/create-payment-intent", async (req, res) => {
     }
 
     const effectiveSellerId = auction.seller_id || auction.sellerId || '';
-    const buyerTotals = await computeBuyerTotals(userId, buyer, authoritativePriceInCents);
+    let buyerTotals: Awaited<ReturnType<typeof computeBuyerTotals>>;
+    try {
+      buyerTotals = await computeBuyerTotals(userId, buyer, authoritativePriceInCents, (req.body || {}).promo_code);
+    } catch (promoErr: any) {
+      if (promoErr instanceof PromoError) return res.status(400).json({ error: promoErr.message, code: 'PROMO_INVALID' });
+      throw promoErr;
+    }
     const finalAmountCents = buyerTotals.totalCents;
+
+    // Deutscher Kommentar: Ueber dem Kartenlimit keine Kartenzahlung ueber den Payment Intent
+    if (!isCardAllowed(finalAmountCents)) {
+      return res.status(400).json({ error: "Za zneske nad 500 € je mogoče plačati samo z bančnim nakazilom.", code: 'CARD_LIMIT_EXCEEDED' });
+    }
 
     let sellerAccountId = '';
     try {
@@ -4524,7 +4857,7 @@ app.post("/api/create-payment-intent", async (req, res) => {
       automatic_payment_methods: {
         enabled: true,
       },
-      application_fee_amount: buyerTotals.feeCents + buyerTotals.vatCents,
+      ...((buyerTotals.feeCents + buyerTotals.vatCents) > 0 ? { application_fee_amount: buyerTotals.feeCents + buyerTotals.vatCents } : {}),
       transfer_data: { destination: sellerAccountId },
       transfer_group: 'auction_' + effectiveAuctionId,
       metadata: {
@@ -4537,7 +4870,8 @@ app.post("/api/create-payment-intent", async (req, res) => {
         vat_cents: String(buyerTotals.vatCents),
         vat_rate: String(buyerTotals.vatRate),
         reverse_charge: buyerTotals.isReverseCharge ? '1' : '0',
-        tier: buyerTotals.tier
+        tier: buyerTotals.tier,
+        ...(buyerTotals.promoCode ? { promo_code: buyerTotals.promoCode, promo_discount_cents: String(buyerTotals.promoDiscountCents) } : {})
       }
     };
 
@@ -5546,6 +5880,141 @@ async function checkAndApplySellerPenalties(seller_id: string) {
   }
 }
 
+// Deutscher Kommentar: Beweisprotokoll fuer Streitfaelle (IP, Geraet, Zeit) - nur serverseitig lesbar, Aufbewahrung 18 Monate
+const EVIDENCE_RETENTION_DAYS = 548;
+const RECEIPT_ACK_VERSION = '2026-10-v1';
+
+function getReqEvidence(req: express.Request): { ip: string; user_agent: string; accept_language: string } {
+  const rawIp = req.headers['x-forwarded-for'];
+  const ip = (rawIp ? String(rawIp).split(',')[0].trim() : req.ip) || req.socket?.remoteAddress || '';
+  return {
+    ip: ip.slice(0, 64),
+    user_agent: String(req.headers['user-agent'] || '').slice(0, 300),
+    accept_language: String(req.headers['accept-language'] || '').slice(0, 100)
+  };
+}
+
+async function logEvidence(req: express.Request, p: { type: string; userId: string; role: 'buyer' | 'seller'; auctionId?: string | null; txId?: string | null; extra?: Record<string, any> }): Promise<{ ip: string; user_agent: string } | null> {
+  try {
+    const ev = getReqEvidence(req);
+    const now = new Date();
+    await adminDb.collection('evidence_log').add({
+      type: p.type,
+      user_id: p.userId,
+      role: p.role,
+      auction_id: p.auctionId || null,
+      tx_id: p.txId || null,
+      ...ev,
+      extra: p.extra || {},
+      created_at: now.toISOString(),
+      expires_at: new Date(now.getTime() + EVIDENCE_RETENTION_DAYS * 86400000).toISOString()
+    });
+    return { ip: ev.ip, user_agent: ev.user_agent };
+  } catch (e: any) {
+    console.warn('[evidence] Protokollierung fehlgeschlagen:', e?.message);
+    return null;
+  }
+}
+
+async function loadEvidenceLog(auctionId: string): Promise<any[]> {
+  const snap = await safeGetDocs(adminDb.collection('evidence_log').where('auction_id', '==', auctionId));
+  return snap.docs.map((d: any) => d.data() || {}).sort((a: any, b: any) => String(a.created_at || '').localeCompare(String(b.created_at || '')));
+}
+
+// Deutscher Kommentar: Stellt die Stripe-Nachweisfelder fuer einen Kartenstreit aus Transaktion, Auktion und Protokoll zusammen
+async function buildChargebackEvidence(txId: string): Promise<{ evidence: Record<string, string>; summary: Record<string, any> } | null> {
+  const txDoc = await safeGetDoc(adminDb.collection('transactions').doc(txId));
+  if (!txDoc.exists()) return null;
+  const tx: any = txDoc.data() || {};
+  const auction: any = tx.auction_id ? ((await safeGetDoc(adminDb.collection('auctions').doc(tx.auction_id))).data() || {}) : {};
+  const snap: any = tx.buyer_snapshot || {};
+  const log = tx.auction_id ? await loadEvidenceLog(tx.auction_id) : [];
+  const title = auction?.title?.SLO || auction?.title?.EN || (typeof auction?.title === 'string' ? auction.title : '') || 'Predmet dražbe';
+  const day = (iso?: string | null) => (iso ? new Date(iso).toISOString().slice(0, 10) : '');
+  const checkout = log.find((l: any) => l.type === 'checkout_started' && l.role === 'buyer');
+  const confirmed = log.find((l: any) => l.type === 'receipt_confirmed');
+  const lines = log.map((l: any) => `${l.created_at} | ${l.type} | ${l.role} | IP ${l.ip || '/'} | ${String(l.user_agent || '/').slice(0, 120)}${l.extra && Object.keys(l.extra).length ? ' | ' + JSON.stringify(l.extra).slice(0, 300) : ''}`);
+  const rc = tx.receipt_confirmation || null;
+
+  const text: string[] = [];
+  text.push(`Spletna dražba: kupec je predmet "${title}" osebno dobil na dražbi (ponudbe so zabeležene spodaj) in ga plačal sam prek varne strani za plačilo.`);
+  text.push(`Znesek: ${(Number(tx.amount_total || 0)).toFixed(2)} EUR. Plačilo: ${tx.paid_at || tx.held_since || '/'}.`);
+  text.push(`Način predaje: ${tx.delivery_method === 'pickup' ? 'osebni prevzem s kodo, ki jo je kupec odprl v svojem računu in razkril prodajalcu' : 'pošiljanje'}.`);
+  if (tx.tracking_number) text.push(`Sledenje: ${tx.carrier_name || ''} ${tx.tracking_number}, odpremljeno ${tx.shipped_at || '/'}.`);
+  if (rc) {
+    text.push(`Kupec je prejem izrecno potrdil v svojem uporabniškem računu dne ${rc.at} z IP ${rc.ip}. Ob potrditvi je označil izjavo, da je predmet prejel, pregledal in da je skladen z opisom. IP enak kot ob nakupu/ponudbi: ${rc.ip_matches_purchase ? 'da' : 'ne'}; naprava enaka: ${rc.device_matches_purchase ? 'da' : 'ne'}. Potrdilo je bilo poslano tudi po e-pošti.`);
+  } else {
+    text.push('Kupec prejema ni potrdil v sistemu.');
+  }
+  if (tx.dispute_opened_at) text.push(`Kupec je spor odprl tudi prek platforme dne ${tx.dispute_opened_at}: ${tx.buyer_dispute_reason || ''}`);
+  text.push('Kupec je ob prvi ponudbi sprejel splošne pogoje uporabe, ki urejajo potrditev prejema, spore in zadržanje izplačila (točke 7 do 9).');
+
+  const evidence: Record<string, string> = {
+    product_description: `${title}${auction?.condition ? ' (stanje: ' + auction.condition + ')' : ''}. ${String(auction?.description || '').slice(0, 1500)}`.trim(),
+    access_activity_log: lines.join('\n').slice(0, 100000) || 'Ni zapisov.',
+    uncategorized_text: text.join('\n').slice(0, 100000),
+    ...(snap.email ? { customer_email_address: String(snap.email) } : {}),
+    ...(snap.name || snap.first_name ? { customer_name: String(snap.name || `${snap.first_name || ''} ${snap.last_name || ''}`.trim()) } : {}),
+    ...(checkout?.ip ? { customer_purchase_ip: String(checkout.ip) } : {}),
+    ...(tx.carrier_name ? { shipping_carrier: String(tx.carrier_name) } : {}),
+    ...(tx.tracking_number ? { shipping_tracking_number: String(tx.tracking_number) } : {}),
+    ...(tx.shipped_at ? { shipping_date: day(tx.shipped_at) } : {}),
+    ...(snap.address || snap.street || snap.street_address ? { shipping_address: `${snap.address || snap.street || snap.street_address}, ${snap.postal_code || snap.postalCode || ''} ${snap.city || ''}`.trim() } : {})
+  };
+  return {
+    evidence,
+    summary: { log_entries: log.length, receipt_confirmed: !!rc, ip_match: rc?.ip_matches_purchase ?? null, device_match: rc?.device_matches_purchase ?? null, confirmed_at: confirmed?.created_at || null }
+  };
+}
+
+// Deutscher Kommentar: Immobilien nur per Anfrage - Anfrage speichern und den Betreiber per E-Mail informieren
+app.post("/api/real-estate-inquiry", async (req, res) => {
+  let userId: string;
+  try {
+    userId = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    return res.status(401).json({ error: authErr.message || 'Unauthorized' });
+  }
+  try {
+    const b = req.body || {};
+    const clean = (v: any, n: number) => (typeof v === 'string' ? v.trim().slice(0, n) : '');
+    const message = clean(b.message, 3000);
+    const location = clean(b.location, 200);
+    const propertyType = clean(b.property_type, 100);
+    const phone = clean(b.phone, 40);
+    const askingPrice = clean(b.asking_price, 40);
+    if (message.length < 10 || !location) {
+      return res.status(400).json({ error: "Vnesite lokacijo in kratek opis nepremičnine." });
+    }
+    const userDoc = await safeGetDoc(adminDb.collection('users').doc(userId));
+    const u: any = userDoc.exists() ? userDoc.data() : {};
+    const ref = await adminDb.collection('real_estate_inquiries').add({
+      user_id: userId,
+      email: u.email || '',
+      name: `${u.first_name || ''} ${u.last_name || ''}`.trim(),
+      phone, location, property_type: propertyType, asking_price: askingPrice, message,
+      status: 'new',
+      created_at: new Date().toISOString()
+    });
+    try {
+      if (resendClient) {
+        const esc = (x: string) => x.replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        await resendClient.emails.send({
+          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+          to: adminEmailAddress,
+          subject: 'Povpraševanje: nepremičnina',
+          html: `<p><b>${esc(`${u.first_name || ''} ${u.last_name || ''}`)}</b> (${esc(u.email || '')}, ${esc(phone)})</p><p>${esc(propertyType)} | ${esc(location)} | ${esc(askingPrice)}</p><p>${esc(message)}</p><p>ID: ${ref.id}</p>`
+        });
+      }
+    } catch (mailErr) {
+      console.warn('[real-estate-inquiry] E-Mail fehlgeschlagen', mailErr);
+    }
+    return res.json({ success: true });
+  } catch (e: any) {
+    return res.status(500).json({ error: "Povpraševanja ni bilo mogoče poslati." });
+  }
+});
+
 app.post("/api/auctions/create", async (req, res) => {
   // Nutzer-ID ausschliesslich aus dem verifizierten Token
   let userId: string;
@@ -5648,10 +6117,12 @@ app.post("/api/auctions/create", async (req, res) => {
       return res.status(403).json({ error: 'Za objavo dražbe morate najprej urediti izplačila.', code: 'PAYOUTS_NOT_READY' });
     }
     
-    const subTier = userData.subscription_tier || userData.subscription || 'FREE';
+    // Deutscher Kommentar: Wirksame Stufe inkl. Gruendungsmitglied-Vorteil (PRO = unbegrenzt)
+    const subTier = getEffectiveTier(userData);
     let limit = 5;
     if (subTier === 'BASIC') limit = 50;
     if (subTier === 'PRO') limit = Infinity;
+    let useListingCredit = false;
 
     // Deutscher Kommentar: Das Monatslimit darf nicht durch Mitsenden einer eigenen ID umgangen werden; nur die Neuverwendung einer eigenen, unberuehrten Auktion zaehlt nicht doppelt
     let reusesOwnDraft = false;
@@ -5673,7 +6144,10 @@ app.post("/api/auctions/create", async (req, res) => {
         return new Date(createdVal).getTime() >= firstDayOfMonthMs;
       }).length;
 
-      if (monthlyCount >= limit) {
+      // Deutscher Kommentar: Bonus-Inserate (Einladungsprogramm) erlauben Inserate ueber dem Monatslimit
+      if (monthlyCount >= limit && getActiveListingCredits(userData) > 0) {
+        useListingCredit = true;
+      } else if (monthlyCount >= limit) {
         return res.status(403).json({ error: `Dosegli ste mesečno omejitev objav za vaš naročniški paket (${limit}). Prosimo, nadgradite paket.` });
       }
     }
@@ -5715,6 +6189,20 @@ app.post("/api/auctions/create", async (req, res) => {
     if (!Number.isFinite(startPrice) || startPrice < 1 || startPrice > 1000000) {
       return res.status(400).json({ error: "Začetna cena mora biti med 1 in 1.000.000 €." });
     }
+    // Deutscher Kommentar: Neue Verkaeufer (weniger als 3 erfolgreiche Verkaeufe) haben einen Hoechstpreis je Auktion
+    let isNewSellerCap = false;
+    {
+      const doneSnap = await safeGetDocs(
+        adminDb.collection('transactions')
+          .where('seller_id', '==', userId)
+          .where('payout_status', 'in', ['releasable', 'payout_pending', 'paid_out'])
+          .limit(NEW_SELLER_SALES_THRESHOLD)
+      );
+      isNewSellerCap = doneSnap.docs.length < NEW_SELLER_SALES_THRESHOLD;
+    }
+    if (isNewSellerCap && startPrice > NEW_SELLER_MAX_PRICE_EUR) {
+      return res.status(400).json({ error: `Dokler nimate ${NEW_SELLER_SALES_THRESHOLD} uspešnih prodaj, je začetna cena omejena na ${NEW_SELLER_MAX_PRICE_EUR} €.`, code: 'NEW_SELLER_LIMIT' });
+    }
     const endMs = new Date(itemData.end_time || itemData.endTime || '').getTime();
     // TESTPHASE: Laufzeitgrenzen (frueher 3-14 Tage, Mindestvorlauf 2 Tage) sind voruebergehend aufgehoben. Nach der Testphase wieder einsetzen: minEndMs = Date.now() + (reusesOwnDraft ? 0 : 2 * 86400000), maxEndMs = Date.now() + 15 * 86400000, Fehlertext "Dražba mora trajati od 3 do 14 dni."
     const minEndMs = Date.now() + 60 * 1000;
@@ -5722,7 +6210,15 @@ app.post("/api/auctions/create", async (req, res) => {
     if (!Number.isFinite(endMs) || endMs < minEndMs || endMs > maxEndMs) {
       return res.status(400).json({ error: "Čas zaključka dražbe mora biti v prihodnosti (največ 1 leto)." });
     }
-    const deliveryOption = ['both', 'pickup_only', 'shipping_only'].includes(itemData.delivery_option) ? itemData.delivery_option : 'both';
+    // Deutscher Kommentar: Immobilien duerfen nicht direkt inseriert werden (nur Anfrage)
+    if (isRealEstateCategory(itemData.category)) {
+      return res.status(400).json({ error: "Nepremičnin ni mogoče objaviti kot dražbo. Za nepremičnine nam pošljite povpraševanje.", code: 'REAL_ESTATE_NOT_ALLOWED' });
+    }
+    // Deutscher Kommentar: Zulassungspflichtige Fahrzeuge nur mit persoenlicher Abholung (PIN)
+    const isVehicleListing = isRegisteredVehicle(itemData.category, itemData.specifications);
+    const deliveryOption = isVehicleListing
+      ? 'pickup_only'
+      : (['both', 'pickup_only', 'shipping_only'].includes(itemData.delivery_option) ? itemData.delivery_option : 'both');
     // Nur noch Festpreis-Versand (Abrechnung nach Rechnung der Post entfernt)
     const shippingFeeType = 'fixed';
     const shippingCost = itemData.shipping_cost === null || itemData.shipping_cost === undefined ? null : Number(itemData.shipping_cost);
@@ -5740,6 +6236,7 @@ app.post("/api/auctions/create", async (req, res) => {
       title: cleanDeep(itemData.title),
       description: cleanDeep(itemData.description),
       current_price: startPrice,
+      new_seller_cap: isNewSellerCap,
       item_count: Math.min(Math.max(parseInt(itemData.item_count) || 1, 1), 1000),
       end_time: new Date(endMs).toISOString(),
       location: cleanDeep(itemData.location),
@@ -5784,6 +6281,11 @@ app.post("/api/auctions/create", async (req, res) => {
       post_auction_status: null,
       created_at: new Date().toISOString()
     });
+
+    // Deutscher Kommentar: Bonus-Inserat erst nach erfolgreichem Speichern verbrauchen
+    if (useListingCredit) {
+      await consumeListingCredit(userId).catch((e: any) => console.warn('[auctions/create] credit consume failed:', e?.message));
+    }
 
     res.json({ success: true, id: newDocRef.id });
   } catch (e: any) {
@@ -6049,6 +6551,7 @@ app.get("/api/orders/:id/pickup-pin", async (req, res) => {
     }
 
     const secrets = await getOrCreatePickupSecrets(txDoc.id, tx.auction_id);
+    await logEvidence(req, { type: 'pickup_pin_viewed', userId, role: 'buyer', auctionId: tx.auction_id, txId: txDoc.id });
     res.setHeader('Cache-Control', 'no-store');
     return res.json({ pin: secrets.pin, qrUrl: secrets.qrUrl });
   } catch (e: any) {
@@ -6132,6 +6635,7 @@ app.post("/api/orders/:id/verify-pickup-pin", async (req, res) => {
     }
     await secretRef.set({ failed_attempts: 0 }, { merge: true });
 
+    await logEvidence(req, { type: 'pickup_pin_verified', userId, role: 'seller', auctionId: tx.auction_id, txId: txDoc.id });
     await completePickupHandover(txRef, txDoc.id, tx, 'pickup_pin_confirmed');
 
     return res.json({ success: true, message: "Predaja potrjena. Izplačilo je sproženo." });
@@ -6676,6 +7180,25 @@ const handleProcessEscrowCompletions = async (req: express.Request, res: express
 app.get("/api/cron/process-escrow-completions", handleProcessEscrowCompletions);
 app.post("/api/cron/process-escrow-completions", handleProcessEscrowCompletions);
 
+// Deutscher Kommentar: Prueft Base64-Fotos (Typ, Groesse, Dateikopf) fuer Streitnachweise
+function parseEvidencePhotos(raw: any, max: number): { ok: true; items: Array<{ buf: Buffer; ext: string; mime: string }> } | { ok: false; error: string } {
+  const list = Array.isArray(raw) ? raw.slice(0, max) : [];
+  const items: Array<{ buf: Buffer; ext: string; mime: string }> = [];
+  for (const ph of list) {
+    const mime = String(ph?.mime_type || '');
+    const b64 = String(ph?.data_base64 || '');
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(mime) || !b64) return { ok: false, error: "Dovoljene so slike JPG, PNG ali WebP." };
+    const buf = Buffer.from(b64, 'base64');
+    if (buf.length === 0 || buf.length > 2.5 * 1024 * 1024) return { ok: false, error: "Posamezna slika je lahko velika največ 2,5 MB." };
+    const isJpeg = buf[0] === 0xff && buf[1] === 0xd8;
+    const isPng = buf[0] === 0x89 && buf[1] === 0x50;
+    const isWebp = buf.slice(0, 4).toString() === 'RIFF' && buf.slice(8, 12).toString() === 'WEBP';
+    if (!(isJpeg || isPng || isWebp)) return { ok: false, error: "Datoteka ni veljavna slika." };
+    items.push({ buf, mime, ext: isPng ? 'png' : isWebp ? 'webp' : 'jpg' });
+  }
+  return { ok: true, items };
+}
+
 app.post("/api/orders/:id/open-dispute", async (req, res) => {
   // Nutzer-ID ausschliesslich aus dem verifizierten Token
   let userId: string;
@@ -6694,6 +7217,19 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
       return res.status(400).json({ error: "Razlog za spor mora vsebovati med 10 in 1000 znakov." });
     }
     const trimmedReason = reason.trim();
+    // Deutscher Kommentar: Bei "nicht wie beschrieben" sind Beschreibung der Abweichung und mindestens ein Foto Pflicht
+    const difference = String((req.body || {}).difference || '').trim();
+    const photoParse = parseEvidencePhotos((req.body || {}).photos, 5);
+    if (photoParse.ok === false) return res.status(400).json({ error: photoParse.error });
+    const evidencePhotos = photoParse.items;
+    if (disputeKind === 'other') {
+      if (difference.length < 10 || difference.length > 1500) {
+        return res.status(400).json({ error: "Opišite, v čem se predmet razlikuje od opisa v oglasu (10 do 1500 znakov)." });
+      }
+      if (evidencePhotos.length < 1) {
+        return res.status(400).json({ error: "Priložite vsaj eno fotografijo kot dokaz." });
+      }
+    }
 
     // Deutscher Kommentar: Die Transaktions-ID lautet tx_<paymentRef>; der Client sendet die Auktions-ID, daher Fallback ueber auction_id
     let txRef = adminDb.collection('transactions').doc(id);
@@ -6710,10 +7246,17 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
     const tx = txDoc.data();
     // Nur der Kaeufer der Bestellung darf einen Streitfall eroeffnen
     if (tx.buyer_id !== userId) return res.status(403).json({ error: "Nimate pravic." });
-    if (tx.status !== 'SHIPPED' && tx.status !== 'DELIVERED') {
+    if (tx.status === 'COMPLETED') {
+      return res.status(400).json({ error: "Naročilo je zaključeno, ker je bil prejem potrjen. Spora ni več mogoče odpreti." });
+    }
+    // Deutscher Kommentar: Bei persoenlicher Abholung ist ein Streit schon vor der Uebergabe moeglich (nur Kategorie "andere Problem")
+    const isPickupHeld = tx.status === 'HELD_IN_ESCROW' && tx.delivery_method === 'pickup';
+    if (isPickupHeld && disputeKind !== 'other') {
+      return res.status(400).json({ error: "Pri osebnem prevzemu izberite »Druga težava« in opišite razliko od oglasa." });
+    }
+    if (tx.status !== 'SHIPPED' && tx.status !== 'DELIVERED' && !isPickupHeld) {
       return res.status(400).json({ error: "Spor lahko odprete samo po tem, ko je izdelek poslan ali dostavljen." });
     }
-
     if (tx.status === 'DELIVERED' && tx.auto_complete_at && new Date(tx.auto_complete_at) < new Date()) {
       return res.status(400).json({ error: "Rok za odprtje spora je potekel (3 dni po dostavi)." });
     }
@@ -6730,11 +7273,22 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
       }
     }
 
+    // Deutscher Kommentar: Fotos erst nach allen Pruefungen hochladen, damit keine verwaisten Dateien entstehen
+    const evidencePaths: string[] = [];
+    for (let i = 0; i < evidencePhotos.length; i++) {
+      const path = `dispute-evidence/${txRef.id}/${Date.now()}-${i}.${evidencePhotos[i].ext}`;
+      await uploadBufferToStorage(evidencePhotos[i].buf, path, evidencePhotos[i].mime);
+      evidencePaths.push(path);
+    }
+
     await txRef.update({
       status: 'DISPUTED',
       payout_status: 'frozen',
       dispute_opened_at: nowIso,
       dispute_kind: disputeKind,
+      buyer_dispute_reason: trimmedReason,
+      buyer_dispute_difference: difference || null,
+      buyer_dispute_photos: evidencePaths,
       ...(disputeKind === 'not_received'
         ? { proof_requested_until: new Date(Date.now() + SELLER_PROOF_HOURS * 3600000).toISOString() }
         : {})
@@ -6752,7 +7306,10 @@ app.post("/api/orders/:id/open-dispute", async (req, res) => {
       opened_by_user_id: userId,
       reason: trimmedReason,
       kind: disputeKind,
+      difference: difference || null,
+      buyer_photos: evidencePaths,
       shipping_type: tx.shipping_type || null,
+      delivery_method: tx.delivery_method || null,
       status: 'OPEN',
       suspicious_buyer: suspiciousBuyer,
       created_at: nowIso,
@@ -7204,6 +7761,9 @@ app.post("/api/auth/confirm-email", async (req, res) => {
       } catch (authErr: any) {
         console.warn("[confirm-email] adminAuth.updateUser notice:", authErr.message);
       }
+
+      // Deutscher Kommentar: Nach bestaetigter E-Mail Gruendungsmitglied-Status vergeben
+      await grantFounderIfEligible(targetUserId, true);
     }
 
     return res.json({ 
@@ -7583,7 +8143,11 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
     const token = authHeader.split('Bearer ')[1];
     const decodedToken = await adminAuth.verifyIdToken(token);
     const buyerId = decodedToken.uid;
-    const { auction_id } = req.body;
+    const { auction_id, acknowledged } = req.body;
+    // Deutscher Kommentar: Ausdrueckliche Erklaerung des Kaeufers ist Pflicht (Beweis fuer Streitfaelle)
+    if (acknowledged !== true) {
+      return res.status(400).json({ error: 'Za potrditev prejema morate označiti izjavo, da ste predmet prejeli in pregledali.' });
+    }
 
     const txSnap = await safeGetDocs(
       adminDb.collection('transactions').where('auction_id', '==', auction_id)
@@ -7609,6 +8173,23 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
 
     if (tx.status !== 'SHIPPED' && tx.status !== 'HELD_IN_ESCROW' && tx.status !== 'DELIVERED') {
       return res.status(400).json({ error: 'Naročila v trenutnem stanju ni mogoče potrditi.' });
+    }
+
+    // Deutscher Kommentar: Beweis sichern - IP/Geraet und Abgleich mit frueheren Aktionen (Gebot, Zahlung) VOR der Freigabe
+    const confirmEv = await logEvidence(req, { type: 'receipt_confirmed', userId: buyerId, role: 'buyer', auctionId: auction_id, txId: txDoc.id, extra: { ack_version: RECEIPT_ACK_VERSION } });
+    {
+      const earlier = (await loadEvidenceLog(auction_id)).filter((l: any) => l.role === 'buyer' && (l.type === 'first_bid' || l.type === 'checkout_started'));
+      const nowIsoRc = new Date().toISOString();
+      await txDoc.ref.update({
+        receipt_confirmation: {
+          at: nowIsoRc,
+          ip: confirmEv?.ip || '',
+          user_agent: confirmEv?.user_agent || '',
+          ack_version: RECEIPT_ACK_VERSION,
+          ip_matches_purchase: !!confirmEv?.ip && earlier.some((l: any) => l.ip === confirmEv.ip),
+          device_matches_purchase: !!confirmEv?.user_agent && earlier.some((l: any) => l.user_agent === confirmEv.user_agent)
+        }
+      });
     }
 
     await completeTransactionAndPayout(txDoc.ref, txDoc.id, 'buyer_confirmed_receipt');
@@ -7654,6 +8235,25 @@ app.post("/api/auctions/confirm-receipt", async (req, res) => {
       }
     } catch (emErr: any) {
       console.error('[confirm-receipt] Error sending email:', emErr.message);
+    }
+
+    // Deutscher Kommentar: Bestaetigungs-E-Mail an den Kaeufer (Beweis, dass er informiert wurde)
+    try {
+      const buyerDoc = await safeGetDoc(adminDb.collection('users').doc(buyerId));
+      const buyerEmail = buyerDoc.data()?.email;
+      if (buyerEmail && resendClient) {
+        const aDoc = await safeGetDoc(adminDb.collection('auctions').doc(auction_id));
+        const t = aDoc.data()?.title?.SLO || aDoc.data()?.title?.EN || 'Predmet dražbe';
+        const esc = (x: string) => String(x).replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        await resendClient.emails.send({
+          from: process.env.EMAIL_FROM || 'dražbenik.si <obvestila@drazbenik.si>',
+          to: buyerEmail,
+          subject: `Potrdili ste prejem: ${t} - dražbenik.si`,
+          html: `<p>Pozdravljeni,</p><p>v svojem računu ste dne ${new Date().toLocaleString('sl-SI')} potrdili, da ste predmet <b>${esc(t)}</b> prejeli, pregledali in da je skladen z opisom. Posel je s tem zaključen in izplačilo prodajalcu je sproženo.</p><p>Če tega niste storili vi, nam nemudoma odgovorite na to sporočilo.</p>`
+        });
+      }
+    } catch (buyerMailErr: any) {
+      console.error('[confirm-receipt] Napaka pri e-pošti kupcu:', buyerMailErr?.message);
     }
 
     // Auszahlung sofort ausgelöst
@@ -9332,6 +9932,10 @@ app.post("/api/auctions/set-delivery-method", async (req, res) => {
     }
 
     const normalizedMethod = delivery_method === 'shipping' ? 'post' : delivery_method;
+    const vehicleLocked = isRegisteredVehicle(data.category, data.specifications);
+    if (vehicleLocked && normalizedMethod !== 'pickup') {
+      return res.status(400).json({ error: "Vozila se predajo samo z osebnim prevzemom (PIN)." });
+    }
 
     await docRef.update({
       delivery_method: normalizedMethod,
@@ -9345,7 +9949,7 @@ app.post("/api/auctions/set-delivery-method", async (req, res) => {
         const txDoc = qTx.docs[0];
         const updateTx: any = { delivery_method: normalizedMethod };
         if (normalizedMethod === 'pickup') {
-          updateTx.auto_release_at = new Date(Date.now() + PICKUP_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString();
+          updateTx.auto_release_at = vehicleLocked ? null : new Date(Date.now() + PICKUP_AUTO_RELEASE_DAYS * 24 * 60 * 60 * 1000).toISOString();
           await getOrCreatePickupPin(txDoc.id);
         } else if (normalizedMethod === 'post') {
           updateTx.shipping_deadline = new Date(Date.now() + SHIP_DEADLINE_DAYS * 24 * 60 * 60 * 1000).toISOString();
@@ -9590,10 +10194,25 @@ app.post("/api/profile/init", async (req, res) => {
         email_verified: emailVerified,
         auth_provider: authProvider,
         terms_version: TERMS_VERSION,
-        terms_accepted_at: now
+        terms_accepted_at: now,
+        // Deutscher Kommentar: Einmalige Zustimmung bei der Registrierung umfasst auch Verkaeuererklaerung und Rechnungsvollmacht (Punkt 3.6 der Bedingungen)
+        seller_terms_version: TERMS_VERSION,
+        seller_terms_accepted_at: now,
+        seller_invoice_authorization: true,
+        seller_self_certified: true
       });
 
       await recordTermsAcceptance({ uid, context: 'registration', req });
+
+      // Deutscher Kommentar: Geraete-/Netzwerk-Hashes speichern und Einladung zuordnen (nur Hashes, keine Klartextdaten)
+      try {
+        const { referral_code: refCode, device_id: deviceId, fingerprint: clientFp } = req.body || {};
+        const fp = buildFingerprint(req, deviceId, clientFp);
+        await recordSignupFingerprint(uid, fp);
+        if (refCode) await attachReferralOnSignup(uid, refCode, fp);
+      } catch (promoErr: any) {
+        console.warn('[profile/init] promotion setup skipped:', promoErr?.message);
+      }
     } else {
       const updates: any = {};
       if (emailVerified) {
@@ -9607,6 +10226,9 @@ app.post("/api/profile/init", async (req, res) => {
         await userRef.update(updates);
       }
     }
+
+    // Deutscher Kommentar: Gruendungsmitglied-Status nur mit bestaetigter E-Mail vergeben (idempotent)
+    await grantFounderIfEligible(uid, emailVerified);
 
     await syncPublicProfile(uid);
     return res.json({ success: true, message: 'Profil inicializiran.' });
@@ -9640,7 +10262,7 @@ app.post("/api/profile/update", async (req, res) => {
     const firstName = cleanStr(body.first_name || body.firstName);
     const lastName = cleanStr(body.last_name || body.lastName);
     const rawUsername = cleanStr(body.username || body.userName);
-    const userType = (body.user_type || body.userType) === 'business' ? 'business' : 'individual';
+    const userType = (BUSINESS_USERS_ENABLED && (body.user_type || body.userType) === 'business') ? 'business' : 'individual';
     const companyName = cleanStr(body.company_name || body.companyName);
     const companyStatus = cleanStr(body.company_status || body.companyStatus);
     const street = cleanStr(body.street_address || body.street || body.company_street || body.companyStreet);
@@ -9654,6 +10276,18 @@ app.post("/api/profile/update", async (req, res) => {
     const description = cleanStr(body.description, 1000);
     const language = cleanStr(body.language || 'sl');
     const representative = cleanStr(body.representative);
+    // Deutscher Kommentar: Geburtsjahr ist nach der ersten Speicherung unveraenderlich (Aenderung nur durch Admin)
+    const currentYear = new Date().getFullYear();
+    const existingBirthYear = Number(currentData.birth_year);
+    const hasExistingBirthYear = Number.isInteger(existingBirthYear) && existingBirthYear >= 1900;
+    let birthYear = hasExistingBirthYear ? existingBirthYear : NaN;
+    if (!hasExistingBirthYear && (body.birth_year !== undefined || body.birthYear !== undefined)) {
+      birthYear = parseInt(String(body.birth_year ?? body.birthYear), 10);
+      if (!Number.isInteger(birthYear) || birthYear < currentYear - 110 || birthYear > currentYear) {
+        return res.status(400).json({ error: "Letnica rojstva ni veljavna." });
+      }
+    }
+    const ageRestricted = Number.isInteger(birthYear) && currentYear - birthYear < MIN_USER_AGE;
     const autoInvoiceGen = body.auto_invoice_generation !== false && body.autoInvoiceGeneration !== false;
     const emailNotifs = typeof body.email_notifications === 'object' ? body.email_notifications : (typeof body.emailNotifications === 'object' ? body.emailNotifications : undefined);
 
@@ -9741,7 +10375,7 @@ app.post("/api/profile/update", async (req, res) => {
     }
 
     let isProfileCompleted = Boolean(
-      firstName && lastName && street && postalCode && city
+      firstName && lastName && street && postalCode && city && Number.isInteger(birthYear) && !ageRestricted
     );
     if (userType === 'business') {
       const hasVatStatus = vatStatus === 'payer' || vatStatus === 'exempt_small';
@@ -9789,6 +10423,7 @@ app.post("/api/profile/update", async (req, res) => {
       profile_picture_url: profilePictureUrl || null,
       profilePicture: profilePictureUrl || null,
       profile_completed: isProfileCompleted,
+      ...(Number.isInteger(birthYear) ? { birth_year: birthYear, age_restricted: ageRestricted } : {}),
       address: `${street}, ${postalCode} ${city}`.trim().replace(/^,|,$/g, '').trim(),
       updated_at: new Date().toISOString()
     };
@@ -9832,6 +10467,13 @@ app.post("/api/profile/update", async (req, res) => {
 
     await syncPublicProfile(uid);
 
+    if (ageRestricted) {
+      return res.status(403).json({
+        error: "AGE_RESTRICTED",
+        message: `Za uporabo dražb morate biti stari vsaj ${MIN_USER_AGE} let.`
+      });
+    }
+
     return res.json({
       success: true,
       message: "Profil uspešno posodobljen.",
@@ -9840,6 +10482,45 @@ app.post("/api/profile/update", async (req, res) => {
   } catch (err: any) {
     console.error('Error in /api/profile/update:', err);
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// Deutscher Kommentar: Speichert die Bestaetigung der Eltern fuer Nutzer zwischen 16 und 18 Jahren (dauerhaft, mit Nachweis)
+app.post("/api/parental-consent", async (req, res) => {
+  let uid: string;
+  try { uid = await authenticateFirebaseUser(req); }
+  catch (authErr: any) { return res.status(401).json({ error: authErr.message || 'Unauthorized' }); }
+  try {
+    if (req.body?.accepted !== true) {
+      return res.status(400).json({ error: "Soglasje mora biti potrjeno." });
+    }
+    const userRef = adminDb.collection('users').doc(uid);
+    const userDoc = await userRef.get();
+    if (!userDoc.exists) return res.status(404).json({ error: "Uporabnik ne obstaja." });
+    const userData: any = userDoc.data() || {};
+    if (!isMinorByBirthYear(userData.birth_year)) {
+      return res.status(400).json({ error: "Soglasje staršev je potrebno samo za uporabnike, mlajše od 18 let." });
+    }
+    const now = new Date().toISOString();
+    const ev = getReqEvidence(req);
+    await userRef.set({
+      parental_consent: true,
+      parental_consent_at: now,
+      parental_consent_version: PARENTAL_CONSENT_VERSION
+    }, { merge: true });
+    // Deutscher Kommentar: Dauerhafter Nachweis ohne Ablaufdatum
+    await adminDb.collection('parental_consents').doc(uid).set({
+      user_id: uid,
+      birth_year: userData.birth_year,
+      version: PARENTAL_CONSENT_VERSION,
+      terms_version: userData.terms_version || null,
+      accepted_at: now,
+      ...ev
+    }, { merge: true });
+    return res.json({ success: true, parental_consent: true, parental_consent_at: now });
+  } catch (e: any) {
+    console.error('[parental-consent] Fehler:', e?.message || e);
+    return res.status(500).json({ error: "Soglasja ni bilo mogoče shraniti." });
   }
 });
 
@@ -9860,6 +10541,10 @@ app.post("/api/accept-terms", async (req, res) => {
       id: uid,
       terms_version,
       terms_accepted_at: now,
+      seller_terms_version: terms_version,
+      seller_terms_accepted_at: now,
+      seller_invoice_authorization: true,
+      seller_self_certified: true,
       created_at: now,
       profile_completed: false,
       identity_verified: false,
@@ -9869,7 +10554,11 @@ app.post("/api/accept-terms", async (req, res) => {
   } else {
     await userRef.set({
       terms_version,
-      terms_accepted_at: now
+      terms_accepted_at: now,
+      seller_terms_version: terms_version,
+      seller_terms_accepted_at: now,
+      seller_invoice_authorization: true,
+      seller_self_certified: true
     }, { merge: true });
   }
   await recordTermsAcceptance({ uid, context: 'reaccept', req, termsVersion: terms_version });
@@ -10418,19 +11107,24 @@ app.post("/api/admin/orders/:id/resolve-dispute", async (req, res) => {
     const resendClient = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : (null as any);
 
     if (decision === 'release_to_seller') {
+      // Deutscher Kommentar: Sperre aufheben, damit releaseSellerFunds den Status auf COMPLETED setzt und Bewertung/E-Mail ausloest
       await txRef.update({
-        payout_status: 'releasable',
+        payout_status: 'held',
         admin_dispute_decision: 'release_to_seller',
         admin_dispute_note: note || ''
       });
-      await releaseSellerFunds(id, 'admin_release');
+      const relRes = await releaseSellerFunds(txRef.id, 'admin_release');
+      if (!relRes.ok) {
+        await txRef.update({ payout_status: 'frozen' });
+        return res.status(500).json({ error: "Sprostitev sredstev ni uspela: " + relRes.status });
+      }
     } else if (decision === 'refund_buyer') {
       if (!tx.stripe_payment_intent_id) {
         return res.status(400).json({ error: "Naročilo nima povezanega plačilnega ID (payment_intent_id)." });
       }
 
       // Rückerstattung über die Hilfsfunktion einleiten
-      const refundRes = await refundTransactionToBuyer(id, 'admin_dispute_refund');
+      const refundRes = await refundTransactionToBuyer(txRef.id, 'admin_dispute_refund');
       if (!refundRes.ok) {
         return res.status(500).json({ error: "Fehler bei der Rückerstattung: " + refundRes.status });
       }
@@ -11053,6 +11747,139 @@ app.get("/api/admin/accounting/export", async (req, res) => {
   }
 });
 
+// Deutscher Kommentar: Gemeinsamer Admin-Check fuer die Provisionsrechnungs-Endpunkte
+async function requireAdminForAccounting(req: any, res: any): Promise<string | null> {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (authErr: any) {
+    res.status(401).json({ error: authErr.message || 'Unauthorized' });
+    return null;
+  }
+  if (!(await isAdminUser(uid))) {
+    res.status(403).json({ error: "Nimate administratorskih pravic." });
+    return null;
+  }
+  return uid;
+}
+
+// GET /api/admin/accounting/commission-invoices
+// Deutscher Kommentar: Alle Provisionsrechnungen (PROV-...) an einem Ort, angereichert mit Kaeufer, Auktion und Zahlungsdaten; Filter laufen im Client
+app.get("/api/admin/accounting/commission-invoices", async (req, res) => {
+  if (!(await requireAdminForAccounting(req, res))) return;
+  try {
+    const snap = await adminDb.collection('accounting_documents').where('type', '==', 'COMMISSION').get();
+    const docs: any[] = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }));
+    docs.sort((a, b) => new Date(b.issued_at || b.created_at).getTime() - new Date(a.issued_at || a.created_at).getTime());
+
+    const userCache = new Map<string, any>();
+    const txCache = new Map<string, any>();
+    const aucCache = new Map<string, any>();
+    const getCached = async (cache: Map<string, any>, col: string, id: string) => {
+      if (!id) return {};
+      if (!cache.has(id)) {
+        const p = safeGetDoc(adminDb.collection(col).doc(id)).then((x: any) => (x.exists ? x.data() : {})).catch(() => ({}));
+        cache.set(id, p);
+      }
+      return cache.get(id);
+    };
+
+    const rows: any[] = [];
+    // Deutscher Kommentar: In Bloecken von 20 laden, damit Firestore nicht ueberlastet wird
+    for (let i = 0; i < docs.length; i += 20) {
+      const chunk = docs.slice(i, i + 20);
+      const part = await Promise.all(chunk.map(async (d) => {
+        const [buyer, tx, auc] = await Promise.all([
+          getCached(userCache, 'users', d.buyer_id),
+          getCached(txCache, 'transactions', d.transaction_id),
+          getCached(aucCache, 'auctions', d.auction_id)
+        ]);
+        const title = auc?.title?.SLO || auc?.title?.EN || (typeof auc?.title === 'string' ? auc.title : '');
+        return {
+          id: d.id,
+          invoice_no: d.invoice_no,
+          issued_at: d.issued_at,
+          net_cents: d.net_cents || 0,
+          vat_cents: d.vat_cents || 0,
+          gross_cents: d.gross_cents || 0,
+          vat_rate: d.vat_rate ?? 22,
+          buyer_id: d.buyer_id || '',
+          buyer_name: getCustomerFullName(buyer) || buyer?.company_name || '',
+          buyer_email: buyer?.email || '',
+          buyer_tax_id: buyer?.tax_id || buyer?.vat_id || '',
+          seller_id: auc?.seller_id || auc?.sellerId || tx?.seller_id || '',
+          auction_id: d.auction_id || '',
+          auction_title: title,
+          transaction_id: d.transaction_id || '',
+          sales_invoice_no: tx?.sales_invoice_no || '',
+          payment_method: tx?.payment_method || tx?.payment_type || '',
+          item_price: Number(tx?.item_price ?? tx?.amount_total ?? 0),
+          promo_code: tx?.promo_code || '',
+          status: 'PLAČANO'
+        };
+      }));
+      rows.push(...part);
+    }
+    return res.json({ invoices: rows, count: rows.length });
+  } catch (err: any) {
+    console.error('Error in /api/admin/accounting/commission-invoices:', err);
+    return res.status(500).json({ error: err.message || 'Napaka pri nalaganju provizijskih računov' });
+  }
+});
+
+// POST /api/admin/accounting/export-selected
+// Deutscher Kommentar: ZIP mit PDFs und pregled.csv fuer genau die uebergebenen Rechnungsnummern (aktueller Filter im Client)
+app.post("/api/admin/accounting/export-selected", async (req, res) => {
+  if (!(await requireAdminForAccounting(req, res))) return;
+  try {
+    const nos: string[] = Array.isArray(req.body?.invoice_nos) ? req.body.invoice_nos.map((x: any) => String(x)).filter(Boolean) : [];
+    if (nos.length === 0) return res.status(400).json({ error: "Ni izbranih računov." });
+    if (nos.length > 300) return res.status(400).json({ error: "Naenkrat lahko izvozite največ 300 računov. Zožite filter." });
+
+    const zip = new JSZip();
+    const storage = getAdminStorage();
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+    const q = (v: any) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+    const eur = (c: number) => (Number(c || 0) / 100).toFixed(2).replace('.', ',');
+    let csv = '﻿"Številka";"Datum";"Neto (€)";"DDV (€)";"Bruto (€)";"Stopnja DDV (%)";"Kupec ID";"Dražba ID";"Transakcija ID"\r\n';
+
+    for (const no of nos) {
+      const snap = await safeGetDoc(adminDb.collection('accounting_documents').doc(no));
+      if (!snap.exists) continue;
+      const item: any = { id: snap.id, ...snap.data() };
+      if (item.type !== 'COMMISSION') continue;
+      let pdf: Buffer | null = null;
+      if (item.storage_path) {
+        try {
+          const [buf] = await storage.bucket(bucketName).file(item.storage_path).download();
+          pdf = buf;
+        } catch (e) {}
+      }
+      if (!pdf) {
+        try {
+          const txSnap = await safeGetDoc(adminDb.collection('transactions').doc(item.transaction_id));
+          const txData: any = txSnap.exists ? txSnap.data() : {};
+          const aucSnap = await safeGetDoc(adminDb.collection('auctions').doc(item.auction_id || txData.auction_id));
+          pdf = await generateInvoicePDF({ id: item.transaction_id, ...txData }, txData.buyer_snapshot || {}, txData.seller_snapshot || {}, aucSnap.exists ? aucSnap.data() : {}, txData.sales_invoice_no, item.invoice_no, 'commission');
+        } catch (e: any) {
+          console.error(`[export-selected] Regenerierung fehlgeschlagen fuer ${no}:`, e.message);
+        }
+      }
+      if (pdf) zip.file(`racun_${item.invoice_no}.pdf`, pdf);
+      const dateStr = item.issued_at ? new Date(item.issued_at).toLocaleDateString('sl-SI') : '';
+      csv += [q(item.invoice_no), q(dateStr), q(eur(item.net_cents)), q(eur(item.vat_cents)), q(eur(item.gross_cents)), q(item.vat_rate ?? 22), q(item.buyer_id), q(item.auction_id), q(item.transaction_id)].join(';') + '\r\n';
+    }
+    zip.file('pregled.csv', csv);
+    const buf = await zip.generateAsync({ type: 'nodebuffer', compression: 'DEFLATE' });
+    res.setHeader('Content-Type', 'application/zip');
+    res.setHeader('Content-Disposition', `attachment; filename="provizijski_racuni_${new Date().toISOString().slice(0, 10)}.zip"`);
+    return res.send(buf);
+  } catch (err: any) {
+    console.error('Error in /api/admin/accounting/export-selected:', err);
+    return res.status(500).json({ error: err.message || 'Napaka pri izvozu računov' });
+  }
+});
+
 // Deutscher Kommentar: Kurzlebige signierte Links (60 Minuten) fuer private Nachweisfotos, nur fuer Admins
 async function signStoragePaths(paths?: string[] | null): Promise<string[]> {
   if (!Array.isArray(paths) || paths.length === 0) return [];
@@ -11362,6 +12189,130 @@ app.get("/api/admin/auctions/:id", async (req, res) => {
 });
 
 // Deutscher Kommentar: Admin-Liste aller Streitfaelle mit Versanddaten, Nachweis des Verkaeufers und Missbrauchszaehlern
+// Deutscher Kommentar: Uebersicht aller Warnungen (Rueckbuchungen, Schulden, Missbrauch usw.) mit Filtern
+// Deutscher Kommentar: Zuruecksetzen der Testdaten (nur Admin, nur mit ALLOW_TEST_DATA_RESET=true und niemals mit Live-Stripe-Schluessel)
+const RESET_GROUPS: Record<string, { label: string; collections: string[]; storage: string[]; keepAdmins?: boolean; authUsers?: boolean }> = {
+  auctions: { label: 'Dražbe, ponudbe in slike dražb', collections: ['auctions', 'auctions_private', 'bids', 'bid_log', 'my_bids', 'saved_auctions'], storage: ['auction-images/'] },
+  orders: { label: 'Naročila, transakcije, plačila, računi, spori, opozorila', collections: ['transactions', 'transaction_secrets', 'wallet_transactions', 'aml_reservations', 'aml_spend_log', 'duplicate_payments', 'disputes', 'evidence_log', 'admin_alerts', 'documents', 'accounting_documents', 'invoice_counters'], storage: ['accounting/', 'dispute-evidence/', 'shipping-proofs/'] },
+  messages: { label: 'Sporočila, obvestila, ocene, povpraševanja', collections: ['messages', 'conversations', 'notifications', 'reviews', 'review_disputes', 'real_estate_inquiries'], storage: ['chat-images/'] },
+  users: { label: 'Uporabniki (razen administratorjev) in prijave', collections: ['users', 'usernames', 'public_profiles', 'user_rate_limits', 'user_dispute_stats', 'seller_strikes', 'identity_locks', 'terms_acceptances', 'email_verifications', 'email_verification_limits'], storage: [], keepAdmins: true, authUsers: true },
+};
+
+app.post("/api/admin/reset-test-data", async (req, res) => {
+  let adminUid: string;
+  try { adminUid = await authenticateFirebaseUser(req); } catch (e: any) { return res.status(401).json({ error: e.message || 'Unauthorized' }); }
+  if (!(await isAdminUser(adminUid))) return res.status(403).json({ error: 'Nimate administratorskih pravic.' });
+  if (process.env.ALLOW_TEST_DATA_RESET !== 'true') {
+    return res.status(403).json({ error: 'Ponastavitev je izključena. Za vklop nastavite okoljsko spremenljivko ALLOW_TEST_DATA_RESET=true (samo v testni fazi).' });
+  }
+  if ((process.env.STRIPE_SECRET_KEY || '').startsWith('sk_live_') || (process.env.STRIPE_SECRET_KEY || '').startsWith('rk_live_')) {
+    return res.status(403).json({ error: 'Zaznan je živi Stripe ključ. Ponastavitev je v živem načinu vedno onemogočena.' });
+  }
+  try {
+    const { groups, dryRun, confirm } = req.body || {};
+    const selected: string[] = (Array.isArray(groups) ? groups : []).filter((g: any) => typeof g === 'string' && RESET_GROUPS[g]);
+    if (selected.length === 0) return res.status(400).json({ error: 'Izberite vsaj eno skupino podatkov.' });
+    if (!dryRun && confirm !== 'IZBRIŠI') return res.status(400).json({ error: 'Za potrditev vpišite besedo IZBRIŠI.' });
+
+    // Administratorji (ADMIN_UIDS + role admin) ostanejo vedno ohranjeni
+    const adminSet = new Set<string>((process.env.ADMIN_UIDS || '').split(',').map(x => x.trim()).filter(Boolean));
+    adminSet.add(adminUid);
+    const roleSnap = await adminDb.collection('users').where('role', '==', 'admin').get();
+    roleSnap.docs.forEach((d: any) => adminSet.add(d.id));
+    const isKept = (docSnap: any) => {
+      if (adminSet.has(docSnap.id)) return true;
+      const data = docSnap.data() || {};
+      return Object.values(data).some((v: any) => typeof v === 'string' && adminSet.has(v));
+    };
+
+    const counts: Record<string, number> = {};
+    const bucketName = process.env.FIREBASE_STORAGE_BUCKET || 'drazbesi.firebasestorage.app';
+    const bucket = getAdminStorage().bucket(bucketName);
+    const deletedUserIds: string[] = [];
+
+    for (const g of selected) {
+      const grp = RESET_GROUPS[g];
+      for (const colName of grp.collections) {
+        const snap = await adminDb.collection(colName).get();
+        const targets = snap.docs.filter((d: any) => !(grp.keepAdmins && isKept(d)));
+        counts[colName] = targets.length;
+        if (dryRun) continue;
+        if (colName === 'users') targets.forEach((d: any) => deletedUserIds.push(d.id));
+        const writer = adminDb.bulkWriter();
+        for (const d of targets) { await adminDb.recursiveDelete(d.ref, writer); }
+        await writer.close();
+      }
+      for (const prefix of grp.storage) {
+        const [files] = await bucket.getFiles({ prefix });
+        counts['storage:' + prefix] = files.length;
+        if (!dryRun) await Promise.all(files.map((f: any) => f.delete({ ignoreNotFound: true }).catch(() => null)));
+      }
+      if (grp.authUsers) {
+        let n = 0; let pageToken: string | undefined;
+        do {
+          const page = await adminAuth.listUsers(1000, pageToken);
+          const uids = page.users.map((u: any) => u.uid).filter((u: string) => !adminSet.has(u));
+          n += uids.length;
+          if (!dryRun && uids.length) {
+            await adminAuth.deleteUsers(uids);
+            for (const u of uids) {
+              await bucket.deleteFiles({ prefix: `${u}/` }).catch(() => null);
+              await bucket.deleteFiles({ prefix: `profile-pictures/${u}/` }).catch(() => null);
+            }
+          }
+          pageToken = page.pageToken;
+        } while (pageToken);
+        counts['auth_users'] = n;
+      }
+    }
+
+    if (!dryRun) {
+      await adminDb.collection('admin_logs').add({ action: 'RESET_TEST_DATA', admin_uid: adminUid, groups: selected, counts, created_at: new Date().toISOString() });
+    }
+    return res.json({ success: true, dryRun: !!dryRun, counts });
+  } catch (err: any) {
+    console.error('[reset-test-data] Napaka:', err?.message || err);
+    return res.status(500).json({ error: err?.message || 'Napaka pri ponastavitvi.' });
+  }
+});
+
+app.get("/api/admin/alerts", async (req, res) => {
+  let uid: string;
+  try {
+    uid = await authenticateFirebaseUser(req);
+  } catch (e: any) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  if (!(await isAdminUser(uid))) return res.status(403).json({ error: "Nimate administratorskih pravic." });
+  try {
+    const typeParam = String(req.query.type || '');
+    const snap = await safeGetDocs(adminDb.collection('admin_alerts'));
+    const alerts = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+      .filter((a: any) => !typeParam || a.type === typeParam)
+      .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
+      .slice(0, 300);
+    const types = Array.from(new Set(snap.docs.map((d: any) => (d.data() || {}).type).filter(Boolean))).sort();
+    const cbSnap = await safeGetDocs(adminDb.collection('transactions').where('chargeback_open', '==', true));
+    const debtSnap = await safeGetDocs(adminDb.collection('users').where('chargeback_debt_cents', '>', 0));
+    return res.json({
+      alerts,
+      types,
+      open_chargebacks: cbSnap.docs.map((d: any) => { const t = d.data() || {}; return {
+        transaction_id: d.id, seller_id: t.seller_id, buyer_id: t.buyer_id,
+        dispute_id: t.chargeback_id || null,
+        packet: t.chargeback_evidence_packet || null,
+        evidence_submitted_at: t.chargeback_evidence_submitted_at || null,
+        amount_cents: t.chargeback_amount_cents || 0, reason: t.chargeback_reason || null,
+        evidence_due_by: t.chargeback_evidence_due_by || null, payout_status: t.payout_status || null
+      }; }),
+      debts: debtSnap.docs.map((d: any) => { const u = d.data() || {}; return { user_id: d.id, email: u.email || null, debt_cents: u.chargeback_debt_cents || 0 }; })
+    });
+  } catch (err: any) {
+    console.error('[admin/alerts]', err?.message || err);
+    return res.status(500).json({ error: 'Napaka pri nalaganju opozoril.' });
+  }
+});
+
 app.get("/api/admin/disputes", async (req, res) => {
   let uid: string;
   try {
@@ -11373,11 +12324,15 @@ app.get("/api/admin/disputes", async (req, res) => {
     return res.status(403).json({ error: "Nimate administratorskih pravic." });
   }
   try {
-    const onlyOpen = String(req.query.status || 'OPEN') === 'OPEN';
-    const snap = await safeGetDocs(adminDb.collection('disputes').where('status', '==', onlyOpen ? 'OPEN' : 'RESOLVED'));
+    const statusParam = String(req.query.status || 'OPEN').toUpperCase();
+    const kindParam = String(req.query.kind || '');
+    const snap = statusParam === 'ALL'
+      ? await safeGetDocs(adminDb.collection('disputes'))
+      : await safeGetDocs(adminDb.collection('disputes').where('status', '==', statusParam === 'RESOLVED' ? 'RESOLVED' : 'OPEN'));
     const rows = snap.docs.map((d: any) => ({ id: d.id, ...d.data() }))
+      .filter((r: any) => !kindParam || (r.kind || 'other') === kindParam)
       .sort((a: any, b: any) => String(b.created_at || '').localeCompare(String(a.created_at || '')))
-      .slice(0, 100);
+      .slice(0, 200);
 
     const userCache: Record<string, any> = {};
     const loadUser = async (userId?: string) => {
@@ -11407,6 +12362,11 @@ app.get("/api/admin/disputes", async (req, res) => {
         auction_title: auction?.title?.SLO || auction?.title?.EN || '',
         kind: r.kind || 'other',
         reason: r.reason || '',
+        difference: r.difference || tx.buyer_dispute_difference || null,
+        buyer_photo_urls: await signStoragePaths(r.buyer_photos || tx.buyer_dispute_photos),
+        delivery_method: tx.delivery_method || r.delivery_method || null,
+        chargeback_open: tx.chargeback_open === true,
+        chargeback_status: tx.chargeback_status || null,
         status: r.status,
         resolution: r.resolution || r.decision || null,
         suspicious_buyer: !!r.suspicious_buyer,

@@ -1,5 +1,5 @@
 import React from 'react';
-import { AlertCircle } from '../icons';
+import { AlertCircle } from 'lucide-react';
 
 export const VerificationBanner: React.FC<{ onAction: () => void; t: any; isVisible: boolean }> = ({ onAction, t, isVisible }) => {
   if (!isVisible) return null;

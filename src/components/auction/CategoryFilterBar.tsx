@@ -3,7 +3,7 @@ import { Category, Region, AuctionItem } from '../../types';
 import { getAttributeDefinitionsForCategory, getFieldOptions } from '../../lib/categoryAttributes';
 import { getCategoryTranslation } from '../../lib/translations';
 import { matchesSelectedRegion } from '../../lib/utils';
-import { Filter, X, Truck, MapPin, Check, ChevronDown, Sparkles, Search } from '../icons';
+import { Filter, X, Truck, MapPin, Check, ChevronDown, Sparkles, Search } from 'lucide-react';
 import { Portal } from '../ui/Portal';
 
 // Filterzustand mit Arrays für Mehrfachauswahl
@@ -219,7 +219,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
                     onChange={() => handleCategoryToggle(cat)}
                     className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
                   />
-                  <span className="flex-1 truncate">{getCategoryTranslation(cat, ((k: string) => k) as any)}</span>
+                  <span className="flex-1 break-words leading-snug">{getCategoryTranslation(cat, ((k: string) => k) as any)}</span>
                   <span className="text-[11px] text-slate-400 font-semibold">({count})</span>
                 </label>
               );
@@ -266,7 +266,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
                     onChange={() => handleRegionToggle(reg)}
                     className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
                   />
-                  <span className="flex-1 truncate">{reg}</span>
+                  <span className="flex-1 break-words leading-snug">{reg}</span>
                   <span className="text-[11px] text-slate-400 font-semibold">({count})</span>
                 </label>
               );
@@ -385,7 +385,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
       {selectedCategories.length === 1 && definitions.map((def) => {
         const selectedVals = filters.specifications[def.key] || [];
         // Deutscher Kommentar: Abhaengige Felder (Modell) zeigen nur Optionen der gewaehlten Marken; ohne Marke wird das Feld ausgeblendet
-        const fieldOptions = def.optionsByParent ? getFieldOptions(def, filters.specifications as any) : def.options;
+        const fieldOptions = def.optionsByParent || def.filterByType ? getFieldOptions(def, filters.specifications as any) : def.options;
         if (def.optionsByParent && fieldOptions.length === 0) return null;
         const isLongList = fieldOptions.length > 12;
         const searchQuery = (searchQueries[def.key] || '').toLowerCase().trim();
@@ -449,7 +449,7 @@ export const CategoryFilterBar: React.FC<CategoryFilterBarProps> = ({
                           onChange={() => handleSpecToggle(def.key, opt)}
                           className="w-5 h-5 rounded border-slate-300 text-[#0A1128] focus:ring-[#FEBA4F] cursor-pointer"
                         />
-                        <span className="truncate flex-1">{opt}</span>
+                        <span className="break-words leading-snug flex-1">{opt}</span>
                       </label>
                     );
                   })}

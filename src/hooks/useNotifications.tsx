@@ -6,6 +6,8 @@ export function useNotifications(user: any, onSelectNotification?: (item: Notifi
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
   const initialLoadRef = useRef(true);
   const seenIdsRef = useRef<Set<string>>(new Set());
+  // Deutscher Kommentar: Lokal als gelesen markierte IDs, damit ein laufender Abruf den Status nicht wieder auf ungelesen setzt
+  const locallyReadRef = useRef<Set<string>>(new Set());
 
   // Polling-Funktion zum Abrufen der Benachrichtigungen
   const fetchNotifications = useCallback(async () => {
@@ -21,7 +23,9 @@ export function useNotifications(user: any, onSelectNotification?: (item: Notifi
 
       if (!res.ok) return;
       const data = await res.json().catch(() => ({}));
-      const list: NotificationItem[] = data.notifications || [];
+      const list: NotificationItem[] = (data.notifications || []).map((n: NotificationItem) =>
+        locallyReadRef.current.has(n.id) ? { ...n, read: true } : n
+      );
 
       setNotifications(list);
 
@@ -88,6 +92,7 @@ export function useNotifications(user: any, onSelectNotification?: (item: Notifi
       setNotifications([]);
       initialLoadRef.current = true;
       seenIdsRef.current.clear();
+      locallyReadRef.current.clear();
       return;
     }
 
@@ -116,8 +121,12 @@ export function useNotifications(user: any, onSelectNotification?: (item: Notifi
 
     // Lokalen Zustand sofort optimistisch aktualisieren
     if (all) {
-      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setNotifications((prev) => {
+        prev.forEach((n) => locallyReadRef.current.add(n.id));
+        return prev.map((n) => ({ ...n, read: true }));
+      });
     } else if (id) {
+      locallyReadRef.current.add(id);
       setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
     }
 

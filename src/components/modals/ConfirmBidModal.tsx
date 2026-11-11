@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { X, CheckCircle, AlertTriangle } from '../icons';
+import { X, CheckCircle, AlertTriangle } from 'lucide-react';
 import { doc, getDoc } from 'firebase/firestore';
 import { db, auth } from '../../lib/firebase';
 import { AuctionItem, SubscriptionTier } from '../../types';
 import { Portal } from '../ui/Portal';
 import { LoadingButton } from '../ui/Common';
 import { useFeePreview } from '../../lib/useFeePreview';
+import type { AmlStatus } from '../../lib/identityVerification';
 
 export const ConfirmBidModal: React.FC<{
   isOpen: boolean;
@@ -17,7 +18,9 @@ export const ConfirmBidModal: React.FC<{
   onConfirm: (amount: number, taxData?: any, acceptedBidTerms?: boolean) => Promise<void>;
   userData: any;
   onOpenTerms?: () => void;
-}> = ({ isOpen, onClose, item, initialBidAmount, currentPlan, t, onConfirm, userData, onOpenTerms }) => {
+  amlStatus?: AmlStatus | null;
+  onStartVerification?: () => void;
+}> = ({ isOpen, onClose, item, initialBidAmount, currentPlan, t, onConfirm, userData, onOpenTerms, amlStatus, onStartVerification }) => {
   const [bidAmount, setBidAmount] = useState<string>(initialBidAmount.toString());
   const [loading, setLoading] = useState(false);
   const [timeLeft, setTimeLeft] = useState(0);
@@ -72,12 +75,17 @@ export const ConfirmBidModal: React.FC<{
 
   if (!isOpen) return null;
 
+  // Deutscher Kommentar: Jahreslimit - gesperrt, wenn bereits ueberschritten; Warnung, wenn dieses Gebot (bei Zuschlag) das Limit sprengen wuerde
+  const amlBlocked = amlStatus?.exceeded === true;
+  const projectedAmlEur = amlStatus ? amlStatus.totalEur + (previewData?.totalCents ?? numBid * 100) / 100 : 0;
+  const amlWarn = !!amlStatus && !amlStatus.verified && !amlBlocked && projectedAmlEur > amlStatus.limitEur;
+
   const d = Math.floor(timeLeft / (3600 * 24));
   const h = Math.floor((timeLeft % (3600 * 24)) / 3600);
   const m = Math.floor((timeLeft % 3600) / 60);
   const s = Math.floor(timeLeft % 60);
 
-  const isSubmitDisabled = loading || previewLoading || !!previewError || (!hasBidOnAuction && !acceptedBidTerms);
+  const isSubmitDisabled = loading || previewLoading || !!previewError || (!hasBidOnAuction && !acceptedBidTerms) || amlBlocked;
 
   const handleConfirm = async () => {
     if (isSubmitDisabled || !previewData) return;
@@ -201,6 +209,21 @@ export const ConfirmBidModal: React.FC<{
                 </label>
               )}
             </div>
+
+            {(amlBlocked || amlWarn) && (
+              <div className={`mb-4 p-3 rounded-xl border text-xs font-bold ${amlBlocked ? 'bg-red-50 border-red-200 text-red-800' : 'bg-amber-50 border-amber-200 text-amber-900'}`}>
+                <p>{amlBlocked ? t('amlBidBlocked') : t('amlBidWarning')}</p>
+                {onStartVerification && (
+                  <button
+                    type="button"
+                    onClick={onStartVerification}
+                    className="mt-2 underline font-black uppercase tracking-wide text-[10px]"
+                  >
+                    {t('amlVerifyButton')}
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="flex flex-col sm:flex-row gap-2.5">
               <div className="flex-1 relative">

@@ -1,0 +1,54 @@
+rules_version = '2';
+
+// Drazbenik.si - Cloud Storage security rules.
+// Server-written files (invoices, PDFs under <uid>/...) are not reachable
+// from the browser at all: the Admin SDK bypasses these rules.
+
+service firebase.storage {
+  match /b/{bucket}/o {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/(jpeg|png|webp)');
+    }
+
+    // Participant of the chat of an auction (conversation id = 'conv_' + auctionId).
+    function isChatPartner(conversationId) {
+      let auctionId = conversationId.replace('conv_', '');
+      let a = firestore.get(/databases/(default)/documents/auctions/$(auctionId)).data;
+      return request.auth.uid in [a.seller_id, a.winner_id];
+    }
+
+    // Auction photos: auction-images/<uid>/<file>
+    match /auction-images/{uid}/{fileName} {
+      allow read: if true;
+      allow create: if signedIn() && request.auth.uid == uid
+        && isImage() && request.resource.size < 8 * 1024 * 1024;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Profile photo: profile-pictures/<uid>/<file>
+    match /profile-pictures/{uid}/{fileName} {
+      allow read: if true;
+      allow create, update: if signedIn() && request.auth.uid == uid
+        && isImage() && request.resource.size < 2 * 1024 * 1024;
+      allow delete: if signedIn() && request.auth.uid == uid;
+    }
+
+    // Chat images: chat-images/<conversationId>/<uid>/<file>
+    match /chat-images/{conversationId}/{uid}/{fileName} {
+      allow read: if signedIn() && isChatPartner(conversationId);
+      allow create: if signedIn() && request.auth.uid == uid
+        && isChatPartner(conversationId)
+        && isImage() && request.resource.size < 5 * 1024 * 1024;
+    }
+
+    // Everything else is closed.
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

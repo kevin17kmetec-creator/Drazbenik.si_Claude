@@ -2,14 +2,14 @@ import { adminDb } from '../lib/firebase-admin';
 
 export interface CreateNotificationParams {
   userId: string;
-  type: 'outbid' | 'ending_soon' | 'won' | 'lost' | 'review_received' | 'seller_decision' | 'second_chance_offer' | 'second_chance_failed' | 'second_chance_accepted' | 'shipping_dispute' | 'shipping_required' | 'shipping_reminder' | 'item_shipped';
+  type: 'outbid' | 'ending_soon' | 'won' | 'lost' | 'review_received' | 'seller_decision' | 'second_chance_offer' | 'second_chance_failed' | 'second_chance_accepted' | 'shipping_dispute' | 'shipping_required' | 'shipping_reminder' | 'item_shipped' | 'aml_verification';
   auctionId: string;
   auctionTitle: string;
   imageUrl?: string;
   price: number;
   // Deutscher Kommentar: Optionaler freier Text und Zielansicht fuer die Navigation beim Klick
   message?: string;
-  target?: 'unsold' | 'winnings' | 'reviews' | 'sold';
+  target?: 'unsold' | 'winnings' | 'reviews' | 'sold' | 'verification';
 }
 
 // Erstellt eine neue Benachrichtigung in der Firestore-Sammlung

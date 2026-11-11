@@ -9,6 +9,8 @@ export interface AttributeFieldDef {
   dependsOn?: { key: string; value: string };
   // Deutscher Kommentar: Optionen haengen vom gewaehlten Wert eines anderen Feldes ab (z. B. Marke -> Modelle)
   optionsByParent?: { parentKey: string; map: Record<string, string[]> };
+  // Deutscher Kommentar: Optionen werden auf die zum gewaehlten Typ passenden Eintraege eingeschraenkt (z. B. Konsole -> Konsolenhersteller)
+  filterByType?: { parentKey: string; map: Record<string, string[]> };
 }
 
 const modelField = (label: string, map: Record<string, string[]>, placeholder?: string): AttributeFieldDef => ({
@@ -1201,15 +1203,197 @@ export const GENERIC_ATTRIBUTE_DEFINITIONS: AttributeFieldDef[] = [
   }
 ];
 
+// Deutscher Kommentar: Marken je nach gewaehltem Typ einschraenken (z. B. Igralna konzola -> nur PlayStation, Nintendo, Xbox)
+const ALL_PHONE_BRANDS = ['Apple', 'Samsung', 'Xiaomi', 'Huawei', 'Google (Pixel)', 'OnePlus', 'Motorola', 'Nokia', 'Sony', 'Oppo', 'Realme', 'Honor', 'Nothing', 'Asus', 'Vivo', 'Fairphone'];
+const PC_BRANDS = ['Apple (MacBook / iMac)', 'Lenovo (ThinkPad / Legion)', 'HP (Pavilion / Omen / EliteBook)', 'Dell (XPS / Latitude / Alienware)', 'Asus (ROG / ZenBook)', 'Acer (Predator / Swift)', 'MSI'];
+const PC_GAMING = PC_BRANDS.filter((b) => !b.startsWith('Apple'));
+const CAR_BRANDS = ['Volkswagen', 'Renault', 'BMW', 'Audi', 'Mercedes-Benz', 'Škoda', 'Peugeot', 'Ford', 'Toyota', 'Hyundai', 'Kia', 'Honda', 'Opel', 'Citroën', 'Fiat', 'Volvo', 'Mazda', 'Seat', 'Nissan', 'Tesla'];
+const MOTO_BRANDS = ['Yamaha (Moto)', 'Honda (Moto)', 'Kawasaki (Moto)', 'BMW'];
+const POWER_TOOLS = ['Makita', 'Bosch Professional (Moder)', 'Bosch Home & Garden (Zelen)', 'DeWalt', 'Milwaukee', 'Parkside / Performance', 'Einhell', 'Festool'];
+
+interface TypeBrandRule { typeKey: string; brandKey: string; map: Record<string, string[]> }
+
+const TYPE_BRAND_RULES: Partial<Record<Category, TypeBrandRule>> = {
+  [Category.Elektronika]: {
+    typeKey: 'device_type', brandKey: 'brand',
+    map: {
+      'Tablični računalnik': ['Apple', 'Samsung', 'Xiaomi', 'Huawei', 'Google (Pixel)'],
+      'Pametna ura / Zapestnica': ['Apple', 'Samsung', 'Xiaomi', 'Huawei', 'Google (Pixel)', 'Garmin'],
+      'Brezžične slušalke': ['Apple', 'Samsung', 'Xiaomi', 'Huawei', 'Google (Pixel)', 'Sony', 'LG', 'JBL', 'Bose', 'Marshall'],
+      'Naglavne slušalke': ['Apple', 'Sony', 'JBL', 'Bose', 'Marshall'],
+      'Prenosni Bluetooth zvočnik': ['Apple', 'Samsung', 'Xiaomi', 'Sony', 'LG', 'JBL', 'Bose', 'Marshall'],
+      'Hi-Fi & Domači kino': ['Samsung', 'Sony', 'LG', 'JBL', 'Bose', 'Marshall'],
+      'Televizor (TV)': ['Samsung', 'LG', 'Sony', 'Xiaomi', 'Huawei'],
+      'Fotoaparat in objektivi': ['Canon', 'Nikon', 'Sony', 'GoPro'],
+      'Igralna konzola': ['PlayStation', 'Nintendo', 'Xbox'],
+      'Dron in dodatki': ['Xiaomi', 'Sony', 'GoPro']
+    }
+  },
+  [Category.Telefoni]: {
+    typeKey: 'phone_type', brandKey: 'brand',
+    map: {
+      'Pametni telefon': ALL_PHONE_BRANDS,
+      'Zložljiv telefon': ['Samsung', 'Huawei', 'Google (Pixel)', 'Motorola', 'Honor', 'Xiaomi', 'Oppo', 'Vivo'],
+      'Klasični / tipkovni telefon': ['Nokia', 'Samsung', 'Motorola'],
+      'Telefon za starejše': ['Nokia', 'Samsung', 'Motorola'],
+      'Robustni (outdoor) telefon': ['Samsung', 'Nokia', 'Motorola', 'Sony']
+    }
+  },
+  [Category.Racunalniki]: {
+    typeKey: 'computer_type', brandKey: 'brand',
+    map: {
+      'Prenosni računalnik (Laptop)': PC_BRANDS,
+      'Gaming prenosnik': PC_GAMING,
+      'Namizni računalnik (PC)': [...PC_BRANDS, 'Custom / Lastna sestava'],
+      'Gaming namizni PC': [...PC_GAMING, 'Custom / Lastna sestava'],
+      'All-in-One računalnik': PC_BRANDS,
+      'Računalniški monitor': PC_BRANDS,
+      'Grafična kartica (GPU)': ['Asus (ROG / ZenBook)', 'MSI', 'Custom / Lastna sestava'],
+      'Procesor (CPU) / Matična plošča': ['Asus (ROG / ZenBook)', 'MSI', 'Custom / Lastna sestava'],
+      'Tiskalnik / Skener': ['HP (Pavilion / Omen / EliteBook)'],
+      'Omrežna oprema (Usmerjevalnik/Switch)': ['Asus (ROG / ZenBook)']
+    }
+  },
+  [Category.Avtomobilizem]: {
+    typeKey: 'vehicle_type', brandKey: 'brand',
+    map: {
+      'Osebno vozilo': CAR_BRANDS,
+      'Motorno kolo / Skuter': MOTO_BRANDS,
+      'Dostavno / Gospodarsko vozilo': ['Volkswagen', 'Renault', 'Mercedes-Benz', 'Peugeot', 'Ford', 'Toyota', 'Hyundai', 'Opel', 'Citroën', 'Fiat', 'Nissan'],
+      'Avtodom / Počitniška prikolica': ['Volkswagen', 'Mercedes-Benz', 'Fiat', 'Ford', 'Renault', 'Peugeot', 'Citroën']
+    }
+  },
+  [Category.Oblacila]: {
+    typeKey: 'clothing_type', brandKey: 'brand',
+    map: {
+      'Otroška oblačila': ['Nike', 'Adidas', 'Zara', 'H&M', 'Puma', "Levi's", 'Tommy Hilfiger', 'Guess', 'New Balance', 'Lego Wear'],
+      'Otroška obutev': ['Nike', 'Adidas', 'Puma', 'New Balance', 'Lego Wear'],
+      'Moška obutev': ['Nike', 'Adidas', 'Puma', 'New Balance', 'Under Armour', 'The North Face', 'Tommy Hilfiger', 'Hugo Boss', 'Calvin Klein', 'Gucci', 'Prada'],
+      'Ženska obutev': ['Nike', 'Adidas', 'Puma', 'New Balance', 'Under Armour', 'Tommy Hilfiger', 'Guess', 'Calvin Klein', 'Gucci', 'Prada'],
+      'Športna oprema in dresi': ['Nike', 'Adidas', 'Puma', 'Under Armour', 'New Balance', 'The North Face'],
+      'Modni dodatki (torbice, pasovi, kape)': ['Zara', 'H&M', 'Tommy Hilfiger', 'Hugo Boss', "Levi's", 'Calvin Klein', 'Guess', 'Gucci', 'Prada']
+    }
+  },
+  [Category.DomInVrt]: {
+    typeKey: 'home_area', brandKey: 'brand',
+    map: {
+      'Dnevna soba & Sedežne garniture': ['Ikea', 'Jysk', 'Lesnina / XXXLutz', 'Mömax'],
+      'Spalnica & Postelje': ['Ikea', 'Jysk', 'Lesnina / XXXLutz', 'Mömax'],
+      'Kuhinja & Jedilnica': ['Ikea', 'Jysk', 'Lesnina / XXXLutz', 'Mömax', 'Gorenje', 'Bosch', 'Beko', 'Philips'],
+      'Vrt, terasa in žari': ['Gardena', 'Ikea', 'Jysk', 'Bosch'],
+      'Bela tehnika & Gospodinjski aparati': ['Gorenje', 'Bosch', 'Beko', 'Philips'],
+      'Kopalniška oprema': ['Ikea', 'Jysk', 'Lesnina / XXXLutz', 'Mömax'],
+      'Razsvetljava in svetila': ['Ikea', 'Philips', 'Jysk', 'Lesnina / XXXLutz', 'Mömax'],
+      'Dekoracija in preproge': ['Ikea', 'Jysk', 'Lesnina / XXXLutz', 'Mömax']
+    }
+  },
+  [Category.ProstiCasInSport]: {
+    typeKey: 'sport_type', brandKey: 'brand',
+    map: {
+      'Kolesarstvo (Gorsko, Cestno, E-kolo)': ['Specialized', 'Trek', 'Scott', 'Shimano', 'Garmin', 'Decathlon / Quechua'],
+      'Fitnes, uteži in kardio naprave': ['Kettler', 'Decathlon / Quechua'],
+      'Pohodništvo, plezanje in gorništvo': ['Salomon', 'Scott', 'Garmin', 'Decathlon / Quechua'],
+      'Tek in atletska oprema': ['Salomon', 'Garmin', 'Decathlon / Quechua'],
+      'Smučanje, deskanje in zimski športi': ['Salomon', 'Elan', 'Head', 'Fischer', 'Atomic', 'Scott'],
+      'Vodni športi, SUP in plavanje': ['Decathlon / Quechua', 'Head'],
+      'Tenis, badminton in loparji': ['Head', 'Decathlon / Quechua'],
+      'Kampiranje in bivanje v naravi': ['Decathlon / Quechua', 'Salomon'],
+      'Ribolov in lov': ['Shimano', 'Decathlon / Quechua']
+    }
+  },
+  [Category.Orodja]: {
+    typeKey: 'tool_type', brandKey: 'brand',
+    map: {
+      'Akumulatorski vijačnik / vrtalnik': POWER_TOOLS,
+      'Kotni brusilnik (Fleksarica)': POWER_TOOLS,
+      'Krožna / Vbodna / Potezna žaga': POWER_TOOLS,
+      'Motorna žaga & Obrezovalnik': ['Stihl', 'Husqvarna', 'Makita', 'Einhell', 'Parkside / Performance', 'Bosch Home & Garden (Zelen)'],
+      'Varilni aparat & Oprema': ['Einhell', 'Parkside / Performance'],
+      'Visokotlačni čistilec (Štrajfiks)': ['Kärcher', 'Bosch Home & Garden (Zelen)', 'Einhell', 'Parkside / Performance', 'Stihl'],
+      'Kompresor in pnevmatsko orodje': ['Einhell', 'Parkside / Performance', 'Makita', 'Bosch Professional (Moder)'],
+      'Komplet ročnega orodja (Ključi, klešče)': ['Unior', 'Bosch Professional (Moder)', 'Parkside / Performance', 'Milwaukee', 'DeWalt', 'Makita'],
+      'Laserski merilnik in nivelir': ['Bosch Professional (Moder)', 'Bosch Home & Garden (Zelen)', 'DeWalt', 'Milwaukee', 'Makita', 'Parkside / Performance'],
+      'Generatorska oprema (Agregat)': ['Einhell', 'Parkside / Performance', 'Makita']
+    }
+  },
+  [Category.OtroškaOprema]: {
+    typeKey: 'item_type', brandKey: 'brand',
+    map: {
+      'Otroški voziček (1v1, 2v1, 3v1 ali marela)': ['Cybex', 'Bugaboo', 'Chicco', 'Kinderkraft', 'Joie', 'Stokke', 'Maxi-Cosi'],
+      'Otroški avtosedež (Lupinica ali jahač)': ['Cybex', 'Maxi-Cosi', 'Chicco', 'Kinderkraft', 'Joie', 'FreeON'],
+      'Otroška posteljica & Vzmetnica': ['Stokke', 'Chicco', 'Kinderkraft', 'Joie'],
+      'Stolček za hranjenje': ['Stokke', 'Chicco', 'Cybex', 'Kinderkraft', 'Joie'],
+      'Igrače in družabne igre': ['Lego', 'Chicco', 'Kinderkraft'],
+      'Gugalnik in stajica': ['Chicco', 'Kinderkraft', 'Joie', 'Stokke'],
+      'Nosilka ali pestunja': ['Chicco', 'Kinderkraft', 'Joie']
+    }
+  },
+  [Category.Glasbila]: {
+    typeKey: 'instrument_type', brandKey: 'brand',
+    map: {
+      'Akustična / Klasična kitara': ['Yamaha', 'Fender / Squier', 'Gibson / Epiphone', 'Ibanez'],
+      'Električna kitara / Bas kitara': ['Fender / Squier', 'Gibson / Epiphone', 'Ibanez', 'Yamaha'],
+      'Klavir / Digitalni električni klavir': ['Yamaha', 'Roland', 'Korg', 'Casio'],
+      'Sintetizator / MIDI klaviatura': ['Roland', 'Korg', 'Yamaha', 'Casio'],
+      'Bobni / Elektronski set bobnov': ['Yamaha', 'Roland'],
+      'Harmonika (Frajtonarica / Klavirska)': ['Zupan / Rutar (Harmonike)', 'Roland'],
+      'Pihala in trobila (Saksofon, Flavta, Trobenta)': ['Yamaha'],
+      'Godala (Violina, Čelo)': ['Yamaha'],
+      'Ojačevalec & Zvočniški boks': ['Marshall', 'Fender / Squier', 'Boss', 'Roland', 'Yamaha']
+    }
+  },
+  [Category.LepotaInZdravje]: {
+    typeKey: 'beauty_type', brandKey: 'beauty_brand',
+    map: {
+      'Parfumi in dišave': ['Chanel', 'Dior', 'Lancôme'],
+      'Nega obraza': ['Chanel', 'Dior', 'Lancôme', "L'Oréal", 'Nivea'],
+      'Nega telesa': ['Chanel', 'Dior', "L'Oréal", 'Nivea'],
+      'Ličila / Make-up': ['Chanel', 'Dior', 'Lancôme', "L'Oréal"],
+      'Nega las': ["L'Oréal", 'Philips', 'Braun', 'Nivea'],
+      'Medicinski in terapevtski pripomočki': ['Philips', 'Braun', 'Oral-B']
+    }
+  },
+  [Category.Kmetijstvo]: {
+    typeKey: 'agri_type', brandKey: 'agri_brand',
+    map: {
+      'Traktorji': ['John Deere', 'Claas', 'New Holland', 'Deutz-Fahr', 'Fendt', 'Tomo Vinkovič', 'IMT'],
+      'Kosilnice in mulčerji': ['SIP Šempeter', 'Krone', 'Claas', 'Deutz-Fahr', 'Fendt']
+    }
+  }
+};
+
+// Deutscher Kommentar: Regel an die Markenfelder haengen (einmalig beim Laden des Moduls)
+Object.entries(TYPE_BRAND_RULES).forEach(([cat, rule]) => {
+  const defs = CATEGORY_ATTRIBUTE_DEFINITIONS[cat as Category];
+  const brandDef = defs?.find((d) => d.key === rule!.brandKey);
+  if (brandDef) brandDef.filterByType = { parentKey: rule!.typeKey, map: rule!.map };
+});
+
 // Deutscher Kommentar: Liefert die aktuell gueltigen Optionen eines Feldes abhaengig von bereits gewaehlten Werten
 export const getFieldOptions = (def: AttributeFieldDef, specs: Record<string, string | string[] | undefined> = {}): string[] => {
-  if (!def.optionsByParent) return def.options;
-  const raw = specs[def.optionsByParent.parentKey];
-  const parents = Array.isArray(raw) ? raw : raw ? [raw] : [];
-  // Eigene (frei eingegebene) Marke ohne Katalog -> nur freie Modelleingabe
-  const lists = parents.map((pv) => def.optionsByParent!.map[pv] || ['Drugo']);
-  if (lists.length === 0) return [];
-  return Array.from(new Set(lists.flat()));
+  let base: string[];
+  if (!def.optionsByParent) {
+    base = def.options;
+  } else {
+    const raw = specs[def.optionsByParent.parentKey];
+    const parents = Array.isArray(raw) ? raw : raw ? [raw] : [];
+    // Eigene (frei eingegebene) Marke ohne Katalog -> nur freie Modelleingabe
+    const lists = parents.map((pv) => def.optionsByParent!.map[pv] || ['Drugo']);
+    if (lists.length === 0) return [];
+    base = Array.from(new Set(lists.flat()));
+  }
+  if (!def.filterByType) return base;
+  const rawType = specs[def.filterByType.parentKey];
+  const types = Array.isArray(rawType) ? rawType : rawType ? [rawType] : [];
+  if (types.length === 0) return base;
+  const allowed = new Set<string>();
+  for (const tv of types) {
+    const list = def.filterByType.map[tv];
+    // Unbekannter oder freier Typ (z. B. "Drugo") -> keine Einschraenkung
+    if (!list) return base;
+    list.forEach((x) => allowed.add(x));
+  }
+  return base.filter((o) => o === 'Drugo' || o.startsWith('Brez znamke') || allowed.has(o));
 };
 
 export const getAttributeDefinitionsForCategory = (category?: Category | string): AttributeFieldDef[] => {
